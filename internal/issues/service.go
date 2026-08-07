@@ -18,6 +18,7 @@ import (
 	"net/url"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -420,9 +421,23 @@ func localeOr(l string) string {
 	return truncate(l, 12)
 }
 
+// truncate cuts to at most n BYTES without splitting a character.
+//
+// Plain s[:n] cuts mid-rune whenever the boundary lands inside a multi-byte
+// character, leaving invalid UTF-8. Postgres refuses to store that, so a pin
+// whose captured text contained an emoji failed the INSERT and took the whole
+// issue with it — "could not create the issue" for every report filed from that
+// element. Arabic, which this product renders throughout, is multi-byte in its
+// entirety, so this was never only an emoji problem.
+//
+// The limit stays in bytes because that is what the columns are sized in; only
+// the cut point moves back to a character boundary.
 func truncate(s string, n int) string {
 	if len(s) <= n {
 		return s
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
 	}
 	return s[:n]
 }

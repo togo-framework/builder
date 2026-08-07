@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/togo-framework/builder/internal/runner"
 )
@@ -409,10 +410,15 @@ func orDash(s string) string {
 	return s
 }
 
+// truncateText normalises whitespace, then cuts to at most n BYTES without
+// splitting a character. Byte-slicing a multi-byte rune yields invalid UTF-8.
 func truncateText(s string, n int) string {
 	s = strings.Join(strings.Fields(s), " ")
 	if len(s) <= n {
 		return s
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
 	}
 	return s[:n] + "…"
 }

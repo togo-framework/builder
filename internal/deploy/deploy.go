@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -282,9 +283,18 @@ func shell(ctx context.Context, dir, cmdline string, d time.Duration) (string, e
 	return string(out), err
 }
 
+// truncate cuts to at most n BYTES without splitting a character.
+//
+// Plain s[:n] cuts mid-rune when the boundary lands inside a multi-byte
+// character, leaving invalid UTF-8 that Postgres refuses to store. See the
+// note in internal/issues — an emoji in a pin failed every report from that
+// element, and Arabic is multi-byte throughout.
 func truncate(s string, n int) string {
 	if len(s) <= n {
 		return s
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
 	}
 	return s[:n] + "\n… truncated"
 }
