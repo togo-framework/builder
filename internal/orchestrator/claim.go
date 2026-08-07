@@ -58,17 +58,27 @@ UPDATE builder_issues i
       AND c.human_only = false
       AND c.attempt_count < c.max_attempts
       AND c.blocked_on_decision_id IS NULL
-      AND (c.assignee_agent_id IS NULL OR c.assignee_agent_id = $3)
-      -- Routing. An agent that declares no areas is a generalist and takes
-      -- anything; an agent WITH areas takes only its own.
+      -- Routing, in priority order.
       --
-      -- An issue with no area is deliberately NOT claimable here. It used to be
-      -- claimable by everyone, which meant unrouted work was grabbed by
-      -- whichever agent polled first — twice in a row that was the feedback-SDK
-      -- agent picking up host-dashboard work, spending a full run to correctly
-      -- refuse it. Unowned work is an operator decision, not a race; it is
-      -- surfaced by flagUnroutable instead of silently costing a run.
-      AND ($4::text[] = '{}' OR (c.area <> '' AND c.area = ANY($4::text[])))
+      -- An EXPLICIT ASSIGNMENT WINS. The operator naming an agent is a stronger
+      -- instruction than any area rule, so the area is not consulted at all in
+      -- that case. Requiring both meant an issue you assigned by hand could
+      -- never be claimed if its area was empty or did not match — the board
+      -- showed an owner, the agent showed idle, and "Needs an owner" was posted
+      -- on an issue that already had one.
+      --
+      -- Otherwise: an agent with no declared areas is a generalist and takes
+      -- anything; an agent WITH areas takes only its own; and UNASSIGNED work
+      -- with no area is deliberately left alone, because it used to be grabbed
+      -- by whichever agent polled first — twice that was the feedback-SDK agent
+      -- picking up host-dashboard work and spending a full run to refuse it.
+      AND (
+        c.assignee_agent_id = $3
+        OR (
+          c.assignee_agent_id IS NULL
+          AND ($4::text[] = '{}' OR (c.area <> '' AND c.area = ANY($4::text[])))
+        )
+      )
       AND NOT EXISTS (SELECT 1 FROM builder_decisions d
                        WHERE d.issue_id = c.id AND d.state = 'pending')
     ORDER BY CASE c.priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1

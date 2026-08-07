@@ -177,12 +177,19 @@ func (o *Orchestrator) TriageOne(ctx context.Context) (bool, error) {
 	// parked or queued without reading a log.
 	note := fmt.Sprintf("**Triaged** → `%s`\n\n%s\n\n_Understood as:_ %s",
 		status, v.Reason, v.Restated)
+	// The error is NOT discarded. It used to be (`if err == nil { ... }`), so a
+	// failed insert moved the issue silently: status changed, money spent, and
+	// the board showed a verdict with no explanation and nothing in the log.
+	// An unexplained state change is the one outcome an operator cannot act on.
 	if _, err := o.db.ExecContext(ctx,
 		// Attributed to "triage" rather than NULL. Triage is not a fleet agent —
 		// it is the orchestrator's own classification pass — but leaving it null
 		// made its verdicts render as an anonymous "someone".
 		`INSERT INTO builder_issue_comments (issue_id, author_kind, author_agent_id, body_md)
-		 VALUES ($1,'agent','triage',$2)`, id, note); err == nil {
+		 VALUES ($1,'agent','triage',$2)`, id, note); err != nil {
+		o.log.Error("triage verdict could not be posted — the issue moved with no explanation",
+			"issue", number, "to", status, "err", err)
+	} else {
 		_, _ = o.db.ExecContext(ctx,
 			`UPDATE builder_issues SET comment_count = comment_count + 1 WHERE id = $1`, id)
 	}

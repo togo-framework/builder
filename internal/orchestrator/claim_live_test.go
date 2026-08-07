@@ -603,3 +603,137 @@ func TestOneIdleAgentDoesNotStarveTheFleet(t *testing.T) {
 		t.Fatalf("only %d agents are dispatchable; the fixture is wrong", listed)
 	}
 }
+
+// An explicit assignment must outrank area routing.
+//
+// The claim required BOTH the assignee to match AND the area to match, so an
+// issue the operator assigned by hand could never be claimed when its area was
+// empty or belonged to someone else. The board showed an owner, the agent sat
+// idle, and the harness posted "Needs an owner" on an issue that already had
+// one — which is what the operator kept reporting.
+func TestExplicitAssignmentBeatsAreaRouting(t *testing.T) {
+	db := open(t)
+	defer db.Close()
+	o := newOrch(db)
+	ctx := context.Background()
+
+	seedAgent(t, db, "specialist")
+	if _, err := db.Exec(
+		`UPDATE builder_agents SET areas='{sdk}' WHERE slug='specialist'`); err != nil {
+		t.Fatal(err)
+	}
+
+	// Assigned to the specialist, but with an area it does NOT own.
+	id := seedIssue(t, db, 1, "ready")
+	if _, err := db.Exec(
+		`UPDATE builder_issues SET assignee_agent_id='specialist', area='dashboard' WHERE id=$1`,
+		id); err != nil {
+		t.Fatal(err)
+	}
+	c, err := o.ClaimFor(ctx, "specialist", "sonnet", []string{"sdk"})
+	if err != nil {
+		t.Fatalf("an explicitly assigned issue was not claimable: %v", err)
+	}
+	if c.Number != 1 {
+		t.Fatalf("claimed #%d, want #1", c.Number)
+	}
+
+	// And with NO area at all — the case the operator hit repeatedly.
+	id2 := seedIssue(t, db, 2, "ready")
+	if _, err := db.Exec(
+		`UPDATE builder_issues SET assignee_agent_id='specialist', area='' WHERE id=$1`,
+		id2); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := o.ClaimFor(ctx, "specialist", "sonnet", []string{"sdk"}); err != nil {
+		t.Fatalf("an assigned issue with no area was not claimable: %v", err)
+	}
+}
+
+// The assignment must still be exclusive: naming one agent must not open the
+// issue to everyone else.
+func TestAssignmentStillExcludesOtherAgents(t *testing.T) {
+	db := open(t)
+	defer db.Close()
+	o := newOrch(db)
+	ctx := context.Background()
+
+	seedAgent(t, db, "mine")
+	seedAgent(t, db, "theirs")
+	id := seedIssue(t, db, 1, "ready")
+	if _, err := db.Exec(
+		`UPDATE builder_issues SET assignee_agent_id='mine', area='' WHERE id=$1`, id); err != nil {
+		t.Fatal(err)
+	}
+	// A generalist (no areas) must NOT be able to take somebody else's issue.
+	if _, err := o.ClaimFor(ctx, "theirs", "sonnet", nil); err != ErrNoWork {
+		t.Fatalf("another agent claimed an assigned issue; want ErrNoWork, got %v", err)
+	}
+	if _, err := o.ClaimFor(ctx, "mine", "sonnet", nil); err != nil {
+		t.Fatalf("the assignee could not claim its own issue: %v", err)
+	}
+}
+
+// An agent must say what it is doing BEFORE it does it.
+//
+// A run that works silently and only speaks at the end is indistinguishable
+// from one that is stuck — and if it dies mid-run the issue moves with no
+// record of who touched it. The operator reported exactly this: "moved to
+// blocked without comments".
+func TestAgentAnnouncesBeforeItStarts(t *testing.T) {
+	db := open(t)
+	defer db.Close()
+	o := newOrch(db)
+	ctx := context.Background()
+
+	seedAgent(t, db, "agent-a")
+	id := seedIssue(t, db, 1, "ready")
+	c := &Claim{
+		IssueID: id, Number: 1, Agent: "agent-a", Model: "sonnet",
+		RunID: newUUID(), Attempt: 1, MaxBudgetUSD: 4,
+	}
+
+	o.announce(ctx, c, "builder/issue-1", []string{"sdk", "widget"}, "/tmp/repo")
+
+	var body string
+	var kind, agent string
+	if err := db.QueryRow(
+		`SELECT body_md, author_kind::text, coalesce(author_agent_id,'')
+		   FROM builder_issue_comments WHERE issue_id = $1`, id).Scan(&body, &kind, &agent); err != nil {
+		t.Fatalf("no opening comment was posted: %v", err)
+	}
+	if kind != "agent" || agent != "agent-a" {
+		t.Fatalf("attributed to %s/%s, want agent/agent-a", kind, agent)
+	}
+	// It must say what it will do and under what limits — a bare "started" tells
+	// the operator nothing they could act on.
+	for _, want := range []string{"Starting work", "agent-a", "builder/issue-1", "sdk", "sonnet", "$4.00"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the opening comment does not mention %q:\n%s", want, body)
+		}
+	}
+
+	var n int
+	db.QueryRow(`SELECT comment_count FROM builder_issues WHERE id=$1`, id).Scan(&n)
+	if n != 1 {
+		t.Fatalf("comment_count = %d, want 1 — the board would show no comment", n)
+	}
+}
+
+// A retry must say so, because it means an earlier run did not finish.
+func TestAnnouncementFlagsARetry(t *testing.T) {
+	db := open(t)
+	defer db.Close()
+	o := newOrch(db)
+	seedAgent(t, db, "agent-a")
+	id := seedIssue(t, db, 1, "ready")
+	c := &Claim{IssueID: id, Number: 1, Agent: "agent-a", Model: "sonnet",
+		RunID: newUUID(), Attempt: 3}
+
+	o.announce(context.Background(), c, "b", nil, "/tmp/repo")
+	var body string
+	db.QueryRow(`SELECT body_md FROM builder_issue_comments WHERE issue_id=$1`, id).Scan(&body)
+	if !strings.Contains(body, "attempt 3") {
+		t.Fatalf("a retry is not flagged:\n%s", body)
+	}
+}

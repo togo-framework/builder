@@ -179,6 +179,14 @@ func (o *Orchestrator) Implement(
 		Timeout:        o.cfg.ImplementTO,
 	}
 
+	// Say what is about to happen, BEFORE doing it.
+	//
+	// An agent that works silently and only speaks at the end is indistinguishable
+	// from one that is stuck, and if the run dies the issue moves with no record
+	// of who touched it or why. The operator asked for this directly: never start
+	// without a first comment, even if the comment is only a statement of intent.
+	o.announce(ctx, c, branch, areas, repo)
+
 	o.log.Info("implementing", "issue", c.Number, "agent", c.Agent, "branch", branch)
 	res, runErr := sess.Run(ctx)
 	stopHB()
@@ -650,4 +658,60 @@ func fileList(files []string) string {
 		return strings.Join(files[:4], ", ") + fmt.Sprintf(" and %d more", len(files)-4)
 	}
 	return strings.Join(files, ", ")
+}
+
+// announce posts the agent's opening comment: what it is about to do.
+//
+// Deliberately cheap and immediate — no model call. It runs at claim time, so a
+// run that dies in its first second still leaves a record of who took the issue,
+// on which branch, in which repository, and under what limits. Everything here
+// is known before the session starts.
+func (o *Orchestrator) announce(ctx context.Context, c *Claim, branch string, areas []string, repo string) {
+	scope := "anything it is allowed to touch"
+	if len(areas) > 0 {
+		scope = "`" + strings.Join(areas, "`, `") + "`"
+	}
+	budget := c.MaxBudgetUSD
+	if budget <= 0 {
+		budget = 2
+	}
+	attempt := ""
+	if c.Attempt > 1 {
+		// A retry is worth flagging: it means an earlier run did not finish, and
+		// the operator may want to read what it said before this one starts.
+		attempt = fmt.Sprintf("\n\nThis is attempt %d — an earlier run on this issue did not complete.", c.Attempt)
+	}
+
+	body := fmt.Sprintf(
+		"**Starting work.** `%s` has claimed this issue.\n\n"+
+			"I will reproduce the problem first, then make the smallest change that "+
+			"fixes it. If I cannot reproduce it, or the fix needs a decision that is "+
+			"yours to make, I will stop and ask rather than guess.\n\n"+
+			"| | |\n|---|---|\n"+
+			"| Branch | `%s` |\n| Repository | `%s` |\n| Areas | %s |\n"+
+			"| Model | `%s` |\n| Budget | $%.2f for this run |\n"+
+			"| Blast radius | at most %d files, %d net lines |%s",
+		c.Agent, branch, repo, scope, c.Model, budget, maxFilesChanged, maxNetLines, attempt)
+
+	_, err := o.db.ExecContext(ctx,
+		`INSERT INTO builder_issue_comments (issue_id, author_kind, author_agent_id, body_md, run_id)
+		 VALUES ($1,'agent',$2,$3,$4)`, c.IssueID, c.Agent, body, c.RunID)
+	if err != nil {
+		// run_id is a foreign key to builder_runs. If that row is missing the
+		// insert fails — and losing the announcement to keep a convenience link
+		// is the wrong trade. Retry without the link; the operator needs to know
+		// who took the issue far more than the comment needs to point at a run.
+		o.log.Warn("posting the opening comment with its run link failed; retrying unlinked",
+			"issue", c.Number, "err", err)
+		if _, err2 := o.db.ExecContext(ctx,
+			`INSERT INTO builder_issue_comments (issue_id, author_kind, author_agent_id, body_md)
+			 VALUES ($1,'agent',$2,$3)`, c.IssueID, c.Agent, body); err2 != nil {
+			// Loud, not silent. A missing opening comment is exactly the "it moved
+			// and said nothing" case this exists to prevent.
+			o.log.Error("could not post the opening comment", "issue", c.Number, "err", err2)
+			return
+		}
+	}
+	_, _ = o.db.ExecContext(ctx,
+		`UPDATE builder_issues SET comment_count = comment_count + 1 WHERE id = $1`, c.IssueID)
 }
