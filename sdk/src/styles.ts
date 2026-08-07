@@ -177,6 +177,16 @@ textarea { min-height: 96px; resize: vertical; }
 }
 .file .nm { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .file button { border: 0; background: transparent; color: var(--muted); padding: 0 3px; }
+.thumb { width: 32px; height: 32px; flex: none; border-radius: 5px; object-fit: cover; border: 1px solid var(--border); }
+
+/* Confirms what got pinned, right under the button that captured it — the
+   button's own label truncates the tag, this shows the accessible name too. */
+.pin-preview {
+  margin-top: 8px; padding: 7px 10px; font-size: 12px; color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 7px;
+  overflow-wrap: anywhere; word-break: break-word;
+}
 
 .note { font-size: 12px; margin-top: 10px; }
 .note.err { color: var(--danger); }

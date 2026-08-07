@@ -82,6 +82,7 @@ export function mount(opts: MountOptions = {}): Handle {
             <button type="button" class="ghost pin" aria-pressed="false"></button>
             <button type="button" class="ghost clearpin hidden"></button>
           </div>
+          <div class="pin-preview hidden"></div>
 
           <div class="label lbl-att"></div>
           <div class="btns">
@@ -123,7 +124,28 @@ export function mount(opts: MountOptions = {}): Handle {
   const urlIn = $<HTMLInputElement>('input[name="url"]');
   const pinBtn = $<HTMLButtonElement>(".pin");
   const clearPinBtn = $<HTMLButtonElement>(".clearpin");
+  const pinPreview = $<HTMLElement>(".pin-preview");
   const sendBtn = $<HTMLButtonElement>(".send");
+
+  // object URLs for screenshot/image thumbnails, keyed by the attachment they
+  // preview. Revoked on remove/reset/destroy so a long report session does not
+  // leak one blob URL per capture.
+  const thumbURLs = new WeakMap<Attachment, string>();
+  function thumbURLFor(f: Attachment): string {
+    let u = thumbURLs.get(f);
+    if (!u) {
+      u = URL.createObjectURL(f.blob);
+      thumbURLs.set(f, u);
+    }
+    return u;
+  }
+  function revokeThumb(f: Attachment) {
+    const u = thumbURLs.get(f);
+    if (u) {
+      URL.revokeObjectURL(u);
+      thumbURLs.delete(f);
+    }
+  }
 
   // ---- static copy -------------------------------------------------------
   $(".fab-label").textContent = t.fab;
@@ -273,6 +295,7 @@ export function mount(opts: MountOptions = {}): Handle {
   function reset() {
     form.reset();
     pins = [];
+    files.forEach(revokeThumb);
     files = [];
     type = "bug";
     pillbox.querySelectorAll(".pill").forEach((p) =>
@@ -303,11 +326,15 @@ export function mount(opts: MountOptions = {}): Handle {
     pinBtn.setAttribute("aria-pressed", "true");
     pinBtn.textContent = t.pinning;
     cancelPick = startPicker(
-      (anchor) => {
+      (anchor, pickedEl) => {
         pins = [anchor];
         cancelPick = null;
         panel.dataset.open = "true";
         renderPins();
+        // Confirm the pick on the page itself, not just in the panel text —
+        // the reporter is looking at the page, not the button, at this instant.
+        pickedEl.classList.add("builder-pin-found");
+        setTimeout(() => pickedEl.classList.remove("builder-pin-found"), 3000);
       },
       () => {
         cancelPick = null;
@@ -326,6 +353,12 @@ export function mount(opts: MountOptions = {}): Handle {
     pinBtn.setAttribute("aria-pressed", String(has));
     iconLabel(pinBtn, "pin", has ? t.pinned(pins[0].tag ?? "?") : t.pin);
     clearPinBtn.classList.toggle("hidden", !has);
+    pinPreview.classList.toggle("hidden", !has);
+    if (has) {
+      const p = pins[0];
+      const label = p.name || p.hint || "";
+      pinPreview.textContent = `<${p.tag ?? "?"}>${label ? ` “${label}”` : ""}`;
+    }
   }
 
   // ---- attachments -------------------------------------------------------
@@ -373,6 +406,13 @@ export function mount(opts: MountOptions = {}): Handle {
     files.forEach((f, i) => {
       const row = document.createElement("div");
       row.className = "file";
+      if (f.kind === "screenshot" || f.kind === "image") {
+        const img = document.createElement("img");
+        img.className = "thumb";
+        img.src = thumbURLFor(f);
+        img.alt = "";
+        row.appendChild(img);
+      }
       const nm = document.createElement("span");
       nm.className = "nm";
       nm.textContent = f.name;
@@ -383,6 +423,7 @@ export function mount(opts: MountOptions = {}): Handle {
       rm.replaceChildren(icon("x", 12));
       rm.setAttribute("aria-label", t.clear);
       rm.addEventListener("click", () => {
+        revokeThumb(f);
         files.splice(i, 1);
         renderFiles();
       });
@@ -504,6 +545,7 @@ export function mount(opts: MountOptions = {}): Handle {
     refresh: () => void refresh(),
     destroy() {
       cancelPick?.();
+      files.forEach(revokeThumb);
       document.removeEventListener("click", onOutsideClick, true);
       host.remove();
       hostStyle.remove();
