@@ -1,0 +1,291 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "disableAllHooks": false,
+  "permissions": {
+    "defaultMode": "default",
+    "additionalDirectories": [],
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(**/.env)",
+      "Read(**/.env.*)",
+      "Read(**/secrets/**)",
+      "Read(**/*.pem)",
+      "Read(**/*.key)",
+      "Read(**/*.p12)",
+      "Read(**/*.keystore)",
+      "Read(**/id_rsa*)",
+      "Read(**/id_ed25519*)",
+      "Read(**/.netrc)",
+      "Read(**/*service-account*.json)",
+      "Read(**/*credentials*.json)",
+      "Read(./.mcp.builder.json)",
+      "Write(./.env)",
+      "Write(./.env.*)",
+      "Write(**/.env)",
+      "Write(**/.env.*)",
+      "Write(**/secrets/**)",
+      "Edit(./.env)",
+      "Edit(./.env.*)",
+      "Edit(**/.env)",
+      "Edit(**/.env.*)",
+      "Edit(**/secrets/**)",
+      "Write(./.claude/**)",
+      "Edit(./.claude/**)",
+      "Write(./CLAUDE.md)",
+      "Edit(./CLAUDE.md)",
+      "Write(./.github/workflows/**)",
+      "Edit(./.github/workflows/**)",
+      "Write(**/*.gen.go)",
+      "Edit(**/*.gen.go)",
+      "Write(**/gen/**)",
+      "Edit(**/gen/**)",
+      "Bash(git add -A:*)",
+      "Bash(git add .:*)",
+      "Bash(git add --all:*)",
+      "Bash(git commit -a:*)",
+      "Bash(git commit --all:*)",
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)",
+      "Bash(git reset --hard:*)",
+      "Bash(git clean -fdx:*)",
+      "Bash(rm -rf /:*)",
+      "Bash(rm -rf ~:*)",
+      "Bash(env)",
+      "Bash(printenv:*)",
+      "Bash(cat .env:*)",
+      "Bash(cat ./.env:*)",
+      "Bash(curl:*)",
+      "Bash(wget:*)",
+      "Bash(npm publish:*)",
+      "Bash(pnpm publish:*)",
+      "Bash(gh release create:*)",
+      "Bash(gh pr merge:*)",
+      "Bash(gh pr review:*)",
+      "Bash(gh issue close:*)",
+      "Bash(gh api --method DELETE:*)"
+    ],
+    "ask": [
+      "Bash(git push:*)",
+      "Bash(git merge:*)",
+      "Bash(git rebase:*)",
+      "Bash(git tag:*)",
+      "Bash(gh pr create:*)",
+      "Bash(gh issue create:*)",
+      "Bash(gh workflow run:*)",
+      "Bash(togo migrate:*)",
+      "Bash(togo deploy:*)",
+      "Bash(togo db:*)",
+      "Bash(togo install:*)",
+      "Bash(atlas migrate apply:*)",
+      "Bash(atlas schema apply:*)",
+      "Bash(psql:*)",
+      "Bash(docker compose down:*)",
+      "Bash(terraform apply:*)",
+      "Bash(terraform destroy:*)",
+      "Bash(kubectl apply:*)",
+      "Bash(kubectl delete:*)",
+      "Bash({{deploy_command}}:*)",
+      "Write(./db/**)",
+      "Edit(./db/**)",
+      "Write(**/migrations/**)",
+      "Edit(**/migrations/**)"
+    ],
+    "allow": [
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(git branch:*)",
+      "Bash(git blame:*)",
+      "Bash(git stash list:*)",
+      "Bash(git ls-files:*)",
+      "Bash(git rev-parse:*)",
+      "Bash(git worktree list:*)",
+      "Bash(gh pr view:*)",
+      "Bash(gh pr list:*)",
+      "Bash(gh pr diff:*)",
+      "Bash(gh pr checks:*)",
+      "Bash(gh issue view:*)",
+      "Bash(gh issue list:*)",
+      "Bash(gh run list:*)",
+      "Bash(gh run view:*)",
+      "Bash(gh auth status:*)",
+      "Bash(go test:*)",
+      "Bash(go build:*)",
+      "Bash(go vet:*)",
+      "Bash(go list:*)",
+      "Bash(go doc:*)",
+      "Bash(go mod tidy:*)",
+      "Bash(go mod why:*)",
+      "Bash(gofmt:*)",
+      "Bash(goimports:*)",
+      "Bash(togo generate:*)",
+      "Bash(togo lint:*)",
+      "Bash(togo format:*)",
+      "Bash(togo dev:*)",
+      "Bash(togo doctor:*)",
+      "Bash(togo list:*)",
+      "Bash(togo version:*)",
+      "Bash(togo builder doctor:*)",
+      "Bash(sqlc vet:*)",
+      "Bash(sqlc diff:*)",
+      "Bash(atlas migrate diff:*)",
+      "Bash(atlas migrate validate:*)",
+      "Bash(atlas migrate lint:*)",
+      "Bash(atlas migrate status:*)",
+      "Bash(pnpm -C web typecheck:*)",
+      "Bash(pnpm -C web build:*)",
+      "Bash(pnpm -C web test:*)",
+      "Bash(pnpm -C web lint:*)",
+      "Bash(pnpm -C web install:*)",
+      "Bash(ls:*)",
+      "Bash(cat:*)",
+      "Bash(head:*)",
+      "Bash(tail:*)",
+      "Bash(wc:*)",
+      "Bash(rg:*)",
+      "Bash(grep:*)",
+      "Bash(find:*)",
+      "Bash(jq:*)",
+      "Bash(yq:*)",
+      "Bash(tree:*)",
+      "Bash(file:*)",
+      "Bash(which:*)",
+      "Bash(sha256sum:*)",
+      "Bash(shasum:*)",
+      "Read(./**)",
+      "Glob(./**)",
+      "Grep(./**)"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/session-init.sh",
+            "statusMessage": "Loading {{project_name}} context — branch, autonomy level, budget, open run journal...",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/guard-secrets.sh",
+            "statusMessage": "Rule 34 — checking for secret material...",
+            "timeout": 2
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/guard-db-wipe.sh",
+            "statusMessage": "Rule 22 — blocking any database wipe/reset...",
+            "timeout": 2
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/guard-direct-ddl.sh",
+            "statusMessage": "Rule 20 — blocking DDL outside migrations...",
+            "timeout": 2
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/guard-db-dml.sh",
+            "statusMessage": "Rule 21 — blocking direct DB writes (migrations only)...",
+            "timeout": 2
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/guard-scoped-add.sh",
+            "statusMessage": "Rule 42 — enforcing scoped commits (no git add -A)...",
+            "timeout": 2
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/guard-autonomy.sh",
+            "statusMessage": "Rules 15/30 — checking the autonomy grant...",
+            "timeout": 2
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/guard-merge-gate.sh",
+            "statusMessage": "Rules 31/37 — never merge your own work; journal required...",
+            "timeout": 2
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/guard-secrets.sh",
+            "statusMessage": "Rule 34 — checking for secret material...",
+            "timeout": 2
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/guard-generated-files.sh",
+            "statusMessage": "Rule 11 — *.gen.go is generated; regenerate, do not hand-edit...",
+            "timeout": 2
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/guard-blast-radius.sh",
+            "statusMessage": "Rules 35/38 — checking blast radius and OS self-modification...",
+            "timeout": 2
+          }
+        ]
+      },
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/guard-secrets.sh",
+            "statusMessage": "Rule 34 — checking for secret material...",
+            "timeout": 2
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/post-commit-check.sh",
+            "statusMessage": "Rules 12/13 — scanning the commit for forbidden imports and generated-file drift...",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/budget-meter.sh",
+            "statusMessage": "Rule 32 — metering spend against the ceiling...",
+            "timeout": 2
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/run-journal.sh",
+            "statusMessage": "Rule 37 — a run with no evidence block is not done...",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

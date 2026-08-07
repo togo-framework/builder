@@ -1,0 +1,39 @@
+# togo plugin manifest — `togo install togo-framework/builder`.
+#
+# builder is a blueprint app AND an installable plugin. Installed into an existing
+# togo app it contributes the issue plane, the agent loop, the vault and the brain.
+# Scaffolded via `togo-builder new <name>` it produces a whole project.
+name: builder
+description: Day-0 agentic development harness — feedback, issues, agent fleet, memory, vault.
+
+# Boots after auth (95) and dashboard (100): chi panics if a route is mounted
+# before auth calls Router.Use(). See plugin.go for the full priority ladder.
+priority: 101
+
+backend:
+  package: github.com/togo-framework/builder
+
+# NOTE: `togo install` does not currently parse this key (cli/cmd/plugin.go's
+# pluginManifest struct unmarshals only name/backend.package/frontend.dir/claude/env).
+# It is declared for forward-compatibility. Until the installer honours it, the
+# scaffolder copies db/migrations/*.sql into the app's internal/db/schema/.
+# We never CREATE TABLE from service code — see rule 20.
+migrations:
+  - db/migrations
+
+frontend:
+  dir: web
+
+# Merged into the host project's .claude/ on install.
+claude: blueprint/_claude
+
+# Built as `togo-builder` and dropped on PATH, which is what makes
+# `togo builder <verb>` work with zero changes to togo-framework/cli
+# (cmd/root.go Execute() -> tryExternalPlugin resolves togo-<name>).
+commands:
+  - builder
+
+env:
+  - DATABASE_URL
+  - BUILDER_VAULT_KEY
+  - BUILDER_ADMIN_EMAIL

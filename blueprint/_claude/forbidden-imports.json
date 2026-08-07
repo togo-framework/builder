@@ -1,0 +1,126 @@
+{
+  "$schema": "https://togo-framework.dev/schemas/claude-forbidden-imports-1.json",
+  "_owner": "wizard — written by `togo builder new`. No agent may write this file (Rule 38).",
+  "_purpose": [
+    "The import boundary table. This file IS Rules 11 and 12 — those rules state the contract in",
+    "prose and point here for the enumeration, so adding a boundary is a data edit, not a rule",
+    "rewrite. The ancestor estate's equivalent lived inline in a rule body and in a grep hard-coded in a hook,",
+    "which is why the two drifted apart.",
+    "",
+    "Consumed by: post-commit-check.sh (scans the commit's changed files) and the CI boundary job.",
+    "Each entry: `glob` (gitignore-style, repo-relative) · `deny` (import paths or path fragments;",
+    "a leading/trailing `**` makes it a substring match) · `why` (printed verbatim on a violation —",
+    "write it so someone who has never read the rule knows what to do instead) · `rule` (the rule",
+    "number cited in the block message) · `instead` (the sanctioned alternative).",
+    "",
+    "CONTRACT: post-commit-check.sh WARNS, it does not block a commit — a boundary violation caught",
+    "at commit time is already cheap to fix, and a hook that fails a commit on a false positive is a",
+    "hook people disable. CI is the gate."
+  ],
+
+  "schemaVersion": 1,
+
+  "boundaries": [
+    {
+      "glob": "web/**",
+      "deny": [
+        "database/sql",
+        "github.com/jackc/pgx",
+        "github.com/lib/pq",
+        "github.com/jmoiron/sqlx",
+        "**/internal/db/**",
+        "**/db/queries/**",
+        "pg",
+        "postgres",
+        "mysql2",
+        "knex",
+        "drizzle-orm",
+        "@prisma/client",
+        "@supabase/supabase-js"
+      ],
+      "why": "web/ is the frontend. It must never open a database connection. A browser bundle that imports a DB driver either ships credentials to every visitor or silently pulls a Node-only module into a build that then fails at runtime rather than at compile time. Every read and write goes through the generated API client.",
+      "instead": "Use the generated OpenAPI/GraphQL client in web/src/api/. If the endpoint you need does not exist, add it to togo.resources.yaml and run `togo generate` — do not reach past the API.",
+      "rule": 12,
+      "severity": "error"
+    },
+    {
+      "glob": "web/**",
+      "deny": ["**/internal/**", "**/cmd/**", "**/pkg/**"],
+      "why": "Go server packages are not importable from the frontend. A path reference from web/ into the Go tree means someone is copying a type by hand instead of regenerating the client, and it will drift the moment the schema changes.",
+      "instead": "Regenerate: `togo generate`. Types for the frontend come from the OpenAPI export, never from a hand-copied struct.",
+      "rule": 11,
+      "severity": "error"
+    },
+    {
+      "glob": "internal/handlers/**",
+      "deny": ["database/sql", "github.com/jackc/pgx"],
+      "why": "Handlers are thin; queries are fat. A handler that opens its own connection or writes its own SQL bypasses the generated query layer, so the query is invisible to sqlc, untyped, untested, and unmigrated.",
+      "instead": "Call a generated query from internal/db/gen. If the query does not exist, add it to db/queries/*.sql and run `togo generate`.",
+      "rule": 13,
+      "severity": "error"
+    },
+    {
+      "glob": "internal/**",
+      "deny": ["**/*_test_helpers**", "github.com/stretchr/testify"],
+      "why": "Test-only dependencies in production packages inflate the binary and, more importantly, mean assertion helpers are reachable from request-handling code.",
+      "instead": "Keep testify imports in *_test.go files.",
+      "rule": 13,
+      "severity": "warn",
+      "exempt_globs": ["**/*_test.go", "**/testdata/**"]
+    },
+    {
+      "glob": "**/*.go",
+      "deny": ["log", "github.com/sirupsen/logrus", "go.uber.org/zap", "fmt.Println"],
+      "why": "One structured logger, or logs are unqueryable in aggregate. togo standardises on log/slog; a stray `log.Printf` writes an unstructured line that no dashboard will ever find.",
+      "instead": "log/slog, with key-value attributes.",
+      "rule": 13,
+      "severity": "warn",
+      "exempt_globs": ["**/*_test.go", "cmd/**/main.go"]
+    },
+    {
+      "glob": "**/*.go",
+      "deny": ["github.com/pkg/errors"],
+      "why": "Error wrapping is stdlib. A second wrapping vocabulary means errors.Is/errors.As stop working across the seam.",
+      "instead": "fmt.Errorf(\"...: %w\", err).",
+      "rule": 13,
+      "severity": "warn"
+    },
+    {
+      "glob": "internal/**",
+      "deny": ["gorm.io/gorm", "github.com/uptrace/bun", "entgo.io/ent"],
+      "why": "togo already is sqlc + Atlas + its own ORM. A second ORM gives you two migration histories, two type systems and two opinions about transactions, and the one that loses is whichever one the next person did not know about. (Note: this INVERTS the equivalent rule in the estate this blueprint derives from, which banned ORMs and mandated raw pgx — that project had no generated data layer; togo does.)",
+      "instead": "The togo ORM and generated sqlc queries. Hand-written SQL is permitted only in db/queries/**.",
+      "rule": 13,
+      "severity": "error"
+    },
+    {
+      "glob": "**/*.gen.go",
+      "deny": [],
+      "why": "Generated. Not hand-edited — the next `togo generate` reverts your change without saying so, and the bug returns a week later with nothing in the history explaining it.",
+      "instead": "Edit the source of truth (db/queries/*.sql, graph/*.graphqls, togo.resources.yaml) and run `togo generate`.",
+      "rule": 11,
+      "severity": "error",
+      "check": "no-hand-edit"
+    },
+    {
+      "glob": "{{surface_glob}}",
+      "deny": "{{surface_deny}}",
+      "why": "{{surface_why}}",
+      "instead": "{{surface_instead}}",
+      "rule": 11,
+      "severity": "error",
+      "_template": true,
+      "_note": "The wizard emits one entry per declared surface, encoding that surface's boundary (e.g. the admin surface stops at /admin/*, the public site never imports admin components). Entries with `_template: true` are removed at render time; if you see one in a rendered project, the wizard did not run."
+    }
+  ],
+
+  "generated_file_checks": {
+    "_note": "Also enforced by post-commit-check.sh: a commit that changes a generated source of truth without the matching regenerated output (or vice versa) is drift, and drift is how `togo generate` starts failing in CI for reasons nobody can reproduce locally.",
+    "pairs": [
+      { "source": "db/queries/**/*.sql", "generated": "internal/db/gen/**", "regenerate": "togo generate" },
+      { "source": "graph/**/*.graphqls", "generated": "**/*.gen.go", "regenerate": "togo generate" },
+      { "source": "togo.resources.yaml", "generated": "**/*.gen.go", "regenerate": "togo generate" },
+      { "source": "**/*.gen.go", "generated": "web/src/api/**", "regenerate": "togo generate" }
+    ]
+  }
+}

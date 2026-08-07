@@ -1,0 +1,322 @@
+# team.yaml — the {{project_name}} agent fleet
+#
+# OWNERSHIP: this file, and everything else under .claude/, is owned exclusively by
+# `fleet-builder`. It is the ONE exception to Rule 38 — no other agent, including
+# `orchestrator`, may create or edit anything in this tree, their own definition included.
+# An agent that can edit its own rules does not have rules; it has preferences.
+#
+# This roster is the wizard's input as well as its output: the baseline fleet is fixed, and the
+# `archetypes` block below is re-instantiated per project from the declared surfaces, external
+# systems and deliverables.
+
+blueprint_version: "{{blueprint_version}}"
+project: "{{project_name}}"
+owner: fleet-builder
+
+context:
+  trunk: "{{trunk}}"
+  prod_ref: "{{prod_ref}}"
+  promotion_mode: "{{promotion_mode}}"
+  api_base: "{{api_base}}"
+  surfaces: "{{surfaces}}"
+  locales: "{{locales}}"
+  env_matrix: "{{env_matrix}}"
+
+# ---------------------------------------------------------------------------
+# Model policy
+# ---------------------------------------------------------------------------
+# haiku  — mechanical, bounded, high-volume work with a fixed vocabulary
+# sonnet — implementation and verification
+# opus   — judgement: orchestration, scope, review, security
+# Defaulting everything to opus is not caution; it is cost with no benefit.
+model_policy:
+  haiku: [issue-triage]
+  sonnet:
+    [
+      backend-developer,
+      db-engineer,
+      web-developer,
+      ui-designer,
+      qa-engineer,
+      e2e-verifier,
+      platform-engineer,
+      release-manager,
+      issue-repro-checker,
+      technical-writer,
+      sre-oncall,
+      run-auditor,
+    ]
+  opus:
+    [
+      orchestrator,
+      product-manager,
+      delivery-manager,
+      code-reviewer,
+      security-engineer,
+      fleet-builder,
+    ]
+
+# ---------------------------------------------------------------------------
+# Baseline fleet — 17 agents, present in every project scaffolded from builder
+# ---------------------------------------------------------------------------
+fleet:
+  - name: orchestrator
+    role: Lead — plans, sequences, routes, owns end-to-end done
+    model: opus
+    areas: ["*"]
+    writes: [".plans/**"]
+    forbidden: [".claude/**"]
+
+  - name: product-manager
+    role: Scope, user stories, acceptance criteria
+    model: opus
+    areas: [".plans/**", "docs/product/**"]
+    writes: [".plans/**", "docs/product/**"]
+    forbidden: ["**/*.go", "**/*.sql", "**/*.hcl", "web/**", ".claude/**"]
+
+  - name: delivery-manager
+    role: Cross-surface sequencing, honest status, definition of done
+    model: opus
+    areas: [".plans/**"]
+    writes: [".plans/**", "docs/status/**"]
+    forbidden: [".claude/**"]
+
+  - name: backend-developer
+    role: Go — handlers, resolvers, plugins, service wiring
+    model: sonnet
+    areas:
+      [
+        "internal/app/**",
+        "internal/server/**",
+        "internal/rest/**",
+        "internal/graph/**",
+        "internal/resources/**",
+        "internal/models/**",
+        "plugins/**",
+        "cmd/**",
+        "togo.resources.yaml",
+      ]
+    forbidden:
+      [
+        "web/**",
+        "db/**",
+        "internal/db/queries/**",
+        "**/*.gen.go",
+        "**/gen/**",
+        ".claude/**",
+      ]
+    binds: [no-runtime-ddl, no-sql-in-go, exact-match-permissions, generated-files-are-inputs]
+
+  - name: db-engineer
+    role: Atlas schema, migrations, sqlc queries, seed data
+    model: sonnet
+    areas:
+      [
+        "db/atlas/schema/**",
+        "db/migrations/**",
+        "internal/db/queries/*.sql",
+        "cmd/seed/**",
+        "internal/factories/**",
+      ]
+    forbidden: ["internal/rest/**", "internal/graph/**", "web/**", "**/gen/**", ".claude/**"]
+    binds: [no-runtime-ddl, migration-mirrors-live-db, never-wipe-database, no-direct-db-writes]
+
+  - name: web-developer
+    role: Frontend routes, data loading, state, API client
+    model: sonnet
+    areas: ["web/app/**", "web/src/**", "web/lib/**", "web/public/**"]
+    forbidden: ["**/*.go", "**/*.sql", "**/*.hcl", ".claude/**"]
+    binds: [web-never-touches-the-database, all-locales-or-not-done]
+
+  - name: ui-designer
+    role: Design tokens, component primitives, theming, RTL, accessibility
+    model: sonnet
+    areas: ["web/src/components/ui/**", "web/src/styles/**", "lang/**"]
+    forbidden: ["**/*.go", "**/*.sql", "web/app/**", ".claude/**"]
+
+  - name: qa-engineer
+    role: Test plans, tests, coverage verdict
+    model: sonnet
+    areas: ["**/*_test.go", "web/**/*.test.*", "testdata/**"]
+    writes: ["tests and fixtures only"]
+    forbidden: ["production code", ".claude/**"]
+    note: Reports findings; does not fix them. Independence is the point.
+
+  - name: e2e-verifier
+    role: Browser-level proof a flow works (Rule 18 gate)
+    model: sonnet
+    areas: ["read-only across the repo"]
+    tools_note: browser tools plus read/grep/bash; no write tools by design
+    forbidden: ["all writes", ".claude/**"]
+
+  - name: code-reviewer
+    role: Mandatory pre-merge gate (Rule 31)
+    model: opus
+    areas: ["read-only across the repo"]
+    tools_note: Read, Glob, Grep, Bash only — structurally cannot author a diff
+    forbidden: ["all writes", ".claude/**"]
+    constraint: >
+      Must never review a diff it authored. Enforced structurally (no write tools) and
+      procedurally (checks authorship before reviewing; declines and escalates on a self-review).
+
+  - name: security-engineer
+    role: Authn/authz, secrets, injection, dependency risk
+    model: opus
+    areas: ["*"]
+    writes: ["security fixes only — no refactors, no features"]
+    forbidden: [".claude/**"]
+
+  - name: platform-engineer
+    role: CI, containers, environments, infrastructure-as-code
+    model: sonnet
+    areas: [".github/**", "deploy/**", "Dockerfile*", "Makefile", "togo.yaml", ".env.example"]
+    forbidden: ["application code", ".claude/**"]
+
+  - name: release-manager
+    role: Versioning, CHANGELOG, {{trunk}} → {{prod_ref}} promotion, rollback
+    model: sonnet
+    areas: ["CHANGELOG.md", "docs/releases/**", "version files"]
+    forbidden: ["feature code", ".claude/**"]
+    binds: [promotion-only-from-trunk, no-push-without-permission]
+
+  - name: issue-triage
+    role: Issue labels and metadata only
+    model: haiku
+    areas: ["issue tracker metadata"]
+    forbidden: ["all repository writes", "closing issues", "editing bodies", ".claude/**"]
+    constraint: Never closes an issue. Never edits a body or title. Never assigns.
+
+  - name: issue-repro-checker
+    role: Pre-fix reproduction gate (Rule 39)
+    model: sonnet
+    areas: ["read-only across the repo"]
+    tools_note: browser tools plus read/grep/bash; no write tools by design
+    forbidden: ["all writes", "fixing the bug", "closing the issue", ".claude/**"]
+    constraint: >
+      Rules whether a bug still exists BEFORE any fix work starts. No fix begins without its
+      verdict. Cannot fix what it judges.
+
+  - name: technical-writer
+    role: README, runbooks, API prose, release notes, user-facing copy
+    model: sonnet
+    areas: ["README.md", "docs/**", "CHANGELOG.md", "lang/**", ".env.example"]
+    forbidden: ["application code", ".claude/**"]
+
+  - name: fleet-builder
+    role: Owner of the .claude/ operating system
+    model: opus
+    areas: [".claude/**"]
+    forbidden: ["everything outside .claude/**"]
+    constraint: >
+      THE ONLY AGENT PERMITTED TO WRITE UNDER .claude/** — the single Rule 38 exception.
+      Every other agent, orchestrator included, routes fleet changes here. Correspondingly,
+      fleet-builder never touches application code.
+
+# ---------------------------------------------------------------------------
+# Conditional agents — instantiated only when the condition holds
+# ---------------------------------------------------------------------------
+conditional_fleet:
+  - name: sre-oncall
+    condition: observability declared
+    role: Incident diagnosis across {{env_matrix}} — logs, metrics, traces
+    model: sonnet
+    areas: ["read-only; live systems"]
+    forbidden: ["all writes", "database resets", ".claude/**"]
+
+  - name: run-auditor
+    condition: autonomy >= supervised
+    role: Reads .runs/ journals and flags runs that closed without proof
+    model: sonnet
+    areas: [".runs/**", ".plans/**", "git history"]
+    forbidden: ["all writes", "editing journals", ".claude/**"]
+    constraint: >
+      Audits evidence, not engineering judgement. Verdicts: PROVEN / UNPROVEN /
+      GATE-SKIPPED / VIOLATION. The failure it exists to catch is the confident summary
+      with no artefact behind it.
+
+# ---------------------------------------------------------------------------
+# Archetypes — re-instantiated per project by the wizard, written by fleet-builder
+# ---------------------------------------------------------------------------
+# Each instantiated agent MUST carry its own real, single-line, trigger-shaped description that
+# states its boundary. A scope recorded only here and not in the agent's own description will not
+# reach the auto-delegation router, and the agent will be routed work it does not own.
+archetypes:
+  surface_agent:
+    instantiate: one per entry in {{surfaces}}
+    naming: "<surface>-developer"
+    model: sonnet
+    tools: [Read, Write, Edit, Glob, Grep, Bash]
+    description_template: >
+      Developer for the {{project_name}} <surface> surface — use for anything under
+      <root glob>. Owns <surface> only; stops at <adjacent boundary>.
+    boundary_rule: >
+      The boundary belongs IN the description, not only in the body. State it as an
+      exclusion the router can match against, e.g. "stops at /admin/*" or
+      "does not touch the public marketing site".
+    body_must_state:
+      - the owned globs
+      - the adjacent surfaces it must not touch, by glob
+      - which agent owns each adjacent surface
+      - the shared contracts it consumes (generated API types, design tokens)
+      - for any frontend surface — never opens a database connection
+      - never writes under .claude/** (Rule 38)
+
+  domain_expert_orchestrator:
+    instantiate: one per bounded domain the project declares, when a domain has enough depth that
+      the generic orchestrator would be guessing
+    naming: "<domain>-lead"
+    model: opus
+    tools: [Read, Write, Edit, Glob, Grep, Bash, Task]
+    description_template: >
+      Domain lead for <domain> in {{project_name}} — use for any question or change involving
+      <domain vocabulary, rules, invariants>; routes implementation to the surface agents.
+    body_must_state:
+      - the domain's invariants and vocabulary, explicitly
+      - what it decides versus what it routes
+      - that it defers to `orchestrator` on cross-domain sequencing
+      - that it never bypasses the review gate for domain-urgent work
+
+  installer_setup_engineer:
+    instantiate: one, when the project has a non-trivial local setup or external dependencies
+    naming: "setup-engineer"
+    model: sonnet
+    tools: [Read, Write, Edit, Glob, Grep, Bash]
+    description_template: >
+      Setup and bootstrap engineer for {{project_name}} — use to get a fresh checkout running,
+      wire configuration, run migrations and seeds, and fix "it will not start".
+    body_must_state:
+      - the exact ordered path from clean clone to running system
+      - the configuration contract (.env.example) as the single source of truth
+      - that "it is up" requires a real probe with a quoted status code, never an inference
+      - that it fixes setup, never features
+
+  integration_agent:
+    instantiate: one per external system the project declares
+    naming: "<system>-integration"
+    model: sonnet
+    tools: [Read, Write, Edit, Glob, Grep, Bash]
+    description_template: >
+      Integration owner for <system> in {{project_name}} — use for <system> client code,
+      webhooks, credentials, retries and failure handling. Owns the adapter only.
+    body_must_state:
+      - the adapter boundary — external types never leak past it into domain code
+      - the failure policy — timeout, retry, backoff, and what happens when the system is down
+      - credential handling: from the environment, never committed, never logged
+      - that integration failures must degrade the product, not crash it
+      - that it never writes migrations; persistence goes to `db-engineer`
+
+  deliverable_agent:
+    instantiate: one per extra artifact the project ships beyond the application
+      (SDK, CLI, extension, mobile client, published package, embeddable widget)
+    naming: "<deliverable>-engineer"
+    model: sonnet
+    tools: [Read, Write, Edit, Glob, Grep, Bash]
+    description_template: >
+      Owner of the {{project_name}} <deliverable> — use for its source, its build, its
+      versioning and its published interface.
+    body_must_state:
+      - the artifact's public interface and the compatibility promise attached to it
+      - its independent version and how it relates to the application's version
+      - its own build and release path, and who runs it
+      - that a breaking change to its public interface is a major version, however small the diff
+      - that it consumes the application's published contract, never its internals

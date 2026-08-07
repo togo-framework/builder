@@ -1,0 +1,194 @@
+{
+  "$schema": "https://togo-framework.dev/schemas/claude-hook-config-1.json",
+  "_owner": "wizard — written by `togo builder new`. No agent may write this file (Rule 38).",
+  "_purpose": [
+    "The data the guard hooks read instead of hard-coding project facts.",
+    "The ancestor estate's guards embedded product binary names, GKE pod names, Terraform module paths and",
+    "database hostnames directly in the shell source, which meant every new product forked the",
+    "hook. Here the hook source is generic and this file is the only thing that changes.",
+    "",
+    "Consumed by: session-init.sh · guard-db-wipe.sh · guard-db-dml.sh · guard-direct-ddl.sh ·",
+    "guard-secrets.sh · guard-generated-files.sh · guard-scoped-add.sh · budget-meter.sh.",
+    "",
+    "CONTRACT: a hook that cannot parse this file EXITS 0. A guard never blocks on its own bug."
+  ],
+
+  "schemaVersion": 1,
+
+  "project": {
+    "name": "{{project_name}}",
+    "slug": "{{slug}}",
+    "trunk": "{{trunk}}",
+    "prod_ref": "{{prod_ref}}",
+    "api_base": "{{api_base}}"
+  },
+
+  "binaries": {
+    "_note": "Product binaries whose destructive subcommands the guards police. `guard-db-wipe.sh` blocks `<binary> <destructive_subcommand>` against any non-ephemeral target. the ancestor estate hard-coded its own product binaries here; this is that list, parameterized.",
+    "product": ["{{slug}}"],
+    "framework": ["togo", "togo-builder"],
+    "destructive_subcommands": ["reset", "wipe", "drop", "purge", "nuke", "reinit"],
+    "_destructive_note": "`<binary> reset` is the exact command that dropped the public schema in the 2026-06-21 platform-wide wipe. It is blocked outright unless the target is explicitly ephemeral."
+  },
+
+  "database": {
+    "migration_runner": {
+      "_note": "THE sanctioned path. Commands matching these patterns pass every DDL/DML guard — they are how schema and data changes are supposed to happen. Everything else that touches a database is blocked.",
+      "command": "togo migrate",
+      "allowed_patterns": [
+        "togo[[:space:]]+migrate",
+        "togo[[:space:]]+generate",
+        "atlas[[:space:]]+migrate",
+        "sqlc[[:space:]]+(generate|vet|diff)"
+      ],
+      "migrations_dir": "db/migrations",
+      "queries_dir": "db/queries",
+      "schema_file": "db/schema.sql",
+      "_queries_note": "db/queries/** is the ONLY place SQL may be hand-written (Rule 13). togo IS sqlc + Atlas + an ORM; hand-written SQL anywhere else is banned."
+    },
+
+    "protected_databases": {
+      "_note": "Names, hosts and URL fragments that identify a REAL database. Any destructive operation matching one of these is blocked unconditionally — no override flag, no `--force`, no 'I checked, it's fine'. Add every shared environment here, including the ones you think nobody uses.",
+      "names": ["{{project_name}}", "{{slug}}", "{{slug}}_dev", "{{slug}}_stage", "{{slug}}_prod"],
+      "hosts": "{{protected_db_hosts}}",
+      "url_fragments": "{{protected_db_url_fragments}}",
+      "env_var_names": ["DATABASE_URL", "{{slug_upper}}_DATABASE_URL"]
+    },
+
+    "ephemeral_targets": {
+      "_note": "The ONLY places a destructive operation may run. A command must EXPLICITLY name one of these to be let through — an unqualified `psql -c 'TRUNCATE ...'` is blocked, because 'it was pointed at local' is not a claim a guard can verify after the fact.",
+      "url_patterns": [
+        "\\$\\{?LOCAL_PG_URL\\}?",
+        "@localhost",
+        "@127\\.0\\.0\\.1",
+        "host=localhost",
+        "@db-test",
+        "_test$"
+      ],
+      "container_names": ["{{slug}}-db-dev", "{{slug}}-db-test"]
+    },
+
+    "runtime_ddl": {
+      "_note": "Rule 20's togo-specific clause, and the violation this framework is most likely to produce. In a plugin architecture where every plugin self-registers via init() and could self-migrate on boot, `CREATE TABLE IF NOT EXISTS` from service code is a one-line habit that silently makes the migration history a lie. togo's own auth and autopilot plugins both do it today. guard-direct-ddl.sh scans Go source for these patterns.",
+      "forbidden_source_patterns": [
+        "CREATE[[:space:]]+TABLE[[:space:]]+IF[[:space:]]+NOT[[:space:]]+EXISTS",
+        "CREATE[[:space:]]+INDEX[[:space:]]+IF[[:space:]]+NOT[[:space:]]+EXISTS",
+        "CREATE[[:space:]]+SCHEMA[[:space:]]+IF[[:space:]]+NOT[[:space:]]+EXISTS",
+        "ALTER[[:space:]]+TABLE[[:space:]]+.*ADD[[:space:]]+COLUMN[[:space:]]+IF[[:space:]]+NOT[[:space:]]+EXISTS",
+        "AutoMigrate\\(",
+        "db\\.Exec\\([\"`][[:space:]]*(CREATE|ALTER|DROP)"
+      ],
+      "scan_globs": ["**/*.go"],
+      "exempt_globs": ["db/migrations/**", "**/*.gen.go", "**/*_test.go", "**/testdata/**"]
+    },
+
+    "auto_migrate_env_vars": {
+      "_note": "Setting any of these true via a deploy re-arms a destructive boot-time migration. Blocked by guard-db-wipe.sh AND by Rule 26 (a deploy never sets configuration).",
+      "names": ["AUTO_MIGRATE", "{{slug_upper}}_AUTO_MIGRATE", "TOGO_AUTO_MIGRATE", "DB_AUTO_MIGRATE"]
+    }
+  },
+
+  "generated_files": {
+    "_note": "Rule 11 / guard-generated-files.sh. Hand-editing a generated file is the cheapest togo violation to make and the cheapest to catch: the next `togo generate` silently reverts it, and the bug comes back a week later with no trace of why.",
+    "globs": ["**/*.gen.go", "**/gen/**", "web/src/**/*.gen.ts", "**/*.pb.go", "web/src/api/openapi.ts"],
+    "regenerate_command": "togo generate",
+    "sources_of_truth": {
+      "**/*.gen.go": "db/queries/*.sql (sqlc) · graph/*.graphqls (gqlgen) · togo.resources.yaml",
+      "web/src/**/*.gen.ts": "the OpenAPI export produced by `togo generate`"
+    }
+  },
+
+  "secrets": {
+    "_note": "Rule 34 / guard-secrets.sh. Paths whose CONTENT must never be read, printed, echoed, committed or relocated, plus the shapes that must be dropped from any output before it leaves the process.",
+    "forbidden_path_globs": [
+      ".env", ".env.*", "**/.env", "**/.env.*",
+      "**/secrets/**",
+      "**/*.pem", "**/*.key", "**/*.p12", "**/*.keystore",
+      "**/id_rsa*", "**/id_ed25519*",
+      "**/.netrc",
+      "**/*service-account*.json",
+      "**/*credentials*.json",
+      ".mcp.builder.json"
+    ],
+    "redaction_patterns": [
+      "-----BEGIN [A-Z ]*PRIVATE KEY-----",
+      "sk-[A-Za-z0-9_-]{16,}",
+      "ghp_[A-Za-z0-9]{20,}", "gho_[A-Za-z0-9]{20,}", "github_pat_[A-Za-z0-9_]{20,}",
+      "xox[bpsar]-[A-Za-z0-9-]{10,}",
+      "glpat-[A-Za-z0-9_-]{16,}",
+      "AKIA[0-9A-Z]{16}",
+      "eyJ[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}",
+      "Bearer[[:space:]]+[A-Za-z0-9._-]{20,}",
+      "^[A-Z][A-Z0-9_]{4,}=[^[:space:]]{12,}$",
+      "postgres(ql)?://[^:]+:[^@]+@"
+    ],
+    "reference_by_name_only": true,
+    "rotation": "human-only — an exposed secret is rotated by the operator, never 'cleaned up' by an agent"
+  },
+
+  "git": {
+    "_note": "Rule 42 / guard-scoped-add.sh. The ancestor estate recorded 'never git add -A' as a bare NEVER with no enforcement; here it is a block. An unscoped add is how a run's .env, its scratch files and its half-finished second idea end up in the commit that gets reviewed.",
+    "forbidden_commands": [
+      "git[[:space:]]+add[[:space:]]+(-A|--all|\\.)([[:space:]]|$)",
+      "git[[:space:]]+commit[[:space:]]+.*(-a|--all)([[:space:]]|$)",
+      "git[[:space:]]+push[[:space:]]+.*(--force|-f)([[:space:]]|$)",
+      "git[[:space:]]+reset[[:space:]]+--hard",
+      "git[[:space:]]+clean[[:space:]]+-[a-z]*f"
+    ],
+    "required_commit_trailers": ["Agent", "Model", "Run-Id", "Issue"],
+    "branch_prefix": "{{branch_prefix}}",
+    "trunk": "{{trunk}}"
+  },
+
+  "deploy": {
+    "_note": "Rule 25/26/27. `guard-autonomy.sh` treats every command here as a must_ask. `session-init.sh` prints the target for the current branch.",
+    "commands": "{{deploy_commands}}",
+    "_commands_shape": "{ \"<env>\": { \"command\": \"...\", \"ref\": \"...\", \"url\": \"...\", \"requires\": [\"human-approval\"] } }",
+    "promotion_mode": "{{promotion_mode}}",
+    "prod_ref": "{{prod_ref}}",
+    "forbidden_on_deploy": {
+      "_note": "Rule 26 — a deploy never sets configuration. Config has exactly one source of truth and the deploy command is not it.",
+      "patterns": [
+        "--set-env-vars",
+        "--update-env-vars",
+        "--set-secrets",
+        "-e[[:space:]]+[A-Z_]+="
+      ]
+    }
+  },
+
+  "iac": {
+    "_note": "Nullable — null when project.json.iac is null, in which case Rules 24/25 are not shipped and these checks are inert. When non-null, guard-db-wipe.sh additionally refuses an apply while a DB StatefulSet in one of these modules carries container args (the 2026-06-22 pod-restart-into-initdb wipe path).",
+    "tool": "{{iac_tool}}",
+    "dir": "{{iac_dir}}",
+    "module_paths": "{{iac_module_paths}}",
+    "db_module_paths": "{{iac_db_module_paths}}",
+    "apply_commands": ["terraform[[:space:]]+apply", "terraform[[:space:]]+destroy", "pulumi[[:space:]]+up"],
+    "db_statefulset_arg_patterns": [
+      "^[[:space:]]*args[[:space:]]*=[[:space:]]*(var\\.pg_extra_args|\\[)"
+    ]
+  },
+
+  "session": {
+    "_note": "What session-init.sh prints. The autonomy line is the single most useful thing an operator can see at session start — it is what tells them, before they type anything, how much this session may do on its own.",
+    "show": [
+      "branch_and_last_commit",
+      "autonomy_level_and_grant",
+      "todays_spend_vs_ceiling",
+      "environment_matrix",
+      "open_run_journal",
+      "active_rule_overlays",
+      "highest_consequence_rules"
+    ],
+    "run_journal_dir": ".runs",
+    "spend_ledger": ".runs/.spend.json",
+    "autonomy_file": ".claude/autonomy.yaml"
+  },
+
+  "budget": {
+    "_note": "Mirrors autonomy.yaml.budget so budget-meter.sh can read one file. autonomy.yaml is authoritative; the wizard keeps these in sync and `togo builder doctor --claude` asserts they match.",
+    "ledger": ".runs/.spend.json",
+    "per_run_usd": 2.00,
+    "per_day_usd": 5.00
+  }
+}

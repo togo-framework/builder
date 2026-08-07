@@ -1,0 +1,83 @@
+{
+  "$schema": "https://togo-framework.dev/schemas/claude-project-1.json",
+  "_owner": "wizard — written by `togo builder new`. Regenerated on re-run unless the operator edited it (see manifest.json). No agent may write this file.",
+  "_purpose": "Project identity. These values ARE the {{tokens}} every baseline rule and CLAUDE.md substitutes. Rules never hard-code a project fact; they point here.",
+
+  "schemaVersion": 1,
+  "blueprintVersion": "{{blueprint_version}}",
+
+  "project_name": "{{project_name}}",
+  "slug": "{{slug}}",
+  "one_line": "{{one_line}}",
+
+  "identity": {
+    "_note": "What this is, in one paragraph. Feeds CLAUDE.md's 'What this is' section.",
+    "is": "{{identity}}",
+    "is_not": "{{non_goals}}",
+    "_is_not_note": "Non-goals matter more than goals for an agent. An explicit 'NOT' is the cheapest way to stop a run inventing scope."
+  },
+
+  "surfaces": "{{surfaces}}",
+  "_surfaces_note": "Array of declared UI/API surfaces, e.g. [\"public-site\", \"admin\", \"api\"]. Drives: Rule 01 (plan-first checklist), Rule 14 (component design ships only when a web surface exists), and the per-surface agent archetype in team.yaml. Each surface carries its own boundary; an agent that owns `admin` stops at `/admin/*`.",
+
+  "locales": "{{locales}}",
+  "_locales_note": "Array of BCP-47 tags, e.g. [\"en\"] or [\"en\",\"ar\"]. Rule 15 (bilingual content) ships live only when length > 1; monolingual projects get a one-line inert version. An RTL locale here also turns on the RTL clauses in Rule 14.",
+
+  "stack": {
+    "backend": "togo (Go · sqlc · Atlas · chi · REST/OpenAPI · GraphQL)",
+    "frontend": "TanStack Router + React",
+    "db": "{{db}}",
+    "extras": "{{extras}}",
+    "generated_globs": ["**/*.gen.go", "**/gen/**", "web/src/**/*.gen.ts"],
+    "_generated_note": "Never hand-edited. Change the source of truth and run `togo generate`. Enforced by guard-generated-files.sh and Rule 11."
+  },
+
+  "vcs": {
+    "trunk": "{{trunk}}",
+    "_trunk_note": "The integration branch. Rule 27's promotion path starts here.",
+    "prod_ref": "{{prod_ref}}",
+    "_prod_ref_note": "The ref that IS production — a branch, a tag pattern, or the trunk itself when promotion_mode is merge-is-deploy.",
+    "promotion_mode": "{{promotion_mode}}",
+    "_promotion_mode_note": "One of: pr | fast-forward | merge-is-deploy. When it is `merge-is-deploy`, Rule 27 collapses to 'the PR review is the only gate' and says so explicitly — there is no second checkpoint, and pretending otherwise is how a bad merge reaches users.",
+    "branch_prefix": "{{branch_prefix}}",
+    "commit_trailer_required": true,
+    "_commit_trailer_note": "Rule 42 — agent, model, run id and issue on every commit."
+  },
+
+  "envs": "{{envs}}",
+  "_envs_note": "Ordered array of environment names, lowest to highest, e.g. [\"dev\",\"stage\",\"prod\"]. The wizard generates one promotion rule per adjacent pair.",
+
+  "env_matrix": "{{env_matrix}}",
+  "_env_matrix_note": "Rendered table: env -> branch/ref, URL, database name, deploy target. Substituted into CLAUDE.md's Environments section and printed by session-init.sh. Database names listed here must also appear in hook-config.json `protected_databases` for every non-ephemeral env.",
+
+  "api_base": "{{api_base}}",
+  "_api_base_note": "Base URL of the running API for the default env. Rule 28's fourth evidence layer is `curl {{api_base}}/openapi.json` and asserting the new route exists — a free verification layer togo gets for nothing.",
+
+  "web_base": "{{web_base}}",
+
+  "iac": "{{iac}}",
+  "_iac_note": "Nullable. `null` when the project declares no infrastructure-as-code — Rules 24 and 25 are then NOT SHIPPED at all, rather than shipped as dead prose. When non-null: { \"tool\": \"terraform|pulumi|cdk\", \"dir\": \"infra/\", \"modules\": [...] }. Module paths mirror into hook-config.json.",
+
+  "observability": "{{observability}}",
+  "_observability_note": "Nullable. When non-null the `sre-oncall` agent is rendered and Rule 36's telemetry clause becomes checkable. Shape: { \"logs\": \"...\", \"metrics\": \"...\", \"traces\": \"...\", \"dashboard_url\": \"...\" }.",
+
+  "integrations": "{{integrations}}",
+  "_integrations_note": "External systems the project talks to. Each produces an integration agent (team.yaml) and a named secret in the vault. Referenced BY NAME only — never a value, anywhere in .claude/ (Rule 34).",
+
+  "deliverables": "{{deliverables}}",
+
+  "commands": {
+    "dev": "togo dev",
+    "codegen": "togo generate",
+    "_codegen_note": "sqlc -> gqlgen -> OpenAPI. The OpenAPI export is the compile gate. `togo generate` must leave the tree diff-clean; a dirty tree after codegen is a failed definition of done (Rule 05).",
+    "migrate": "togo migrate",
+    "test": "go test ./... && pnpm -C web test",
+    "build": "go build ./... && pnpm -C web build",
+    "_build_note": "Build, not just typecheck — Rule 05. A green typecheck over a bundle that does not build is the exact shape of a false 'done'.",
+    "lint": "togo lint && togo format",
+    "deploy": "{{deploy_command}}"
+  },
+
+  "tree": "{{tree}}",
+  "_tree_note": "Rendered directory outline for CLAUDE.md's Layout section. Kept to one screen — an agent needs orientation, not an inventory."
+}

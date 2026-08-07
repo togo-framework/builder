@@ -1,0 +1,211 @@
+# .claude/autonomy.yaml — THE AUTONOMY GRANT
+#
+# OWNER: the operator (a human). The setup wizard seeds this file once and then
+# never touches it again; no agent may write it (Rule 38, and .claude/** is in
+# settings.json permissions.deny). If you change nothing else in .claude/,
+# change this.
+#
+# This is the single file that governs how much an agent may do without asking.
+# Rule 30 makes every other rule defer to it, so lowering `level` here downgrades
+# the whole fleet in one edit. `session-init.sh` prints the active level at the
+# top of every session, and every run must print it before its first tool call.
+#
+# Enforced by: guard-autonomy.sh (Rules 15/30) · guard-merge-gate.sh (31/37)
+#              guard-blast-radius.sh (35/38) · budget-meter.sh (32)
+#              run-journal.sh (37)
+#
+# Schema version — bumped only when the wizard learns new keys.
+version: 1
+
+# ---------------------------------------------------------------------------
+# LEVEL — the master switch.
+#
+#   attended    An agent proposes; a human executes anything that leaves the
+#               working tree. No push, no PR, no merge, no deploy without an
+#               explicit in-conversation "go". Rule 15's text stands verbatim.
+#
+#   supervised  An agent may push a branch and open a PR by itself. It may NEVER
+#               merge — a human or an independent reviewer instance merges.
+#
+#   unattended  An agent may merge, but ONLY when Rules 31 (independent review),
+#               35 (blast radius within caps) and 37 (run journal with evidence)
+#               all pass. Any one failing parks the run.
+#
+# DEFAULT FOR A FRESH PROJECT IS `attended`. Raise it deliberately, after you
+# have watched the fleet work and read some run journals — not on day 0.
+# ---------------------------------------------------------------------------
+level: attended
+
+# ---------------------------------------------------------------------------
+# MAY — things an agent does without asking, at any level.
+# Keep this list boring. Everything here is reversible with `git checkout`.
+# ---------------------------------------------------------------------------
+may:
+  - read_repository                 # read any tracked file (secrets excluded — Rule 34)
+  - run_tests                       # go test ./... · pnpm -C web test
+  - run_typecheck_and_build         # go build ./... · pnpm -C web typecheck && build
+  - run_codegen                     # togo generate (must leave the tree diff-clean)
+  - run_linters_and_formatters      # togo lint · togo format · gofmt
+  - edit_source_in_allowed_paths    # see `paths.allow` below
+  - write_tests
+  - write_run_journal               # .runs/<ts>-<issue>.md — Rule 37
+  - comment_on_internal_issue       # the project's own issue plane only
+  - query_readonly_sql              # SELECT / \dt against a NON-protected database
+  - read_local_logs
+
+# ---------------------------------------------------------------------------
+# MUST_ASK — things that require an explicit human decision, at EVERY level.
+# At `unattended` these do not become automatic; the run opens a decision, the
+# issue becomes unclaimable, and one admin gets a notification. That is the
+# design: unattended means "works the queue alone", not "unsupervised".
+# ---------------------------------------------------------------------------
+must_ask:
+  - schema_change                   # any new/changed table, column, index, type
+  - migration_apply_to_shared_env   # Rules 20/21/23
+  - destructive_database_operation  # Rule 22 — expect the answer to be "no"
+  - dependency_addition             # anything not in `deps.allow` below
+  - merge_to_trunk                  # unless level=unattended AND 31/35/37 pass
+  - deploy_or_promote               # Rule 27
+  - infrastructure_change           # Rule 24 — IaC, CI, cloud resources
+  - ci_workflow_change              # .github/workflows/** — Rule 38
+  - claude_os_change                # .claude/** — Rule 38, fleet-builder only
+  - secret_provision_or_rotation    # Rule 34 — always human, no exceptions
+  - external_communication          # Rule 41 — email, third-party repos, publishes
+  - public_api_break                # a removed/renamed field in the OpenAPI export
+  - feature_flag_flip               # Rule 36 — shipping dark is the agent's job,
+                                    #           turning it on is yours
+  - closing_a_human_opened_issue    # Rule 33 — needs evidence AND an ack
+  - budget_raise                    # Rule 32 — never self-served
+
+# ---------------------------------------------------------------------------
+# PATHS — the write allowlist. `guard-blast-radius.sh` denies a write to any
+# path not matched by `allow`, and denies `deny` unconditionally (deny wins).
+# Globs are gitignore-style, repo-relative.
+# ---------------------------------------------------------------------------
+paths:
+  allow:
+    - "internal/**"                 # Go application code
+    - "cmd/**"
+    - "pkg/**"
+    - "web/src/**"                  # the frontend
+    - "web/tests/**"
+    - "db/queries/**"               # sqlc query files — the ONLY place SQL is written
+    - "docs/**"
+    - ".runs/**"                    # run journals
+    - "*_test.go"
+  deny:
+    - ".claude/**"                  # Rule 38 — the OS is not a feature run's business
+    - ".github/**"                  # CI is not a feature run's business
+    - "**/*.gen.go"                 # Rule 11 — generated; regenerate instead
+    - "**/gen/**"
+    - ".env*"                       # Rule 34
+    - "**/secrets/**"
+    - "**/*.pem"
+    - "**/*.key"
+    - "{{iac_dir}}/**"              # Rule 24 — IaC is human-reviewed (empty when no IaC)
+    - "db/migrations/**"            # Rule 23 — never HAND-AUTHOR a migration; the
+                                    #           generator writes these, and applying
+                                    #           them is a must_ask
+
+# ---------------------------------------------------------------------------
+# BLAST RADIUS — per-run ceilings (Rule 35). Exceeding a cap is NOT a failure:
+# it is the signal that the issue was mis-specified. The run stops and hands a
+# decomposition plan to a human.
+# ---------------------------------------------------------------------------
+blast_radius:
+  max_files_changed: 20             # per run
+  max_net_lines_changed: 400        # added + removed, net of generated files
+  max_new_files: 10
+  issues_per_run: 1                 # hard. One issue per run, always.
+  allow_cross_repo_writes: false    # never true. There is no legitimate case.
+  allow_new_dependencies: false     # anything outside deps.allow is a must_ask
+
+deps:
+  # Import prefixes an agent may add without asking. Deliberately narrow.
+  allow:
+    - "github.com/togo-framework/"
+    - "github.com/stretchr/testify"
+    - "golang.org/x/"
+
+# ---------------------------------------------------------------------------
+# BUDGET — Rule 32. Hitting a ceiling ABORTS AND REPORTS. It never degrades to
+# a cheaper model: a run that ran out of money on a well-specified issue is
+# telling you the issue is not well-specified, and a quieter, dumber retry
+# destroys that signal.
+#
+# `--max-budget-usd` on the CLI is a circuit breaker evaluated after the fact,
+# not a ceiling — a measured run tripped a $0.20 cap having already spent $0.60.
+# The authoritative meter is budget-meter.sh + the orchestrator, which refuse to
+# START the next run once the daily figure is reached.
+# ---------------------------------------------------------------------------
+budget:
+  per_run_usd: 2.00                 # one agent session
+  per_issue_usd: 5.00               # across all attempts on one issue
+  per_day_usd: 5.00                 # whole fleet, rolling 24h
+  max_attempts_per_issue: 3         # then the issue is parked as mis-specified
+  max_turns_per_run: 60
+  on_exhaustion: abort_and_report   # abort_and_report | open_budget_raise_decision
+  # NEVER set this to anything that silently continues.
+
+# ---------------------------------------------------------------------------
+# STOP CONDITIONS — Rule 39. The queue-wide kill switch.
+# ---------------------------------------------------------------------------
+stop_conditions:
+  consecutive_run_failures: 3       # fleet-wide: 3 in a row and the queue halts
+  halt_on_lease_loss: true
+  require_repro_before_fix: true    # Rule 39 — prove the bug still reproduces first
+  never_retry_destructive: true
+
+# ---------------------------------------------------------------------------
+# HUMAN-ONLY WORK CLASSES — Rule 33. An issue carrying ANY of these labels is
+# invisible to the claim query and untouchable by every agent, forever. This
+# list is enforced at five independent sites, not one; adding a label here is
+# the cheapest safety change available to you.
+# ---------------------------------------------------------------------------
+human_only_labels:
+  - human-only
+  - security
+  - legal
+  - billing
+  - customer-comms
+  - needs-human
+
+human_only_rules:
+  never_close_human_opened_issue_without_ack: true
+  never_self_assign_an_issue_you_filed: true      # no self-dealing loops
+  never_relitigate_a_human_closed_issue: true
+
+# ---------------------------------------------------------------------------
+# REVIEW — Rule 31. The author may never approve or merge its own PR.
+# ---------------------------------------------------------------------------
+review:
+  self_merge: forbidden             # not configurable to `allowed`. Ever.
+  self_approve: forbidden
+  independent_reviewer_required: true
+  human_review_required_for:        # even at level: unattended
+    - must_ask                      # anything in the must_ask list above
+    - "{{iac_dir}}/**"
+    - ".github/**"
+    - ".claude/**"
+    - "db/migrations/**"
+
+# ---------------------------------------------------------------------------
+# EVIDENCE — Rule 37. A run with no journal entry is not done and its PR does
+# not merge. This is what makes Rule 07 ("verify before you claim") mechanically
+# checkable instead of aspirational.
+# ---------------------------------------------------------------------------
+evidence:
+  run_journal_dir: ".runs"
+  require_journal_to_merge: true
+  require_live_verification: true   # Rule 28 — build SUCCESS is not done
+  live_verification_layers:
+    - bundle_scan                   # the artifact actually contains the change
+    - live_render                   # the running surface actually shows it
+    - behavioural_assertion         # the behaviour actually changed
+    - openapi_route_assertion       # curl {{api_base}}/openapi.json — the route exists
+
+# ---------------------------------------------------------------------------
+# KILL SWITCH — flip to false and every agent run refuses to start. Nothing
+# else needs to change. Keep it where you can reach it in ten seconds.
+# ---------------------------------------------------------------------------
+enabled: true

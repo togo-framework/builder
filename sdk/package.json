@@ -1,0 +1,22 @@
+{
+  "name": "@togo-framework/builder-sdk",
+  "version": "0.1.0",
+  "description": "Embeddable feedback + issue reporter. Shadow-DOM isolated, framework-free, drops into any page.",
+  "type": "module",
+  "main": "dist/builder-sdk.js",
+  "types": "dist/index.d.ts",
+  "files": ["dist"],
+  "scripts": {
+    "build": "node build.mjs",
+    "dev": "node build.mjs --watch",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "html-to-image": "^1.11.13"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0",
+    "typescript": "^5.7.0"
+  },
+  "license": "MIT"
+}

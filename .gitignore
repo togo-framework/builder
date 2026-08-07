@@ -1,0 +1,20 @@
+# Build output
+/togo-builder
+/dist/
+*.test
+
+# Local environment — never committed (rule 34)
+.env
+.env.*
+!.env.example
+
+# Agent run artifacts
+.runs/
+.plans/
+.requests/
+
+# Local Claude Code state
+.claude/settings.local.json
+
+# OS
+.DS_Store
