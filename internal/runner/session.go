@@ -33,6 +33,13 @@ type Session struct {
 	// PermissionMode: acceptEdits for implement runs. Never bypassPermissions.
 	PermissionMode string
 	Timeout        time.Duration
+	// Env is extra environment for the session, as "KEY=value".
+	//
+	// This is how the control plane tells the in-session guard hooks what the
+	// operator configured. Without it the hooks read .claude/autonomy.yaml and
+	// nothing else, so a ceiling edited in the agent settings UI had no effect
+	// inside the run — the two disagreed and the file silently won.
+	Env []string
 }
 
 // Result is the terminal `result` event plus what we derived from it.
@@ -98,7 +105,7 @@ func (s Session) Run(ctx context.Context) (Result, error) {
 	if s.Dir != "" {
 		cmd.Dir = s.Dir
 	}
-	cmd.Env = append(os.Environ(), "NO_COLOR=1", "CLICOLOR=0")
+	cmd.Env = append(append(os.Environ(), "NO_COLOR=1", "CLICOLOR=0"), s.Env...)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

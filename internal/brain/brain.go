@@ -101,8 +101,17 @@ func (s *Store) Retain(ctx context.Context, ns, content, sourceKind, sourceRef s
 		}
 	}
 
+	// A transaction so the memory and its graph land together. A memory with no
+	// entities is invisible to expansion; an entity with no memory is a dangling
+	// node. Either half alone is worse than neither.
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return "", fmt.Errorf("retain: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
 	var id string
-	err := s.db.QueryRowContext(ctx,
+	err = tx.QueryRowContext(ctx,
 		`INSERT INTO builder_memories (namespace, content, source_kind, source_ref, importance, embedding)
 		 VALUES ($1,$2,$3,$4,$5,$6::vector)
 		 ON CONFLICT (namespace, source_ref) WHERE source_ref <> ''
@@ -111,6 +120,15 @@ func (s *Store) Retain(ctx context.Context, ns, content, sourceKind, sourceRef s
 		 RETURNING id`,
 		ns, content, sourceKind, sourceRef, importance, vec).Scan(&id)
 	if err != nil {
+		return "", fmt.Errorf("retain: %w", err)
+	}
+
+	// The graph. A failure here fails the whole retain rather than silently
+	// storing a memory that no expansion can ever reach.
+	if err := s.linkEntities(ctx, tx, ns, id, content); err != nil {
+		return "", fmt.Errorf("retain: link entities: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
 		return "", fmt.Errorf("retain: %w", err)
 	}
 

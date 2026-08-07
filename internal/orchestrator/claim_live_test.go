@@ -544,3 +544,62 @@ func TestLoopRunsWithoutABrain(t *testing.T) {
 	}
 	o.remember(context.Background(), c, implementVerdict{Outcome: "needs_human"}, runner.Diff{})
 }
+
+// One agent with nothing to do must not block the whole fleet.
+//
+// dispatch used to `return` on the first ErrNoWork, with the comment "queue is
+// empty — no point asking the next agent". That is false once claims are
+// area-scoped: ErrNoWork means THIS agent owns nothing claimable. Combined with
+// `ORDER BY last_run_at NULLS FIRST LIMIT 4`, the four never-run agents were
+// asked first, none owned the queued areas, and the fleet went idle with a full
+// queue.
+func TestOneIdleAgentDoesNotStarveTheFleet(t *testing.T) {
+	db := open(t)
+	defer db.Close()
+	o := newOrch(db)
+	ctx := context.Background()
+
+	// Sorted first by last_run_at NULLS FIRST, and owns nothing on the board.
+	seedAgent(t, db, "never-ran")
+	if _, err := db.Exec(
+		`UPDATE builder_agents SET areas='{nothing-matches}', last_run_at=NULL
+		  WHERE slug='never-ran'`); err != nil {
+		t.Fatal(err)
+	}
+	// Owns the work, but has run before, so it sorts last.
+	seedAgent(t, db, "owns-the-work")
+	if _, err := db.Exec(
+		`UPDATE builder_agents SET areas='{board}', last_run_at=now()
+		  WHERE slug='owns-the-work'`); err != nil {
+		t.Fatal(err)
+	}
+
+	id := seedIssue(t, db, 1, "ready")
+	if _, err := db.Exec(`UPDATE builder_issues SET area='board' WHERE id=$1`, id); err != nil {
+		t.Fatal(err)
+	}
+
+	// The idle agent legitimately finds nothing...
+	if _, err := o.ClaimFor(ctx, "never-ran", "sonnet", []string{"nothing-matches"}); err != ErrNoWork {
+		t.Fatalf("the non-owning agent should find no work; got %v", err)
+	}
+	// ...and the owning agent must still be able to claim it.
+	c, err := o.ClaimFor(ctx, "owns-the-work", "sonnet", []string{"board"})
+	if err != nil {
+		t.Fatalf("the owning agent could not claim its own area's work: %v", err)
+	}
+	if c.Number != 1 {
+		t.Fatalf("claimed #%d, want #1", c.Number)
+	}
+
+	// And dispatch must reach it: every enabled agent is listed, not a prefix.
+	var listed int
+	if err := db.QueryRow(
+		`SELECT count(*) FROM builder_agents
+		  WHERE enabled = true AND role = 'builder' AND persona_md <> ''`).Scan(&listed); err != nil {
+		t.Fatal(err)
+	}
+	if listed < 2 {
+		t.Fatalf("only %d agents are dispatchable; the fixture is wrong", listed)
+	}
+}

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -75,10 +76,31 @@ type implementVerdict struct {
 // git by the runner. An agent that believes it edited three files and actually
 // edited thirty is precisely what the caps exist to catch, and asking the agent
 // how much it changed would defeat them.
-func (o *Orchestrator) Implement(ctx context.Context, c *Claim, persona string, areas []string) {
-	repo := os.Getenv("BUILDER_WORKDIR")
+func (o *Orchestrator) Implement(
+	ctx context.Context, c *Claim, persona string, areas []string, workdir string,
+) {
+	// The agent's own repo wins over the fleet default. A fleet spans more than
+	// one codebase — the widget lives in the plugin, the app's screens live in
+	// the generated app — and pointing every agent at one tree meant reports
+	// about the running app were "fixed" in the blueprint template, or reported
+	// as unreproducible because the file was in the other repo.
+	repo := strings.TrimSpace(workdir)
+	if repo == "" {
+		repo = os.Getenv("BUILDER_WORKDIR")
+	}
 	if repo == "" {
 		repo = "."
+	}
+	// Refuse rather than guess. Running in a non-repo produces a worktree error
+	// deep in the run, after the issue is already claimed and the clock started.
+	if _, err := os.Stat(filepath.Join(repo, ".git")); err != nil {
+		o.log.Error("agent workdir is not a git repository", "agent", c.Agent, "workdir", repo)
+		o.comment(ctx, c, fmt.Sprintf(
+			"**Cannot start.** `%s` is not a git repository, so there is nothing to "+
+				"branch from.\n\nSet this agent's working directory on its profile page, "+
+				"or set `BUILDER_WORKDIR` for the fleet.", repo))
+		o.release(ctx, c, "workdir is not a git repository")
+		return
 	}
 	branch := fmt.Sprintf("builder/issue-%d", c.Number)
 
@@ -116,7 +138,7 @@ func (o *Orchestrator) Implement(ctx context.Context, c *Claim, persona string, 
 		}
 	}()
 
-	allowed := allowedPaths(areas)
+	allowed := allowedPaths(repo, areas)
 	// The same full context triage sees — page, route, pinned element,
 	// attachments — not just the title and body.
 	report := o.reportContextByID(ctx, c.IssueID)
@@ -130,9 +152,25 @@ func (o *Orchestrator) Implement(ctx context.Context, c *Claim, persona string, 
 		c.Agent, persona, wrapUntrusted(report),
 		strings.Join(allowed, ", "), maxFilesChanged, maxNetLines)
 
+	// The operator edits these in the agent settings UI, so they are handed to
+	// the in-session guards rather than left to .claude/autonomy.yaml. Without
+	// this the file's own numbers won silently: a run aborted on a $5/day
+	// ceiling from the file while the settings said $16.
+	runBudget := c.MaxBudgetUSD
+	if runBudget <= 0 {
+		runBudget = 2
+	}
+	sessEnv := []string{
+		fmt.Sprintf("BUILDER_RUN_BUDGET_USD=%.4f", runBudget),
+		fmt.Sprintf("BUILDER_DAY_BUDGET_USD=%.4f", o.cfg.DailyBudgetUSD),
+		fmt.Sprintf("BUILDER_AGENT=%s", c.Agent),
+		fmt.Sprintf("BUILDER_ISSUE=%d", c.Number),
+	}
+
 	sess := runner.Session{
 		ID:             c.RunID, // the run id IS the session id
 		Dir:            ws.Dir,
+		Env:            sessEnv,
 		Prompt:         prompt,
 		Model:          c.Model,
 		AllowedTools:   "Read,Write,Edit,Glob,Grep,Bash",
@@ -192,6 +230,31 @@ func (o *Orchestrator) Implement(ctx context.Context, c *Claim, persona string, 
 		CostUSD: res.CostUSD, Turns: res.NumTurns,
 	}
 
+	// PRESERVE PARTIAL WORK before any early return.
+	//
+	// Only the success path used to commit. An agent that did real work and then
+	// stopped to ask a question — the single most common non-success outcome —
+	// had every edit deleted with the worktree by the deferred Remove. The
+	// operator answered a question about changes that no longer existed, and the
+	// next attempt paid full price to redo them. Observed: an agent deleted a
+	// route, unwired it from the router and the sidebar, asked one question, and
+	// the branch came back empty.
+	//
+	// The commit is marked WIP so nothing downstream mistakes it for a finished
+	// change, and the branch survives for the human to read and the next attempt
+	// to build on.
+	if diff.HasChanges && v.Outcome != "fixed" {
+		if sha, cerr := ws.Commit(ctx,
+			fmt.Sprintf("wip(#%d): %s", c.Number, orDefault(v.Summary, "partial work, run stopped early")),
+			c.Agent, c.Model, c.RunID, c.Number); cerr != nil {
+			o.log.Error("could not preserve partial work", "issue", c.Number, "err", cerr)
+		} else {
+			d.HeadSHA = sha
+			o.log.Info("preserved partial work", "issue", c.Number, "branch", branch,
+				"files", len(diff.Files), "sha", sha[:8])
+		}
+	}
+
 	// Caps are checked against the DERIVED diff, not the agent's claim.
 	net := diff.Added + diff.Removed
 	switch {
@@ -208,6 +271,12 @@ func (o *Orchestrator) Implement(ctx context.Context, c *Claim, persona string, 
 
 	case v.Outcome == "needs_human" || v.Outcome == "too_large":
 		o.askHuman(ctx, c, v)
+		if diff.HasChanges {
+			o.comment(ctx, c, fmt.Sprintf(
+				"_Work so far is preserved on `%s` (%d files, +%d/-%d) as a WIP commit — "+
+					"answering resumes from there rather than starting over._",
+				branch, len(diff.Files), diff.Added, diff.Removed))
+		}
 		// Recorded BEFORE finish: this is the memory most worth having, because
 		// the next agent to meet this issue should know it already cost a run.
 		o.remember(ctx, c, v, diff)
@@ -260,20 +329,86 @@ func (o *Orchestrator) Implement(ctx context.Context, c *Claim, persona string, 
 	o.finish(ctx, c, "in_review", "completed", d)
 }
 
-// allowedPaths turns an agent's areas into a write allowlist.
+// deniedPaths are never writable, whatever the agent's areas say.
 //
-// An agent with no declared areas gets the app source but never the config that
-// governs the loop itself — rule 38: an agent blocked by a guard must not be
-// able to edit the guard.
-func allowedPaths(areas []string) []string {
-	base := []string{"internal", "web/src", "db", "cmd", "docs", "lang"}
-	if len(areas) == 0 {
-		return base
-	}
-	out := append([]string{}, base...)
+// These are the things that must not change underneath the loop: the guard
+// configuration itself (rule 38 — an agent blocked by a guard must not be able
+// to edit the guard), CI, version control, vendored dependencies, build output,
+// and anything holding credentials.
+var deniedPaths = []string{
+	".git", ".github", ".claude", ".env", ".husky",
+	"node_modules", "vendor", "dist", "build", ".next",
+}
+
+// allowedPaths builds the write allowlist for one run.
+//
+// It DISCOVERS the repository's top-level directories rather than assuming a
+// layout. The previous version hardcoded {internal, web/src, db, cmd, docs,
+// lang} and derived per-area paths as `internal/<area>` and `web/src/<area>`.
+// In this repo the SDK lives at `sdk/`, so the agent that owns the sdk area was
+// allowlisted onto `internal/sdk` and `web/src/sdk` — neither of which exists.
+// It made exactly the right edits, RevertOutside undid every one of them, the
+// diff came back empty, and the run was recorded as a failure. The agent was
+// correct and the guard was wrong, which is the worst way for a guard to fail:
+// silently, and against good work.
+//
+// Inverted, the rule is now "protect what must never change" instead of "guess
+// where the source lives". Blast radius is still bounded — by deniedPaths, and
+// by the file and line caps checked against the real diff.
+func allowedPaths(repo string, areas []string) []string {
+	out := discoverSourceDirs(repo)
+
+	// Area-specific paths stay, so a nested layout (internal/<area>) is covered
+	// even when the top-level directory is shared.
 	for _, a := range areas {
-		if a = strings.TrimSpace(a); a != "" {
-			out = append(out, "internal/"+a, "web/src/"+a)
+		if a = strings.TrimSpace(a); a != "" && !denied(a) {
+			out = append(out, a, "internal/"+a, "web/src/"+a)
+		}
+	}
+	if len(out) == 0 {
+		// A repo we cannot read is not a reason to hand out write access to
+		// everything; fall back to the conservative original set.
+		return []string{"internal", "web/src", "db", "cmd", "docs", "lang"}
+	}
+	return dedupe(out)
+}
+
+func discoverSourceDirs(repo string) []string {
+	entries, err := os.ReadDir(repo)
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		if strings.HasPrefix(name, ".") || denied(name) {
+			continue
+		}
+		out = append(out, name)
+	}
+	return out
+}
+
+func denied(p string) bool {
+	p = strings.Trim(filepath.ToSlash(p), "/")
+	for _, d := range deniedPaths {
+		if p == d || strings.HasPrefix(p, d+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+func dedupe(xs []string) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(xs))
+	for _, x := range xs {
+		if !seen[x] {
+			seen[x] = true
+			out = append(out, x)
 		}
 	}
 	return out

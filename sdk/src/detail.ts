@@ -1,6 +1,7 @@
 import { dict } from "./i18n";
 import { highlight } from "./picker";
 import type { PinAnchor } from "./types";
+import { icon } from "./icons";
 import { renderMarkdown } from "./markdown";
 
 /**
@@ -121,7 +122,8 @@ export function createDetail(
       for (const p of d.pins) {
         const row = node("div", "d-pin", "");
         row.appendChild(node("span", "nm", `<${p.tag ?? "?"}>${p.name ? ` “${p.name}”` : ""}`));
-        const show = button("ghost", "👁");
+        const show = button("ghost", "");
+        show.appendChild(icon("eye", 14));
         show.title = t.pin;
         show.addEventListener("click", () => {
           const r = highlight(p);

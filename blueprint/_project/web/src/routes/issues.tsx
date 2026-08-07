@@ -1,6 +1,9 @@
 import { useEffect, useState } from "react";
+import { LayoutGrid, List } from "lucide-react";
 import { Link } from "@tanstack/react-router";
-import { PageHeader, EmptyState, StatusBadge, StatCard, Callout } from "@togo-framework/ui";
+import {
+  Callout, EmptyState, Input, PageHeader, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, StatCard, StatusBadge, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, ToggleGroup, ToggleGroupItem,
+} from "@togo-framework/ui";
 import {
   COLUMN_LABEL, TRANSITIONS, ago, fetchBoard, patchIssue,
   type Board, type Card, type IssueStatus,
@@ -43,6 +46,15 @@ export function Issues() {
   const [board, setBoard] = useState<Board | null>(null);
   const [err, setErr] = useState("");
   const [q, setQ] = useState("");
+  // Remembered: an operator who works in list view wants it next time too.
+  const [view, setView] = useState<"board" | "list">(
+    () => (localStorage.getItem("builder.issues.view") as "board" | "list") || "board",
+  );
+  const setViewMode = (v: "board" | "list") => {
+    if (!v) return; // ToggleGroup emits "" when the active item is re-clicked
+    setView(v);
+    localStorage.setItem("builder.issues.view", v);
+  };
 
   const load = () => fetchBoard().then(setBoard).catch((e) => setErr(String(e.message ?? e)));
 
@@ -97,12 +109,22 @@ export function Issues() {
         title="Issues"
         description="Reported from the feedback widget or filed by hand. Drag a card, or use its status menu."
         actions={
-          <input
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Search issues…"
-            className="h-9 w-64 rounded-md border border-border bg-background px-3 text-sm"
-          />
+          <div className="flex items-center gap-2">
+            <Input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Search issues…"
+              className="h-9 w-64"
+            />
+            <ToggleGroup type="single" value={view} onValueChange={setViewMode}>
+              <ToggleGroupItem value="board" aria-label="Board view" title="Board">
+                <LayoutGrid className="size-4" />
+              </ToggleGroupItem>
+              <ToggleGroupItem value="list" aria-label="List view" title="List">
+                <List className="size-4" />
+              </ToggleGroupItem>
+            </ToggleGroup>
+          </div>
         }
       />
 
@@ -115,6 +137,9 @@ export function Issues() {
 
       {err && <Callout kind="warn" title="Something went wrong">{err}</Callout>}
 
+      {view === "list" ? (
+        <IssueTable rows={all.filter(match)} />
+      ) : (
       <div className="flex flex-1 gap-4 overflow-x-auto pb-4">
         {board.columns.map((col) => {
           const cards = (board.cards[col] ?? []).filter(match);
@@ -192,19 +217,27 @@ export function Issues() {
 
                     {/* Keyboard/assistive path — a drag-only board is unusable
                         without a mouse, and the drag handle is the whole card. */}
-                    <select
+                    <Select
                       value={c.status}
-                      onChange={(e) => void move(c, e.target.value as IssueStatus)}
-                      aria-label={`Status of issue ${c.number}`}
-                      className="mt-2 w-full rounded border border-border bg-background px-2 py-1 text-xs"
+                      onValueChange={(v) => void move(c, v as IssueStatus)}
                     >
-                      <option value={c.status}>{COLUMN_LABEL[c.status]}</option>
-                      {TRANSITIONS[c.status]?.map((t) => (
-                        <option key={t} value={t}>
-                          {COLUMN_LABEL[t]}
-                        </option>
-                      ))}
-                    </select>
+                      <SelectTrigger
+                        aria-label={`Status of issue ${c.number}`}
+                        className="mt-2 h-8 w-full text-xs"
+                        // The card is the drag handle, so a pointerdown inside
+                        // the trigger would start a drag instead of opening it.
+                        onPointerDown={(e) => e.stopPropagation()}
+                        draggable={false}
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={c.status}>{COLUMN_LABEL[c.status]}</SelectItem>
+                        {TRANSITIONS[c.status]?.map((t) => (
+                          <SelectItem key={t} value={t}>{COLUMN_LABEL[t]}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </article>
                 ))}
 
@@ -216,6 +249,7 @@ export function Issues() {
           );
         })}
       </div>
+      )}
 
       {all.length === 0 && (
         <EmptyState
@@ -226,3 +260,64 @@ export function Issues() {
     </div>
   );
 }
+
+/**
+ * The same issues as a dense table.
+ *
+ * The board answers "what is the state of the work"; a list answers "find me
+ * this one". With 40+ issues the kanban needs horizontal scrolling and hides
+ * most of the queue behind it, which is when scanning a single ordered column
+ * beats five parallel ones.
+ */
+const IssueTable = ({ rows }: { rows: Card[] }) => {
+  if (rows.length === 0) {
+    return <EmptyState title="No issues match" description="Try a different search." />;
+  }
+  return (
+    <div className="flex-1 overflow-auto rounded-lg border border-border">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead className="w-16">#</TableHead>
+            <TableHead>Title</TableHead>
+            <TableHead className="w-28">Status</TableHead>
+            <TableHead className="w-24">Priority</TableHead>
+            <TableHead className="w-24">Type</TableHead>
+            <TableHead className="w-28">Area</TableHead>
+            <TableHead className="w-28 text-end">Age</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {rows.map((c) => (
+            <TableRow key={c.id}>
+              <TableCell className="tabular-nums text-muted-foreground">#{c.number}</TableCell>
+              <TableCell>
+                <Link
+                  to="/issues/$number"
+                  params={{ number: String(c.number) }}
+                  className="font-medium hover:underline"
+                >
+                  {c.title}
+                </Link>
+                {c.busy && (
+                  <span className="ms-2 text-[11px] text-emerald-600" title="An agent holds a lease">
+                    ● working
+                  </span>
+                )}
+                {c.humanOnly && (
+                  <span className="ms-2"><StatusBadge tone="warning">Human only</StatusBadge></span>
+                )}
+              </TableCell>
+              <TableCell><StatusBadge tone="neutral">{COLUMN_LABEL[c.status]}</StatusBadge></TableCell>
+              <TableCell><StatusBadge tone={PRIORITY_TONE[c.priority]}>{c.priority}</StatusBadge></TableCell>
+              <TableCell><StatusBadge tone={TYPE_TONE[c.type]}>{c.type}</StatusBadge></TableCell>
+              <TableCell className="text-xs text-muted-foreground">{c.area || "—"}</TableCell>
+              <TableCell className="text-end text-xs text-muted-foreground">{ago(c.createdAt)}</TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </div>
+  );
+};
+IssueTable.displayName = "IssueTable";

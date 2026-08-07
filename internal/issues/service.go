@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/togo-framework/auth"
 	"log/slog"
 	"mime/multipart"
 	"net"
@@ -45,6 +46,8 @@ type Service struct {
 	// dev relaxes the origin check to any loopback host, because a dev server
 	// proxying to the API legitimately has Origin != Host.
 	dev bool
+	// nil when the auth plugin is absent; actorFrom degrades to "anonymous".
+	auth *auth.Service
 }
 
 func New(db *sql.DB, log *slog.Logger, origins []string, dev bool) *Service {
@@ -56,6 +59,10 @@ func New(db *sql.DB, log *slog.Logger, origins []string, dev bool) *Service {
 	}
 	return &Service{db: db, log: log, allowedOrigins: set, dev: dev}
 }
+
+// SetAuth supplies the auth service so comments can be attributed to the
+// signed-in user. Optional: without it every comment reads "anonymous".
+func (s *Service) SetAuth(a *auth.Service) { s.auth = a }
 
 func (s *Service) Routes(r chi.Router) {
 	r.Post("/feedback", s.handleFeedback) // public ingress — the SDK posts here
@@ -287,9 +294,9 @@ func (s *Service) handleList(w http.ResponseWriter, r *http.Request) {
 		// claim writes). It is reported ONLY while the lease is live: a stale
 		// assignee on a finished issue would read as "still working".
 		`SELECT id, number, title, type::text, status::text,
-		        (status = 'in_progress' AND lease_expires_at > now()) AS busy,
+		        (status = 'in_progress' AND lease_expires_at IS NOT NULL AND lease_expires_at > now()) AS busy,
 		        comment_count,
-		        CASE WHEN status = 'in_progress' AND lease_expires_at > now()
+		        CASE WHEN status = 'in_progress' AND lease_expires_at IS NOT NULL AND lease_expires_at > now()
 		             THEN coalesce(assignee_agent_id, '') ELSE '' END AS agent
 		   FROM builder_issues
 		  WHERE route = $1 AND status <> 'rejected'

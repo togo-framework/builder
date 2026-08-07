@@ -55,6 +55,8 @@ export const fetchIssue = (n: number | string) =>
 
 export const patchIssue = (n: number | string, patch: Partial<{
   status: IssueStatus; priority: Priority; type: IssueType; area: string; humanOnly: boolean;
+  /** Agent slug, or "" to let any agent that owns the area take it. */
+  assignee: string;
 }>) =>
   fetch(`${base}/issues/${n}`, {
     method: "PATCH",
@@ -99,3 +101,20 @@ export const ago = (iso: string): string => {
   if (s < 86400) return `${Math.floor(s / 3600)}h`;
   return `${Math.floor(s / 86400)}d`;
 };
+
+/**
+ * Delete an issue and everything hanging off it.
+ *
+ * The server refuses with 409 while an agent holds a live lease — deleting the
+ * row out from under a running session would orphan its worktree and branch —
+ * so that message is surfaced rather than swallowed.
+ */
+export async function deleteIssue(number: number): Promise<void> {
+  const res = await fetch(`${API}/api/builder/issues/${number}`, {
+    method: "DELETE",
+    credentials: "include",
+  });
+  if (res.ok || res.status === 204) return;
+  const d = await res.json().catch(() => ({} as { error?: string }));
+  throw new Error(d.error || `could not delete issue #${number} (${res.status})`);
+}

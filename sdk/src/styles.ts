@@ -265,6 +265,16 @@ textarea { min-height: 96px; resize: vertical; }
   color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .agent-tag .spin { width: 10px; height: 10px; border-width: 1.5px; flex: none; }
+
+/* Inline SVG icons (see icons.ts). Sized in em so they track the label they
+   sit beside, and flex:none so a long label never squashes them. */
+.ico { flex: none; width: 1em; height: 1em; }
+button .ico, a .ico { margin-inline-end: 2px; vertical-align: -0.125em; }
+.fab-ico { display: inline-flex; align-items: center; }
+.board-link { display: inline-flex; align-items: center; gap: 6px; }
+.pin-btn, .addfile, .shot, .clear-pin {
+  display: inline-flex; align-items: center; gap: 6px;
+}
 `;
 
 /**

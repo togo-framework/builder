@@ -56,9 +56,10 @@ Reply with ONLY a JSON object, no prose:
 
 ## Areas
 
-Choose the area from THIS LIST ONLY. These are the parts of the system the team
-actually owns; an area outside it belongs to nobody and the issue would sit in
-the queue forever.
+Choose EXACTLY ONE area from this list — copy a single value verbatim, never a
+combination and never several joined together. These are the parts of the system
+the team actually owns; an area outside the list belongs to nobody and the issue
+would sit in the queue forever.
 
 %s
 
@@ -176,8 +177,11 @@ func (o *Orchestrator) TriageOne(ctx context.Context) (bool, error) {
 	note := fmt.Sprintf("**Triaged** → `%s`\n\n%s\n\n_Understood as:_ %s",
 		status, v.Reason, v.Restated)
 	if _, err := o.db.ExecContext(ctx,
+		// Attributed to "triage" rather than NULL. Triage is not a fleet agent —
+		// it is the orchestrator's own classification pass — but leaving it null
+		// made its verdicts render as an anonymous "someone".
 		`INSERT INTO builder_issue_comments (issue_id, author_kind, author_agent_id, body_md)
-		 VALUES ($1,'agent',NULL,$2)`, id, note); err == nil {
+		 VALUES ($1,'agent','triage',$2)`, id, note); err == nil {
 		_, _ = o.db.ExecContext(ctx,
 			`UPDATE builder_issues SET comment_count = comment_count + 1 WHERE id = $1`, id)
 	}
@@ -220,12 +224,18 @@ func (o *Orchestrator) fleetAreas(ctx context.Context) string {
 		if len(list) == 0 {
 			continue
 		}
+		// ONE AREA PER LINE. Listing an agent's areas as "a, b, c — owned by X"
+		// made the model answer with the entire comma list as a single value,
+		// which normalised into the slug "dashboard-ui-layout-navigation-theme".
+		// That matches no agent, so the issue was unroutable in a new way.
 		desc = strings.TrimSpace(strings.SplitN(desc, "\n", 2)[0])
-		line := fmt.Sprintf("- %s — owned by %s", strings.Join(list, ", "), slug)
-		if desc != "" {
-			line += ": " + truncateText(desc, 220)
+		for _, a := range list {
+			line := fmt.Sprintf("- `%s` — owned by %s", a, slug)
+			if desc != "" {
+				line += ": " + truncateText(desc, 160)
+			}
+			out = append(out, line)
 		}
-		out = append(out, line)
 	}
 	if len(out) == 0 {
 		return `(no agent is enabled yet — always use "")`
@@ -331,6 +341,43 @@ func (o *Orchestrator) reportContext(
 			if vw > 0 {
 				fmt.Fprintf(&b, "    viewport:    %dx%d\n", vw, vh)
 			}
+		}
+	}
+
+	// The discussion so far. Without this the conversation is invisible to the
+	// agent: a human could answer the exact question that blocked the issue and
+	// the next run would re-read only the original title and body, ask the same
+	// question again, and block again. Replying to an agent has to actually
+	// reach it.
+	crows, cerr := o.db.QueryContext(ctx,
+		`SELECT author_kind::text,
+		        CASE author_kind
+		          WHEN 'agent'  THEN coalesce(nullif(author_agent_id,''), 'an agent')
+		          WHEN 'system' THEN 'builder'
+		          ELSE coalesce(nullif(author_email,''), 'a person')
+		        END,
+		        body_md
+		   FROM builder_issue_comments
+		  WHERE issue_id = $1
+		  ORDER BY created_at ASC
+		  LIMIT 30`, issueID)
+	if cerr == nil {
+		defer crows.Close()
+		n := 0
+		for crows.Next() {
+			var kind, who, body string
+			if crows.Scan(&kind, &who, &body) != nil {
+				continue
+			}
+			body = strings.TrimSpace(body)
+			if body == "" {
+				continue
+			}
+			n++
+			if n == 1 {
+				b.WriteString("\nDiscussion so far (oldest first):\n")
+			}
+			fmt.Fprintf(&b, "- **%s** (%s): %s\n", who, kind, truncateText(body, 700))
 		}
 	}
 

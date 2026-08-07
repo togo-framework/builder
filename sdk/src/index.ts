@@ -6,6 +6,7 @@ import { createDetail, httpDetail, type DetailView } from "./detail";
 import { CSS, HOST_CSS } from "./styles";
 import { httpTransport } from "./transport";
 import type { Attachment, Handle, IssueSummary, IssueType, MountOptions, PinAnchor } from "./types";
+import { icon, label as iconLabel } from "./icons";
 
 const FAB_POS_KEY = "builder.fab.position";
 const TYPES: IssueType[] = ["bug", "feature", "question", "discussion"];
@@ -55,7 +56,7 @@ export function mount(opts: MountOptions = {}): Handle {
   const wrap = document.createElement("div");
   wrap.innerHTML = `
     <button class="fab" part="fab" aria-haspopup="dialog" aria-expanded="false">
-      <span aria-hidden="true">✎</span><span class="fab-label"></span><span class="count hidden"></span>
+      <span class="fab-ico"></span><span class="fab-label"></span><span class="count hidden"></span>
     </button>
     <aside class="panel" role="dialog" aria-modal="false" data-open="false">
       <div class="head"><h2></h2><button class="x" aria-label=""></button></div>
@@ -127,7 +128,8 @@ export function mount(opts: MountOptions = {}): Handle {
   // ---- static copy -------------------------------------------------------
   $(".fab-label").textContent = t.fab;
   $("h2").textContent = t.title;
-  $(".x").textContent = "✕";
+  $(".fab-ico").replaceChildren(icon("pencil", 15));
+  $(".x").replaceChildren(icon("x", 15));
   $(".x").setAttribute("aria-label", t.close);
   $(".intro").textContent = t.intro;
   $(".report").textContent = t.report;
@@ -138,13 +140,13 @@ export function mount(opts: MountOptions = {}): Handle {
   $(".lbl-loc").textContent = t.location;
   $(".lbl-att").textContent = t.attachments;
   $(".lbl-page").textContent = t.onThisPage;
-  $(".board-link").textContent = t.openBoard + " →";
+  iconLabel($(".board-link"), "arrowRight", t.openBoard);
   titleIn.placeholder = t.titlePlaceholder;
   bodyIn.placeholder = t.detailsPlaceholder;
-  pinBtn.textContent = "📍 " + t.pin;
-  clearPinBtn.textContent = "✕ " + t.clear;
-  $(".addfile").textContent = "📎 " + t.addFile;
-  $(".shot").textContent = "🖼 " + t.screenshot;
+  iconLabel(pinBtn, "pin", t.pin);
+  iconLabel(clearPinBtn, "x", t.clear);
+  iconLabel($(".addfile"), "paperclip", t.addFile);
+  iconLabel($(".shot"), "image", t.screenshot);
   sendBtn.textContent = t.submit;
 
   for (const ty of TYPES) {
@@ -280,7 +282,7 @@ export function mount(opts: MountOptions = {}): Handle {
       cancelPick();
       cancelPick = null;
       pinBtn.setAttribute("aria-pressed", "false");
-      pinBtn.textContent = "📍 " + t.pin;
+      iconLabel(pinBtn, "pin", t.pin);
       return;
     }
     // Get out of the user's way while they aim at the page behind us.
@@ -309,7 +311,7 @@ export function mount(opts: MountOptions = {}): Handle {
   function renderPins() {
     const has = pins.length > 0;
     pinBtn.setAttribute("aria-pressed", String(has));
-    pinBtn.textContent = has ? "📍 " + t.pinned(pins[0].tag ?? "?") : "📍 " + t.pin;
+    iconLabel(pinBtn, "pin", has ? t.pinned(pins[0].tag ?? "?") : t.pin);
     clearPinBtn.classList.toggle("hidden", !has);
   }
 
@@ -365,7 +367,7 @@ export function mount(opts: MountOptions = {}): Handle {
       sz.textContent = humanSize(f.size);
       const rm = document.createElement("button");
       rm.type = "button";
-      rm.textContent = "✕";
+      rm.replaceChildren(icon("x", 12));
       rm.setAttribute("aria-label", t.clear);
       rm.addEventListener("click", () => {
         files.splice(i, 1);

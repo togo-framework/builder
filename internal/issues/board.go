@@ -1,10 +1,13 @@
 package issues
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"github.com/togo-framework/auth"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -40,7 +43,7 @@ func (s *Service) handleBoard(w http.ResponseWriter, r *http.Request) {
 	rows, err := s.db.QueryContext(r.Context(),
 		`SELECT i.id, i.number, i.title, i.type::text, i.status::text, i.priority::text,
 		        i.area, i.human_only,
-		        (i.status = 'in_progress' AND i.lease_expires_at > now()) AS busy,
+		        (i.status = 'in_progress' AND i.lease_expires_at IS NOT NULL AND i.lease_expires_at > now()) AS busy,
 		        i.source, i.route, i.comment_count, i.vote_count,
 		        coalesce(i.assignee_agent_id, '') AS assignee,
 		        i.attempt_count, i.labels, i.created_at
@@ -145,7 +148,7 @@ func (s *Service) handleDetail(w http.ResponseWriter, r *http.Request) {
 	err = s.db.QueryRowContext(r.Context(),
 		`SELECT i.id, i.number, i.title, i.body_md, i.type::text, i.status::text,
 		        i.priority::text, i.area, i.human_only,
-		        (i.status = 'in_progress' AND i.lease_expires_at > now()) AS busy,
+		        (i.status = 'in_progress' AND i.lease_expires_at IS NOT NULL AND i.lease_expires_at > now()) AS busy,
 		        i.source, i.route, i.page_url, i.locale, i.branch, i.pr_url,
 		        i.comment_count, i.vote_count, coalesce(i.assignee_agent_id,''),
 		        i.attempt_count, i.labels, i.created_at
@@ -200,7 +203,16 @@ func (s *Service) loadPins(r *http.Request, issueID string) []pinOut {
 func (s *Service) loadComments(r *http.Request, issueID string) []commentOut {
 	out := []commentOut{}
 	rows, err := s.db.QueryContext(r.Context(),
-		`SELECT id, coalesce(nullif(author_email,''), coalesce(author_agent_id,'someone')),
+		// Name each author by what it actually is. The old expression fell all
+		// the way through to the literal 'someone' whenever the email was blank,
+		// which — since nothing recorded an email or an agent slug — was every
+		// single comment.
+		`SELECT id,
+		        CASE author_kind
+		          WHEN 'agent'  THEN coalesce(nullif(author_agent_id,''), 'an agent')
+		          WHEN 'system' THEN 'builder'
+		          ELSE coalesce(nullif(author_email,''), 'anonymous')
+		        END,
 		        author_kind::text, body_md, created_at
 		   FROM builder_issue_comments WHERE issue_id = $1 ORDER BY created_at`, issueID)
 	if err != nil {
@@ -268,6 +280,10 @@ type patchIssue struct {
 	Type      *string `json:"type,omitempty"`
 	Area      *string `json:"area,omitempty"`
 	HumanOnly *bool   `json:"humanOnly,omitempty"`
+	// Assignee is an agent slug, or "" to unassign. Assigning to a person is
+	// expressed as humanOnly — there is no per-user assignment, because the
+	// dispatcher's question is only ever "may an agent take this, and which".
+	Assignee *string `json:"assignee,omitempty"`
 }
 
 func (s *Service) handlePatch(w http.ResponseWriter, r *http.Request) {
@@ -323,8 +339,58 @@ func (s *Service) handlePatch(w http.ResponseWriter, r *http.Request) {
 	if in.Area != nil {
 		add("area = ", truncate(*in.Area, 120))
 	}
-	if in.HumanOnly != nil {
+	clearHumanOnly := false
+	if in.Assignee != nil {
+		// Refuse while an agent holds a live lease. Reassigning mid-run does not
+		// stop the agent that is actually working — it just makes the row lie
+		// about who owns the issue, and the finishing run (fenced by its claim
+		// token) then writes results that contradict the assignee. Same reason
+		// delete refuses here.
+		var leased bool
+		if err := s.db.QueryRowContext(r.Context(),
+			`SELECT status = 'in_progress' AND lease_expires_at IS NOT NULL AND lease_expires_at > now()
+			   FROM builder_issues WHERE id = $1`, id).Scan(&leased); err == nil && leased {
+			httpErr(w, http.StatusConflict,
+				"an agent is working on this right now — wait for the run to finish before reassigning")
+			return
+		}
+		slug := strings.TrimSpace(*in.Assignee)
+		if slug != "" {
+			// Must exist AND be able to work: pinning an issue to a disabled or
+			// brainless agent silently parks it, because the dispatcher only
+			// considers enabled builders and the claim requires the assignee to
+			// match. Better to refuse with a reason.
+			var ok bool
+			if err := s.db.QueryRowContext(r.Context(),
+				`SELECT enabled AND role = 'builder' AND persona_md <> ''
+				   FROM builder_agents WHERE slug = $1`, slug).Scan(&ok); err != nil {
+				httpErr(w, http.StatusUnprocessableEntity, "no such agent")
+				return
+			}
+			if !ok {
+				httpErr(w, http.StatusUnprocessableEntity,
+					"that agent cannot take work — enable it first, and give it a persona")
+				return
+			}
+			// An issue cannot be both human-only and assigned to an agent, so
+			// assigning clears the flag. Recorded as an intent rather than
+			// appended to `sets` here: the caller usually sends humanOnly in the
+			// same PATCH (the assignee control is one dropdown covering both),
+			// and emitting the column twice makes Postgres reject the whole
+			// statement with "multiple assignments to same column".
+			clearHumanOnly = true
+		}
+		add("assignee_agent_id = ", nullIfEmpty(slug))
+	}
+	switch {
+	case in.HumanOnly != nil && clearHumanOnly:
+		// Assigning to an agent wins: it is the more specific instruction, and
+		// the two together are contradictory.
+		add("human_only = ", false)
+	case in.HumanOnly != nil:
 		add("human_only = ", *in.HumanOnly)
+	case clearHumanOnly:
+		add("human_only = ", false)
 	}
 	if len(args) == 0 {
 		httpErr(w, http.StatusBadRequest, "nothing to update")
@@ -353,7 +419,11 @@ func (s *Service) handlePatch(w http.ResponseWriter, r *http.Request) {
 }
 
 type newComment struct {
-	Body   string `json:"body"`
+	Body string `json:"body"`
+	// Author is accepted for backwards compatibility and DELIBERATELY IGNORED.
+	// Identity is taken from the session: a client-supplied name is a claim, not
+	// a fact, and anyone could post as anyone. The SDK sends "" here anyway,
+	// which is how every human comment ended up displayed as "someone".
 	Author string `json:"author"`
 }
 
@@ -388,18 +458,45 @@ func (s *Service) handleComment(w http.ResponseWriter, r *http.Request) {
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	userID, email := s.actorFrom(r)
+	mentioned := s.resolveMentions(r.Context(), in.Body)
 	if _, err := tx.ExecContext(r.Context(),
-		`INSERT INTO builder_issue_comments (issue_id, author_kind, author_email, body_md)
-		 VALUES ($1,'human',$2,$3)`,
-		id, truncate(in.Author, 320), truncate(in.Body, maxBodyBytes)); err != nil {
+		`INSERT INTO builder_issue_comments (issue_id, author_kind, author_user_id, author_email, body_md, mentions)
+		 VALUES ($1,'human',$2,$3,$4,$5)`,
+		id, nullIfEmpty(userID), email, truncate(in.Body, maxBodyBytes),
+		encodeArray(mentioned)); err != nil {
 		s.log.Error("insert comment", "err", err)
 		httpErr(w, http.StatusInternalServerError, "could not comment")
 		return
 	}
 	// Denormalized count keeps the board query from joining on every render.
+	//
+	// A human comment also WAKES a blocked issue. Answering an agent's question
+	// used to change nothing but a counter: the issue stayed blocked, no agent
+	// could claim it, and the reply sat there unread forever — which reads to
+	// the operator as "the agent ignored me".
+	//
+	// Deliberately narrow. It only revives an issue that is blocked with no
+	// pending decision (a real decision has its own answer flow), never one
+	// marked human_only (the operator said agents must keep out), and it clears
+	// attempt_count so the clarification actually gets a run rather than hitting
+	// an already-exhausted budget.
 	if _, err := tx.ExecContext(r.Context(),
-		`UPDATE builder_issues SET comment_count = comment_count + 1, updated_at = now()
-		 WHERE id = $1`, id); err != nil {
+		`UPDATE builder_issues
+		    SET comment_count = comment_count + 1, updated_at = now(),
+		        status = CASE
+		          WHEN status = 'blocked' AND human_only = false
+		               AND blocked_on_decision_id IS NULL
+		          THEN 'ready'::builder_issue_status ELSE status END,
+		        attempt_count = CASE
+		          WHEN status = 'blocked' AND human_only = false
+		               AND blocked_on_decision_id IS NULL
+		          THEN 0 ELSE attempt_count END,
+		        status_entered_at = CASE
+		          WHEN status = 'blocked' AND human_only = false
+		               AND blocked_on_decision_id IS NULL
+		          THEN now() ELSE status_entered_at END
+		  WHERE id = $1`, id); err != nil {
 		httpErr(w, http.StatusInternalServerError, "could not comment")
 		return
 	}
@@ -412,6 +509,18 @@ func (s *Service) handleComment(w http.ResponseWriter, r *http.Request) {
 	if err := tx.Commit(); err != nil {
 		httpErr(w, http.StatusInternalServerError, "could not comment")
 		return
+	}
+
+	// Routing on a mention happens AFTER the commit: the comment is the record
+	// and must survive even if the routing update fails.
+	if routed := s.assignFromMention(r.Context(), id, mentioned); routed != "" {
+		s.log.Info("routed by mention", "issue", num, "agent", routed)
+		_, _ = s.db.ExecContext(r.Context(),
+			`INSERT INTO builder_issue_comments (issue_id, author_kind, body_md)
+			 VALUES ($1,'system',$2)`,
+			id, "**Assigned to `"+routed+"`** — named in the comment above.")
+		_, _ = s.db.ExecContext(r.Context(),
+			`UPDATE builder_issues SET comment_count = comment_count + 1 WHERE id = $1`, id)
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{"ok": true})
 }
@@ -467,7 +576,7 @@ func (s *Service) handleDelete(w http.ResponseWriter, r *http.Request) {
 	var busy bool
 	var id string
 	err = s.db.QueryRowContext(r.Context(),
-		`SELECT id, (status = 'in_progress' AND lease_expires_at > now())
+		`SELECT id, (status = 'in_progress' AND lease_expires_at IS NOT NULL AND lease_expires_at > now())
 		   FROM builder_issues WHERE number = $1`, num).Scan(&id, &busy)
 	if errors.Is(err, sql.ErrNoRows) {
 		httpErr(w, http.StatusNotFound, "no such issue")
@@ -511,13 +620,13 @@ func (s *Service) handleBulkDelete(w http.ResponseWriter, r *http.Request) {
 		res, err = s.db.ExecContext(r.Context(),
 			`DELETE FROM builder_issues
 			  WHERE number = ANY($1::bigint[])
-			    AND NOT (status = 'in_progress' AND lease_expires_at > now())`,
+			    AND NOT (status = 'in_progress' AND lease_expires_at IS NOT NULL AND lease_expires_at > now())`,
 			pgInt64Array(in.Numbers))
 	case in.Status != "":
 		res, err = s.db.ExecContext(r.Context(),
 			`DELETE FROM builder_issues
 			  WHERE status = $1::builder_issue_status
-			    AND NOT (status = 'in_progress' AND lease_expires_at > now())`, in.Status)
+			    AND NOT (status = 'in_progress' AND lease_expires_at IS NOT NULL AND lease_expires_at > now())`, in.Status)
 	default:
 		httpErr(w, http.StatusBadRequest, "pass numbers[] or status")
 		return
@@ -538,4 +647,147 @@ func pgInt64Array(xs []int64) string {
 		parts = append(parts, strconv.FormatInt(x, 10))
 	}
 	return "{" + strings.Join(parts, ",") + "}"
+}
+
+// actorFrom resolves who is making this request, from the session only.
+//
+// SOFT authentication: these routes are deliberately not behind auth.Middleware,
+// because the SDK posts feedback from the host page with no session at all.
+// So the token is resolved when present and the request proceeds either way —
+// an unattributed comment says "anonymous", which is honest, rather than
+// borrowing whatever name the caller put in the request body.
+//
+// IdentityFrom is checked first in case a future mount does sit behind the
+// middleware; otherwise the token is verified directly.
+func (s *Service) actorFrom(r *http.Request) (userID, email string) {
+	if id, ok := auth.IdentityFrom(r.Context()); ok && id != nil {
+		return id.ID, displayName(id)
+	}
+	if s.auth == nil {
+		return "", "anonymous"
+	}
+	tok := ""
+	if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
+		tok = strings.TrimSpace(h[7:])
+	}
+	if tok == "" {
+		if c, err := r.Cookie(auth.SessionCookie); err == nil {
+			tok = c.Value
+		}
+	}
+	if tok == "" {
+		return "", "anonymous"
+	}
+	id, err := s.auth.Verify(tok)
+	if err != nil || id == nil {
+		// A session store keeps an opaque id in the cookie rather than the
+		// token, so this legitimately fails; "anonymous" is the safe answer.
+		return "", "anonymous"
+	}
+	return id.ID, displayName(id)
+}
+
+func displayName(id *auth.Identity) string {
+	if id.Email == "" {
+		return "a signed-in user"
+	}
+	return truncate(id.Email, 320)
+}
+
+// nullIfEmpty keeps a uuid column NULL rather than storing "", which would fail
+// the type cast.
+func nullIfEmpty(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
+}
+
+// mentionRe matches @slug. Slugs are lowercase with hyphens, which keeps this
+// from matching an email address's local part or a decorative "@" in prose.
+var mentionRe = regexp.MustCompile(`(^|[^\w@/])@([a-z][a-z0-9-]{1,63})\b`)
+
+// resolveMentions returns the agent slugs named in a comment that actually
+// exist. Unknown handles are dropped rather than stored: a mentions array full
+// of typos would make "who was asked" unanswerable, and the wake logic below
+// would have nothing to act on.
+func (s *Service) resolveMentions(ctx context.Context, body string) []string {
+	ms := mentionRe.FindAllStringSubmatch(body, -1)
+	if len(ms) == 0 {
+		return nil
+	}
+	want := make([]string, 0, len(ms))
+	seen := map[string]bool{}
+	for _, m := range ms {
+		if !seen[m[2]] {
+			seen[m[2]] = true
+			want = append(want, m[2])
+		}
+	}
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT slug FROM builder_agents WHERE slug = ANY($1::text[])`, encodeArray(want))
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var slug string
+		if rows.Scan(&slug) == nil {
+			out = append(out, slug)
+		}
+	}
+	return out
+}
+
+// assignFromMention hands the issue to the first mentioned agent that can
+// actually take it.
+//
+// A mention is a request, so it routes as well as records: naming an agent in a
+// comment is the most direct way an operator can say "you, specifically". It is
+// skipped while a lease is live (the running agent owns the issue) and for
+// human-only issues (the operator already said agents keep out).
+func (s *Service) assignFromMention(ctx context.Context, issueID string, mentioned []string) string {
+	if len(mentioned) == 0 {
+		return ""
+	}
+	var slug string
+	err := s.db.QueryRowContext(ctx,
+		`SELECT a.slug FROM builder_agents a
+		  WHERE a.slug = ANY($1::text[])
+		    AND a.enabled AND a.role = 'builder' AND a.persona_md <> ''
+		  ORDER BY array_position($1::text[], a.slug)
+		  LIMIT 1`, encodeArray(mentioned)).Scan(&slug)
+	if err != nil || slug == "" {
+		return ""
+	}
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE builder_issues
+		    SET assignee_agent_id = $1, human_only = false, updated_at = now(),
+		        status = CASE WHEN status = 'blocked' AND blocked_on_decision_id IS NULL
+		                      THEN 'ready'::builder_issue_status ELSE status END,
+		        attempt_count = CASE WHEN status = 'blocked' AND blocked_on_decision_id IS NULL
+		                             THEN 0 ELSE attempt_count END
+		  WHERE id = $2
+		    AND human_only = false
+		    AND NOT (status = 'in_progress' AND lease_expires_at IS NOT NULL AND lease_expires_at > now())`,
+		slug, issueID)
+	if err != nil {
+		return ""
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ""
+	}
+	return slug
+}
+
+func encodeArray(xs []string) string {
+	if len(xs) == 0 {
+		return "{}"
+	}
+	q := make([]string, len(xs))
+	for i, x := range xs {
+		q[i] = `"` + strings.ReplaceAll(strings.ReplaceAll(x, `\`, `\\`), `"`, `\"`) + `"`
+	}
+	return "{" + strings.Join(q, ",") + "}"
 }

@@ -110,6 +110,11 @@ func New(db *sql.DB, log *slog.Logger, cfg Config) *Orchestrator {
 // began spending on model calls the moment someone ran `togo serve` would be
 // indefensible.
 func (o *Orchestrator) Run(ctx context.Context) {
+	// Before the first tick: close out anything this host left behind. Doing it
+	// here rather than lazily means a deadlocked fleet recovers on restart
+	// instead of staying wedged until someone notices.
+	o.reconcileOwnRuns(ctx)
+
 	o.log.Info("orchestrator started",
 		"poll", o.cfg.PollInterval, "daily_budget_usd", o.cfg.DailyBudgetUSD)
 	t := time.NewTicker(o.cfg.PollInterval)
@@ -144,6 +149,9 @@ func (o *Orchestrator) Run(ctx context.Context) {
 				}
 			}
 			o.reapExpiredLeases(ctx)
+			// Runs from other hosts that stopped heartbeating. Same tick as the
+			// lease reaper so run rows and issue rows stay consistent.
+			o.sweepStaleRuns(ctx)
 			o.dispatch(ctx)
 		}
 	}

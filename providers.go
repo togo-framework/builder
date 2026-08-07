@@ -8,9 +8,11 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/togo-framework/auth"
 	"github.com/togo-framework/togo"
 
 	"github.com/togo-framework/builder/internal/brain"
+	"github.com/togo-framework/builder/internal/deploy"
 	"github.com/togo-framework/builder/internal/fleet"
 	"github.com/togo-framework/builder/internal/issues"
 	"github.com/togo-framework/builder/internal/notify"
@@ -116,6 +118,17 @@ func provideIssues(k *togo.Kernel) error {
 
 	svc := issues.New(db, k.Log, origins, dev)
 	k.Set(ProviderIssues, svc)
+	// Optional: comments are attributed to the signed-in user when the auth
+	// plugin is present, and read "anonymous" when it is not.
+	if a, ok := k.Get("auth"); ok && a != nil {
+		if as, ok := a.(*auth.Service); ok {
+			svc.SetAuth(as)
+		}
+	}
+	// The operator's half of the merge gate: verify, merge, and let the dev
+	// watcher restart. Mounted next to issues because it acts on an issue.
+	k.Router.Route("/api/builder/deploy", deploy.New(db, k.Log).Routes)
+
 	k.Router.Route("/api/builder", svc.Routes)
 
 	// Serve the SDK bundle so a host page needs one script tag and no build step.
@@ -159,6 +172,12 @@ func provideFleet(k *togo.Kernel) error {
 	// than behind the orchestrator.
 	wiz := setup.New(db, k.Log, gen)
 	k.Router.Route("/api/builder/setup", wiz.Routes)
+
+	// The agents roster and profile surface. Mounted alongside setup because it
+	// reads the same fleet the wizard generates.
+	if db, err := k.SQL(context.Background()); err == nil {
+		k.Router.Route("/api/builder/fleet", fleet.NewAgentsService(db, k.Log).Routes)
+	}
 	return nil
 }
 

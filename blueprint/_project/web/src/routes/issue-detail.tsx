@@ -1,15 +1,34 @@
 import { useEffect, useState } from "react";
-import { Link, useParams } from "@tanstack/react-router";
-import { PageHeader, StatusBadge, Callout, EmptyState, MarkdownRenderer } from "@togo-framework/ui";
+import { Trash2 } from "lucide-react";
+import { Link, useNavigate, useParams } from "@tanstack/react-router";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, Callout, Checkbox, EmptyState, Input, Label, MarkdownEditor, MarkdownRenderer, PageHeader, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, StatusBadge,
+} from "@togo-framework/ui";
 import {
   COLUMN_LABEL, TRANSITIONS, ago, addComment, fetchIssue, patchIssue,
-  type Detail, type IssueStatus, type Priority,
-} from "../lib/issues";
+  type Detail, type IssueStatus, type Priority, deleteIssue } from "../lib/issues";
 
 export function IssueDetail() {
   const { number } = useParams({ from: "/_app/issues/$number" });
   const [issue, setIssue] = useState<Detail | null>(null);
   const [err, setErr] = useState("");
+  const [deleting, setDeleting] = useState(false);
+  const nav = useNavigate();
+
+  async function removeIssue() {
+    setDeleting(true);
+    setErr("");
+    try {
+      await deleteIssue(Number(number));
+      // Back to the board: the page we are on no longer exists.
+      void nav({ to: "/issues" });
+    } catch (e) {
+      // The common failure is a 409 while an agent holds the lease, which is
+      // the server protecting a running session — show it rather than retry.
+      setErr(String((e as Error).message));
+      setDeleting(false);
+    }
+  }
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
 
@@ -170,12 +189,15 @@ export function IssueDetail() {
           </div>
 
           <div className="mt-4">
-            <textarea
+            <MarkdownEditor
               value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              placeholder="Add a comment…"
-              rows={3}
-              className="w-full rounded-md border border-border bg-background p-3 text-sm"
+              onChange={setDraft}
+              // The kit defaults to "split", which halves the writing area to
+              // preview a comment that is usually two lines of plain prose.
+              // Start on write; preview is one click away when it is wanted.
+              defaultView="write"
+              placeholder="Add a comment…  **bold**, `code`, - lists"
+              minRows={3}
             />
             <button
               onClick={() => void comment()}
@@ -208,53 +230,87 @@ export function IssueDetail() {
         {err && <p className="text-xs text-red-600">{err}</p>}
 
         <Field label="Status">
-          <select
+          <Select
             value={issue.status}
-            onChange={(e) => void update({ status: e.target.value as IssueStatus })}
-            className="w-full rounded border border-border bg-background px-2 py-1.5 text-sm"
+            onValueChange={(v) => void update({ status: v as IssueStatus })}
           >
-            <option value={issue.status}>{COLUMN_LABEL[issue.status]}</option>
-            {TRANSITIONS[issue.status]?.map((t) => (
-              <option key={t} value={t}>{COLUMN_LABEL[t]}</option>
-            ))}
-          </select>
+            <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {/* The current status plus everything it may legally move to —
+                  the allowed set is the transition table, not every status. */}
+              <SelectItem value={issue.status}>{COLUMN_LABEL[issue.status]}</SelectItem>
+              {TRANSITIONS[issue.status]?.map((t) => (
+                <SelectItem key={t} value={t}>{COLUMN_LABEL[t]}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </Field>
 
         <Field label="Priority">
-          <select
+          <Select
             value={issue.priority}
-            onChange={(e) => void update({ priority: e.target.value as Priority })}
-            className="w-full rounded border border-border bg-background px-2 py-1.5 text-sm"
+            onValueChange={(v) => void update({ priority: v as Priority })}
           >
-            {["low", "normal", "high", "critical"].map((p) => (
-              <option key={p} value={p}>{p}</option>
-            ))}
-          </select>
+            <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {["low", "normal", "high", "critical"].map((p) => (
+                <SelectItem key={p} value={p}>{p}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </Field>
 
         <Field label="Area">
-          <input
+          <Input
             defaultValue={issue.area}
             onBlur={(e) => e.target.value !== issue.area && void update({ area: e.target.value })}
             placeholder="e.g. auth, billing"
-            className="w-full rounded border border-border bg-background px-2 py-1.5 text-sm"
           />
         </Field>
 
-        <label className="flex items-start gap-2 rounded-lg border border-border p-3">
-          <input
-            type="checkbox"
+        <AlertDialog>
+          <AlertDialogTrigger asChild>
+            <Button variant="outline" size="sm" disabled={deleting}
+              className="w-full text-red-600 hover:bg-red-500/10 hover:text-red-600">
+              <Trash2 className="me-1.5 size-4" />
+              {deleting ? "Deleting…" : "Delete issue"}
+            </Button>
+          </AlertDialogTrigger>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete issue #{number}?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This removes the issue and everything attached to it — comments,
+                pins, attachments and its activity trail. It cannot be undone.
+                {" "}An issue an agent is actively working cannot be deleted.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Keep it</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={() => void removeIssue()}
+                className="bg-red-600 text-white hover:bg-red-700"
+              >
+                Delete
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        <div className="flex items-start gap-2.5 rounded-lg border border-border p-3">
+          <Checkbox
+            id="human-only"
             checked={issue.humanOnly}
-            onChange={(e) => void update({ humanOnly: e.target.checked })}
+            onCheckedChange={(v) => void update({ humanOnly: v === true })}
             className="mt-0.5"
           />
-          <span>
+          <Label htmlFor="human-only" className="cursor-pointer font-normal">
             <span className="font-medium">Human only</span>
-            <span className="block text-xs text-muted-foreground">
+            <span className="block text-xs font-normal text-muted-foreground">
               Agents will never claim this issue.
             </span>
-          </span>
-        </label>
+          </Label>
+        </div>
 
         <dl className="grid grid-cols-[80px_1fr] gap-y-1.5 rounded-lg border border-border p-3 text-xs">
           <dt className="text-muted-foreground">Route</dt>

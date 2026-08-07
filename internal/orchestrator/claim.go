@@ -21,6 +21,10 @@ type Claim struct {
 	Token    string // the fencing token
 	Agent    string
 	Model    string
+	// MaxBudgetUSD and MaxTurns come from the agent's settings and are handed to
+	// the in-session guards, so the settings UI is the single source of truth.
+	MaxBudgetUSD float64
+	MaxTurns     int
 }
 
 // ErrNoWork means the queue is empty or everything is taken.
@@ -83,6 +87,11 @@ func (o *Orchestrator) ClaimFor(ctx context.Context, agentSlug, model string, ar
 	token := newUUID()
 
 	c := &Claim{RunID: runID, Token: token, Agent: agentSlug, Model: model}
+	// Best-effort: a missing row must not block the claim, it just falls back to
+	// the harness defaults.
+	_ = o.db.QueryRowContext(ctx,
+		`SELECT max_budget_usd, max_turns FROM builder_agents WHERE slug = $1`,
+		agentSlug).Scan(&c.MaxBudgetUSD, &c.MaxTurns)
 	err := o.db.QueryRowContext(ctx, claimSQL,
 		token, int(o.cfg.LeaseTTL.Seconds()), agentSlug, pgArray(areas),
 	).Scan(&c.IssueID, &c.Number, &c.Title, &c.Body, &c.Area, &c.Type, &c.Priority, &c.Attempt)
@@ -186,11 +195,14 @@ func (o *Orchestrator) finish(ctx context.Context, c *Claim, status, terminal st
 		        lines_added = $6, lines_removed = $7, cost_usd = $8,
 		        num_turns = $9, verdict = $10::jsonb, error = $11,
 		        pushed = $13, pr_url = $14
-		  WHERE id = $12`,
+		  WHERE id = $12 AND status = 'running'`,
 		d.RunStatus, terminal, d.Branch, d.HeadSHA, d.FilesChanged,
 		d.Added, d.Removed, d.CostUSD, d.Turns, d.VerdictJSON, d.Err, c.RunID,
 		d.Pushed, d.PRURL)
 
+	// The status guard above matters: a run the reconciler already expired must
+	// not be silently resurrected to a terminal state by its own goroutine
+	// finishing late.
 	o.log.Info("run finished", "issue", c.Number, "status", status,
 		"terminal", terminal, "files", d.FilesChanged, "cost", d.CostUSD)
 }

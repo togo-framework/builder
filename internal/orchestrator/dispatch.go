@@ -16,18 +16,49 @@ import (
 // security boundary — a row edited to say `advisor` must not be able to write
 // code, and one edited to say `builder` must still satisfy the brain
 // requirement before it can.
+// maxConcurrentRuns bounds how many implement sessions run at once. Each holds a
+// git worktree and a model session, so this is a real resource ceiling, not a
+// stylistic one.
+const maxConcurrentRuns = 3
+
 type agent struct {
 	slug, model, persona string
 	areas                []string
+	// workdir is the repository this agent works in. Empty means the fleet
+	// default (BUILDER_WORKDIR).
+	workdir string
 }
 
 func (o *Orchestrator) dispatch(ctx context.Context) {
+	// Concurrency is capped by RUNS IN FLIGHT, not by truncating the agent list.
+	//
+	// This used to be `LIMIT 4`, which was doing double duty as a concurrency cap
+	// and quietly starving the fleet: combined with `ORDER BY last_run_at NULLS
+	// FIRST` it selected exactly the agents that had never run. With seven agents
+	// enabled, the four never-run ones owned none of the queued areas, so nothing
+	// was ever claimed while three agents that DID own the work sat idle.
+	var inFlight int
+	if err := o.db.QueryRowContext(ctx,
+		// Only LIVE runs count. Counting frozen rows meant three crashed runs
+		// permanently deadlocked the fleet: every tick saw inFlight >= 3 and
+		// returned before asking a single agent.
+		`SELECT count(*) FROM builder_runs
+		  WHERE status = 'running'
+		    AND coalesce(heartbeat_at, started_at) > now() - interval '30 minutes'`).Scan(&inFlight); err != nil {
+		o.log.Error("count in-flight runs", "err", err)
+		return
+	}
+	if inFlight >= maxConcurrentRuns {
+		return
+	}
+
+	// Every eligible agent is considered. Least-recently-run first is still the
+	// fair order; it is no longer also a filter.
 	rows, err := o.db.QueryContext(ctx,
-		`SELECT slug, model, areas, persona_md
+		`SELECT slug, model, areas, persona_md, workdir
 		   FROM builder_agents
 		  WHERE enabled = true AND role = 'builder' AND persona_md <> ''
-		  ORDER BY last_run_at NULLS FIRST
-		  LIMIT 4`)
+		  ORDER BY last_run_at NULLS FIRST`)
 	if err != nil {
 		o.log.Error("list builders", "err", err)
 		return
@@ -36,7 +67,7 @@ func (o *Orchestrator) dispatch(ctx context.Context) {
 	for rows.Next() {
 		var a agent
 		var areas sql.NullString
-		if err := rows.Scan(&a.slug, &a.model, &areas, &a.persona); err != nil {
+		if err := rows.Scan(&a.slug, &a.model, &areas, &a.persona, &a.workdir); err != nil {
 			continue
 		}
 		a.areas = parsePGArray(areas.String)
@@ -50,9 +81,15 @@ func (o *Orchestrator) dispatch(ctx context.Context) {
 	o.flagUnroutable(ctx, agents)
 
 	for _, a := range agents {
+		if inFlight >= maxConcurrentRuns {
+			return
+		}
 		c, err := o.ClaimFor(ctx, a.slug, a.model, a.areas)
 		if errors.Is(err, ErrNoWork) {
-			return // queue is empty — no point asking the next agent
+			// THIS agent has nothing in its areas. That says nothing about the
+			// others — claims are area-scoped. Returning here meant one agent
+			// with no matching work silently blocked the whole fleet.
+			continue
 		}
 		if err != nil {
 			o.log.Error("claim", "agent", a.slug, "err", err)
@@ -60,17 +97,18 @@ func (o *Orchestrator) dispatch(ctx context.Context) {
 		}
 		_, _ = o.db.ExecContext(ctx,
 			`UPDATE builder_agents SET last_run_at = now() WHERE slug = $1`, a.slug)
+		inFlight++
 
 		// Detached: an implement run takes minutes and must not block the tick.
-		go func(c *Claim, persona string, areas []string) {
+		go func(c *Claim, persona string, areas []string, workdir string) {
 			defer func() {
 				if r := recover(); r != nil {
 					o.log.Error("implement panicked", "issue", c.Number, "panic", r)
 					o.release(context.Background(), c, "runner panicked")
 				}
 			}()
-			o.Implement(context.Background(), c, persona, areas)
-		}(c, a.persona, a.areas)
+			o.Implement(context.Background(), c, persona, areas, workdir)
+		}(c, a.persona, a.areas, a.workdir)
 	}
 }
 
