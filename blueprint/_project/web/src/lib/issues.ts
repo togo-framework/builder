@@ -1,0 +1,101 @@
+// Client for the builder issue plane.
+import { API } from "./api";
+
+export type IssueStatus =
+  | "triage" | "ready" | "in_progress" | "blocked" | "in_review" | "done" | "rejected";
+export type IssueType = "bug" | "feature" | "enhancement" | "question" | "discussion" | "chore";
+export type Priority = "low" | "normal" | "high" | "critical";
+
+export interface Card {
+  id: string; number: number; title: string;
+  type: IssueType; status: IssueStatus; priority: Priority;
+  area: string; humanOnly: boolean; busy: boolean;
+  source: string; route: string;
+  commentCount: number; voteCount: number;
+  assignee: string; attempts: number;
+  labels: string[]; createdAt: string;
+}
+
+export interface Pin {
+  ordinal: number; testid: string; css: string; role: string; name: string;
+  hint: string; tag: string; href: string; verified: string[];
+  resolvedState: string; resolveAttempts: number; resolveHits: number;
+  rectX: number; rectY: number; rectW: number; rectH: number;
+  scrollY: number; viewport: [number, number]; dpr: number;
+}
+
+export interface Comment {
+  id: string; author: string; kind: string; body: string; createdAt: string;
+}
+
+export interface Activity {
+  action: string; actorKind: string; detail: string; createdAt: string;
+}
+
+export interface Detail extends Card {
+  body: string; pageUrl: string; locale: string; branch: string; prUrl: string;
+  pins: Pin[]; comments: Comment[]; activity: Activity[];
+}
+
+export interface Board { columns: IssueStatus[]; cards: Record<IssueStatus, Card[]> }
+
+const base = `${API}/api/builder`;
+
+async function json<T>(res: Response): Promise<T> {
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error((data as any).error || `request failed (${res.status})`);
+  return data as T;
+}
+
+export const fetchBoard = () =>
+  fetch(`${base}/board`, { credentials: "include" }).then(json<Board>);
+
+export const fetchIssue = (n: number | string) =>
+  fetch(`${base}/issues/${n}`, { credentials: "include" }).then(json<Detail>);
+
+export const patchIssue = (n: number | string, patch: Partial<{
+  status: IssueStatus; priority: Priority; type: IssueType; area: string; humanOnly: boolean;
+}>) =>
+  fetch(`${base}/issues/${n}`, {
+    method: "PATCH",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  }).then(json<{ ok: boolean }>);
+
+export const addComment = (n: number | string, body: string, author: string) =>
+  fetch(`${base}/issues/${n}/comments`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ body, author }),
+  }).then(json<{ ok: boolean }>);
+
+export const COLUMN_LABEL: Record<IssueStatus, string> = {
+  triage: "Triage",
+  ready: "To do",
+  in_progress: "In progress",
+  blocked: "Blocked",
+  in_review: "Review",
+  done: "Done",
+  rejected: "Rejected",
+};
+
+/** Mirrors the server's transition table so the UI never offers an illegal move. */
+export const TRANSITIONS: Record<IssueStatus, IssueStatus[]> = {
+  triage: ["ready", "rejected", "blocked"],
+  ready: ["in_progress", "blocked", "rejected", "triage"],
+  in_progress: ["in_review", "blocked", "ready", "rejected"],
+  blocked: ["ready", "rejected"],
+  in_review: ["done", "in_progress", "blocked", "rejected"],
+  done: ["ready"],
+  rejected: ["triage"],
+};
+
+export const ago = (iso: string): string => {
+  const s = (Date.now() - new Date(iso).getTime()) / 1000;
+  if (s < 60) return "just now";
+  if (s < 3600) return `${Math.floor(s / 60)}m`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h`;
+  return `${Math.floor(s / 86400)}d`;
+};

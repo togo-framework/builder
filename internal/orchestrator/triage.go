@@ -48,20 +48,50 @@ Reply with ONLY a JSON object, no prose:
 {
   "type": "bug|feature|enhancement|question|discussion|chore",
   "priority": "low|normal|high|critical",
-  "area": "a short lowercase slug for the part of the system, e.g. auth, billing, ui",
+  "area": "MUST be one of the areas listed below — not a name you invent",
   "decision": "ready|needs_human|rejected",
   "reason": "one sentence explaining the decision",
   "restated_problem": "one sentence restating the actual problem in your own words"
 }
 
+## Areas
+
+Choose the area from THIS LIST ONLY. These are the parts of the system the team
+actually owns; an area outside it belongs to nobody and the issue would sit in
+the queue forever.
+
+%s
+
+Match on what the owner DOES, not on a word the report happens to share with a
+slug. If no owner's actual surface covers the report, use "" (empty). An
+unassigned area is workable by any agent and is visibly unrouted; a wrong-but-
+covered area sends the work to an agent that will refuse it, costing a full run.
+Choosing "" is the correct answer, not a failure to classify.
+
 Decision guidance:
 - "ready"       — actionable and specific enough for an engineer to start.
 - "needs_human" — plausible but underspecified, ambiguous, or it touches
                   security, billing, legal, or customer communication.
+                  NOT "someone should approve this": the operator who filed the
+                  report is the stakeholder and has already asked for it. Never
+                  park work pending sign-off, product confirmation, or design
+                  review — there is nobody else to ask.
 - "rejected"    — spam, empty, or not a report at all.
 
 Be conservative: when unsure between ready and needs_human, choose needs_human.
-A wrongly-queued issue costs an agent run; a wrongly-parked one costs a glance.`
+A wrongly-queued issue costs an agent run; a wrongly-parked one costs a glance.
+
+## Weigh the pin before you call something underspecified
+
+A pinned element is the reporter physically pointing at the thing they mean, so
+treat it as answering "which page?" and "which component?" — do not park an
+issue for ambiguity the pin has already resolved. "Remove these widgets" with a
+pin on the widget container is actionable; the same words with no pin are not.
+
+Park it only when something the pin CANNOT supply is missing — the desired end
+state, a reproduction for a bug that is not visible in the capture, or a
+decision that is genuinely the operator's to make. Typos and clipped phrasing
+in a report are normal; read past them rather than blocking on them.`
 
 var (
 	validTypes      = map[string]bool{"bug": true, "feature": true, "enhancement": true, "question": true, "discussion": true, "chore": true}
@@ -71,12 +101,12 @@ var (
 // TriageOne classifies the oldest untriaged issue. Returns false when there is
 // nothing to do, so the caller can back off.
 func (o *Orchestrator) TriageOne(ctx context.Context) (bool, error) {
-	var id, title, body string
+	var id, title, body, route, pageURL string
 	var number int64
 	err := o.db.QueryRowContext(ctx,
-		`SELECT id, number, title, body_md FROM builder_issues
+		`SELECT id, number, title, body_md, route, page_url FROM builder_issues
 		  WHERE status = 'triage'
-		  ORDER BY created_at ASC LIMIT 1`).Scan(&id, &number, &title, &body)
+		  ORDER BY created_at ASC LIMIT 1`).Scan(&id, &number, &title, &body, &route, &pageURL)
 	if err == sql.ErrNoRows {
 		return false, nil
 	}
@@ -84,10 +114,10 @@ func (o *Orchestrator) TriageOne(ctx context.Context) (bool, error) {
 		return false, fmt.Errorf("select untriaged: %w", err)
 	}
 
-	report := fmt.Sprintf("Title: %s\n\nBody:\n%s", title, body)
+	report := o.reportContext(ctx, id, title, body, route, pageURL)
 	sess := runner.Session{
 		ID:     newUUID(),
-		Prompt: fmt.Sprintf(triagePrompt, wrapUntrusted(report)),
+		Prompt: fmt.Sprintf(triagePrompt, wrapUntrusted(report), o.fleetAreas(ctx)),
 		// Cheapest model: this is classification, not reasoning about code.
 		Model: o.cfg.TriageModel,
 		// No tools. Triage reads the report and nothing else.
@@ -161,6 +191,48 @@ func (o *Orchestrator) TriageOne(ctx context.Context) (bool, error) {
 	return true, nil
 }
 
+// fleetAreas lists the areas ENABLED agents cover, WITH the owning agent and
+// what it actually does.
+//
+// Bare slugs are not enough, because slugs collide. The fleet's
+// `feedback-widget-engineer` declares `widget` meaning the embeddable feedback
+// widget; a report asking to remove "the widgets" from the dashboard was routed
+// to it on the word alone, and the agent correctly refused work that was not
+// its surface — one wasted run. The owner's description disambiguates it.
+func (o *Orchestrator) fleetAreas(ctx context.Context) string {
+	rows, err := o.db.QueryContext(ctx,
+		`SELECT slug, description, areas FROM builder_agents
+		  WHERE enabled = true AND role = 'builder' AND persona_md <> ''
+		  ORDER BY slug`)
+	if err != nil {
+		return `(none declared — use "")`
+	}
+	defer rows.Close()
+
+	var out []string
+	for rows.Next() {
+		var slug, desc string
+		var areas sql.NullString
+		if rows.Scan(&slug, &desc, &areas) != nil {
+			continue
+		}
+		list := parsePGArray(areas.String)
+		if len(list) == 0 {
+			continue
+		}
+		desc = strings.TrimSpace(strings.SplitN(desc, "\n", 2)[0])
+		line := fmt.Sprintf("- %s — owned by %s", strings.Join(list, ", "), slug)
+		if desc != "" {
+			line += ": " + truncateText(desc, 220)
+		}
+		out = append(out, line)
+	}
+	if len(out) == 0 {
+		return `(no agent is enabled yet — always use "")`
+	}
+	return strings.Join(out, "\n")
+}
+
 // slug normalizes a model-supplied area into something safe to store and group by.
 func slug(s string) string {
 	s = strings.ToLower(strings.TrimSpace(s))
@@ -178,4 +250,122 @@ func slug(s string) string {
 		out = out[:40]
 	}
 	return out
+}
+
+// reportContextByID loads an issue and renders its full report context.
+//
+// Used by the implement run, which holds a claim rather than the row. The agent
+// writing the fix needs the pinned element at least as much as triage does —
+// it is what tells it which component to open.
+func (o *Orchestrator) reportContextByID(ctx context.Context, issueID string) string {
+	var title, body, route, pageURL string
+	if err := o.db.QueryRowContext(ctx,
+		`SELECT title, body_md, route, page_url FROM builder_issues WHERE id = $1`,
+		issueID).Scan(&title, &body, &route, &pageURL); err != nil {
+		return ""
+	}
+	return o.reportContext(ctx, issueID, title, body, route, pageURL)
+}
+
+// reportContext assembles everything the reporter actually gave us.
+//
+// This used to be title + body, and nothing else. The SDK captures the page
+// URL, the pinned element (tag, accessible name, test id, CSS path, visible
+// text) and a screenshot precisely so that a one-line report is still
+// actionable — and triage discarded all of it, then asked the reporter which
+// page and which component they meant. The pin picker exists to answer exactly
+// that question; not passing it through made the feature pointless and pushed
+// well-specified issues into `blocked`.
+func (o *Orchestrator) reportContext(
+	ctx context.Context, issueID, title, body, route, pageURL string,
+) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "Title: %s\n\nBody:\n%s\n", title, strings.TrimSpace(body))
+
+	if pageURL != "" || route != "" {
+		b.WriteString("\nReported from:\n")
+		if pageURL != "" {
+			fmt.Fprintf(&b, "- page: %s\n", pageURL)
+		}
+		if route != "" {
+			fmt.Fprintf(&b, "- route: %s\n", route)
+		}
+	}
+
+	// The pinned element. This is the strongest signal in the whole report: the
+	// reporter physically pointed at the component they mean.
+	rows, err := o.db.QueryContext(ctx,
+		`SELECT ordinal, tag_name, aria_role, aria_name, testid, css_path, text_hint,
+		        viewport_w, viewport_h
+		   FROM builder_issue_pins WHERE issue_id = $1 ORDER BY ordinal`, issueID)
+	if err == nil {
+		defer rows.Close()
+		n := 0
+		for rows.Next() {
+			var ord, vw, vh int
+			var tag, role, name, testid, css, hint string
+			if rows.Scan(&ord, &tag, &role, &name, &testid, &css, &hint, &vw, &vh) != nil {
+				continue
+			}
+			n++
+			if n == 1 {
+				b.WriteString("\nElements the reporter pinned on that page:\n")
+			}
+			fmt.Fprintf(&b, "- pin %d: <%s>", n, orDash(tag))
+			if name != "" {
+				fmt.Fprintf(&b, " named %q", name)
+			}
+			if role != "" {
+				fmt.Fprintf(&b, " role=%s", role)
+			}
+			b.WriteString("\n")
+			if testid != "" {
+				fmt.Fprintf(&b, "    data-testid: %s\n", testid)
+			}
+			if css != "" {
+				fmt.Fprintf(&b, "    css path:    %s\n", css)
+			}
+			if hint != "" {
+				fmt.Fprintf(&b, "    visible text: %s\n", truncateText(hint, 300))
+			}
+			if vw > 0 {
+				fmt.Fprintf(&b, "    viewport:    %dx%d\n", vw, vh)
+			}
+		}
+	}
+
+	// Attachments are named but not inlined — triage runs with no tools and
+	// cannot open them. Their presence is still evidence the report is concrete.
+	arows, err := o.db.QueryContext(ctx,
+		`SELECT kind, file_name FROM builder_issue_attachments
+		  WHERE issue_id = $1 ORDER BY created_at`, issueID)
+	if err == nil {
+		defer arows.Close()
+		var atts []string
+		for arows.Next() {
+			var kind, name string
+			if arows.Scan(&kind, &name) == nil {
+				atts = append(atts, fmt.Sprintf("%s (%s)", name, kind))
+			}
+		}
+		if len(atts) > 0 {
+			fmt.Fprintf(&b, "\nAttachments: %s\n", strings.Join(atts, ", "))
+		}
+	}
+	return b.String()
+}
+
+func orDash(s string) string {
+	if s == "" {
+		return "?"
+	}
+	return s
+}
+
+func truncateText(s string, n int) string {
+	s = strings.Join(strings.Fields(s), " ")
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "…"
 }

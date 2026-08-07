@@ -96,6 +96,9 @@ export function mount(opts: MountOptions = {}): Handle {
         <div class="listing">
           <div class="label lbl-page"></div>
           <div class="rows"></div>
+          <!-- The panel shows only issues for THIS page. Getting to the full
+               board previously meant knowing the /issues URL by heart. -->
+          <a class="board-link" href="/issues" target="_blank" rel="noopener"></a>
         </div>
       </div>
       <div class="foot hidden"><button type="submit" class="primary send"></button></div>
@@ -135,6 +138,7 @@ export function mount(opts: MountOptions = {}): Handle {
   $(".lbl-loc").textContent = t.location;
   $(".lbl-att").textContent = t.attachments;
   $(".lbl-page").textContent = t.onThisPage;
+  $(".board-link").textContent = t.openBoard + " →";
   titleIn.placeholder = t.titlePlaceholder;
   bodyIn.placeholder = t.detailsPlaceholder;
   pinBtn.textContent = "📍 " + t.pin;
@@ -440,9 +444,14 @@ export function mount(opts: MountOptions = {}): Handle {
       b.append(el("span", "num", `#${it.number}`), el("span", `chip ${it.type}`, t[it.type]));
       b.appendChild(el("span", "t", it.title));
       if (it.busy) {
-        const s = el("span", "spin", "");
-        s.setAttribute("title", t.agentWorking);
-        b.appendChild(s);
+        // Name the agent. A bare spinner says "something is happening"; the
+        // operator's actual question is WHICH agent took this, because that is
+        // what tells them whether the right specialist picked it up.
+        const who = el("span", "agent-tag", "");
+        who.appendChild(el("span", "spin", ""));
+        who.appendChild(el("span", "who", it.agent || t.agentWorking));
+        who.setAttribute("title", it.agent ? t.agentWorkingBy(it.agent) : t.agentWorking);
+        b.appendChild(who);
       }
       // Open in the panel, not a new tab: the reporter is mid-task on the page
       // the issue is about, and a navigation throws that context away.

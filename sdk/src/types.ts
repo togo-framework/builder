@@ -71,6 +71,8 @@ export interface IssueSummary {
   status: IssueStatus;
   /** True while an agent holds a lease on it — drives the inline spinner. */
   busy: boolean;
+  /** Slug of the agent currently working it. Empty unless `busy`. */
+  agent?: string;
   commentCount: number;
 }
 

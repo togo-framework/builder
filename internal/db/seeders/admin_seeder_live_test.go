@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"os"
+	"strings"
 	"testing"
 
 	_ "github.com/lib/pq"
@@ -15,6 +16,21 @@ func open(t *testing.T) *sql.DB {
 	dsn := os.Getenv("TEST_DATABASE_URL")
 	if dsn == "" {
 		t.Skip("TEST_DATABASE_URL not set")
+	}
+	// This fixture DELETEs from users. Refuse anything but a throwaway database.
+	if !strings.Contains(dsn, "_test") {
+		t.Fatalf("refusing to run destructive fixtures against %q: "+
+			"the DSN must name a _test database", dsn)
+	}
+	// lib/pq defaults to sslmode=require, unlike the pgx driver the rest of the
+	// suite uses — against a local dev server that is a hard failure rather than
+	// a fallback, so the whole package failed on connect.
+	if !strings.Contains(dsn, "sslmode=") {
+		sep := "?"
+		if strings.Contains(dsn, "?") {
+			sep = "&"
+		}
+		dsn += sep + "sslmode=disable"
 	}
 	db, err := sql.Open("postgres", dsn)
 	if err != nil {

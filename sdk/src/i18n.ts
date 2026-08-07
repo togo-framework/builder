@@ -34,6 +34,8 @@ const en = {
   failed: "Could not submit. Try again.",
   titleRequired: "A title is required.",
   agentWorking: "An agent is working on this",
+  agentWorkingBy: (who: string) => `${who} is working on this`,
+  openBoard: "Open the issue board",
   dir: "ltr" as "ltr" | "rtl",
 };
 
@@ -74,6 +76,8 @@ const ar: Dict = {
   failed: "تعذّر الإرسال. حاول مرة أخرى.",
   titleRequired: "العنوان مطلوب.",
   agentWorking: "يعمل أحد الوكلاء على هذه المشكلة",
+  agentWorkingBy: (who: string) => `${who} يعمل على هذه المشكلة`,
+  openBoard: "فتح لوحة المشكلات",
   dir: "rtl",
 };
 

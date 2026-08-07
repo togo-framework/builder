@@ -358,6 +358,19 @@ func checkClaudeExec(ctx context.Context) Check {
 	return c
 }
 
+// fromJSONLine returns everything from the first line that begins with "[" or
+// "{" — the start of the JSON payload, past any warning prose above it.
+func fromJSONLine(s string) string {
+	offset := 0
+	for _, line := range strings.Split(s, "\n") {
+		if t := strings.TrimSpace(line); strings.HasPrefix(t, "[") || strings.HasPrefix(t, "{") {
+			return s[offset+strings.Index(line, strings.TrimLeft(line, " \t")):]
+		}
+		offset += len(line) + 1
+	}
+	return s
+}
+
 // claudeResult is the terminal event of a headless run.
 type claudeResult struct {
 	Type         string  `json:"type"`
@@ -380,6 +393,17 @@ func parseClaudeResult(out string) (claudeResult, error) {
 	if trimmed == "" {
 		return claudeResult{}, errors.New("empty output")
 	}
+
+	// Claude Code writes warnings to STDOUT ahead of the payload — e.g.
+	// "Ignoring N permissions.allow entries…: this workspace has not been
+	// trusted". Parsing from byte 0 dies on the "I" and reports a JSON error
+	// for what is really a configuration notice.
+	//
+	// Scanning for the first "[" or "{" anywhere is NOT enough: that warning
+	// contains `projects["/path"].hasTrustDialogAccepted`, so the first bracket
+	// sits inside the prose. The payload always begins a line, so find the
+	// first LINE that starts with a structural character.
+	trimmed = fromJSONLine(trimmed)
 
 	if strings.HasPrefix(trimmed, "[") {
 		var events []claudeResult

@@ -24,7 +24,6 @@ import (
 	"os"
 	"strings"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/togo-framework/togo"
 )
 
@@ -59,10 +58,6 @@ func New(k *togo.Kernel) (*Service, error) {
 	}
 	return &Service{key: key}, nil
 }
-
-// Routes mounts the vault HTTP surface. Wired in a later phase; the router is
-// claimed now so the path is reserved and the provider boundary is real.
-func (s *Service) Routes(r chi.Router) {}
 
 // ValidateVaultKey reports whether raw is a usable 32-byte key.
 //

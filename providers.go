@@ -10,8 +10,10 @@ import (
 
 	"github.com/togo-framework/togo"
 
+	"github.com/togo-framework/builder/internal/brain"
 	"github.com/togo-framework/builder/internal/fleet"
 	"github.com/togo-framework/builder/internal/issues"
+	"github.com/togo-framework/builder/internal/notify"
 	"github.com/togo-framework/builder/internal/orchestrator"
 	"github.com/togo-framework/builder/internal/runner"
 	"github.com/togo-framework/builder/internal/setup"
@@ -37,22 +39,58 @@ func provideVault(k *togo.Kernel) error {
 		return err
 	}
 	k.Set(ProviderVault, svc)
-	k.Router.Route("/api/builder/vault", svc.Routes)
+
+	// The HTTP surface needs the database for audit; without one the crypto is
+	// still available in-process but nothing is exposed, because a reveal that
+	// cannot be recorded must not happen.
+	if db, dbErr := k.SQL(context.Background()); dbErr == nil {
+		store := vault.NewStore(svc, db, k.Log)
+		k.Set(ProviderVault+".store", store)
+		k.Router.Route("/api/builder/vault", store.Routes)
+	} else if k.Log != nil {
+		k.Log.Warn("vault HTTP surface disabled: no database", "err", dbErr)
+	}
 	return nil
 }
 
 func provideBrain(k *togo.Kernel) error {
-	// Phase 3. Driver interface with pgvector as the default in the app's own
-	// Postgres; cabrain in-process is the recommended upgrade and the hosted
-	// instance is opt-in only (it answered 502 during research, runs with no
-	// HA, and resolves tokenless callers as admin).
-	k.Set(ProviderBrain, nil)
+	// pgvector in the app's own Postgres. cabrain in-process is the recommended
+	// upgrade; the hosted instance stays opt-in only (it answered 502 during
+	// research, runs with no HA, and resolves tokenless callers as admin).
+	//
+	// This used to be `k.Set(ProviderBrain, nil)` — a stub. The store, its
+	// schema and its tests all existed, so everything LOOKED finished, but
+	// nothing ever constructed it: builder_memories stayed empty forever and
+	// every agent started each run knowing nothing.
+	db, err := k.SQL(context.Background())
+	if err != nil {
+		k.Set(ProviderBrain, nil)
+		return nil // no database: the loop still runs, just without memory
+	}
+	store, err := brain.New(db, k.Log, brain.HashEmbedder{})
+	if err != nil {
+		k.Log.Warn("builder.brain unavailable — agents will run without memory", "err", err)
+		k.Set(ProviderBrain, nil)
+		return nil
+	}
+	k.Set(ProviderBrain, store)
+	k.Log.Info("builder.brain ready", "embedder", brain.HashEmbedder{}.Name(),
+		"dim", brain.HashEmbedder{}.Dimensions())
 	return nil
 }
 
 func provideNotify(k *togo.Kernel) error {
-	// Phase 4. Realtime private-user channel + Web Push + the audible alert.
-	k.Set(ProviderNotify, nil)
+	db, err := k.SQL(context.Background())
+	if err != nil {
+		if k.Log != nil {
+			k.Log.Warn("builder.notify disabled: no database", "err", err)
+		}
+		k.Set(ProviderNotify, nil)
+		return nil
+	}
+	svc := notify.New(db, k.Log)
+	k.Set(ProviderNotify, svc)
+	k.Router.Route("/api/builder/notify", svc.Routes)
 	return nil
 }
 
@@ -81,24 +119,25 @@ func provideIssues(k *togo.Kernel) error {
 	k.Router.Route("/api/builder", svc.Routes)
 
 	// Serve the SDK bundle so a host page needs one script tag and no build step.
-	if dir := sdkDir(); dir != "" {
-		k.Router.Handle("/sdk/*", http.StripPrefix("/sdk/", http.FileServer(http.Dir(dir))))
-	}
-	return nil
-}
-
-// sdkDir resolves the built SDK bundle. Overridable so a deployment can serve
-// it from wherever its assets live.
-func sdkDir() string {
-	if d := os.Getenv("BUILDER_SDK_DIR"); d != "" {
-		return d
-	}
-	for _, c := range []string{"sdk/dist", "../builder/sdk/dist"} {
-		if _, err := os.Stat(c); err == nil {
-			return c
+	//
+	// From the embedded FS by default: a scaffolded project has no sdk/ source
+	// tree, so a filesystem path works here and 404s in every generated app.
+	// BUILDER_SDK_DIR still overrides, for developing the widget itself.
+	if dir := os.Getenv("BUILDER_SDK_DIR"); dir != "" {
+		if _, err := os.Stat(dir); err == nil {
+			k.Router.Handle("/sdk/*", http.StripPrefix("/sdk/", http.FileServer(http.Dir(dir))))
+			return nil
+		}
+		if k.Log != nil {
+			k.Log.Warn("BUILDER_SDK_DIR does not exist; serving the embedded SDK", "dir", dir)
 		}
 	}
-	return ""
+	if sub, err := SDKFiles(); err == nil {
+		k.Router.Handle("/sdk/*", http.StripPrefix("/sdk/", http.FileServer(http.FS(sub))))
+	} else if k.Log != nil {
+		k.Log.Error("the embedded SDK is unavailable", "err", err)
+	}
+	return nil
 }
 
 func provideFleet(k *togo.Kernel) error {
@@ -139,7 +178,29 @@ func provideOrchestrator(k *togo.Kernel) error {
 		if v := os.Getenv("BUILDER_TRIAGE_MODEL"); v != "" {
 			cfg.TriageModel = v
 		}
+		// Publishing is a SECOND, separate opt-in on top of BUILDER_RUNNER.
+		// Running the loop means letting agents write code on local branches;
+		// it must not also mean letting them push to a remote. An operator who
+		// wants PRs says so explicitly.
+		cfg.OpenPR = os.Getenv("BUILDER_OPEN_PR") == "1"
+		if v := os.Getenv("BUILDER_PR_BASE"); v != "" {
+			cfg.PRBase = v
+		}
+		if v := os.Getenv("BUILDER_PR_REMOTE"); v != "" {
+			cfg.PRRemote = v
+		}
 		orch := orchestrator.New(db, k.Log, cfg)
+		if n, ok := k.Get(ProviderNotify); ok && n != nil {
+			if ns, ok := n.(*notify.Service); ok {
+				orch.SetNotifier(ns)
+			}
+		}
+		if b, ok := k.Get(ProviderBrain); ok && b != nil {
+			if bs, ok := b.(*brain.Store); ok {
+				orch.SetBrain(brainAdapter{bs})
+				k.Log.Info("builder.orchestrator wired to the brain")
+			}
+		}
 		k.Set(ProviderOrchestrator, orch)
 
 		// Detached: the loop outlives any request.
@@ -147,7 +208,12 @@ func provideOrchestrator(k *togo.Kernel) error {
 		k.Log.Info("builder.orchestrator running",
 			"triage_model", cfg.TriageModel,
 			"poll", cfg.PollInterval,
-			"daily_budget_usd", cfg.DailyBudgetUSD)
+			"daily_budget_usd", cfg.DailyBudgetUSD,
+			"open_pr", cfg.OpenPR)
+		if !cfg.OpenPR {
+			k.Log.Info("builder.orchestrator will NOT push — " +
+				"work lands on local branches; set BUILDER_OPEN_PR=1 to open pull requests")
+		}
 	} else {
 		k.Set(ProviderOrchestrator, nil)
 		if dbErr == nil && k.Log != nil {
@@ -194,4 +260,34 @@ func activeProviders() []string {
 		}
 	}
 	return out
+}
+
+// brainAdapter bridges *brain.Store to orchestrator.Brain.
+//
+// The two Recall signatures differ only in their element type, so the adapter
+// exists purely to keep the orchestrator free of a compile-time dependency on
+// the brain package — the same reason Notifier is an interface.
+type brainAdapter struct{ s *brain.Store }
+
+func (a brainAdapter) Recall(ctx context.Context, agentSlug, query string, limit int) ([]orchestrator.Memory, error) {
+	mems, err := a.s.Recall(ctx, agentSlug, query, limit)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]orchestrator.Memory, 0, len(mems))
+	for _, m := range mems {
+		out = append(out, orchestrator.Memory{
+			Content: m.Content, SourceKind: m.SourceKind,
+			SourceRef: m.SourceRef, Score: m.Score,
+		})
+	}
+	return out, nil
+}
+
+func (a brainAdapter) Writable(ctx context.Context, agentSlug string) (string, error) {
+	return a.s.Writable(ctx, agentSlug)
+}
+
+func (a brainAdapter) Retain(ctx context.Context, ns, content, sourceKind, sourceRef string, importance float64) (string, error) {
+	return a.s.Retain(ctx, ns, content, sourceKind, sourceRef, importance)
 }

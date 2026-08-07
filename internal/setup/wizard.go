@@ -222,11 +222,13 @@ func (s *Service) handleGenerate(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(context.Background(), 25*time.Minute)
 		defer cancel()
 
-		m, cost, err := s.gen.Generate(ctx, name, plan, "", func(stage string, done, total int) {
-			s.mu.Lock()
-			s.progress.Stage, s.progress.Step, s.progress.Total = stage, done, total
-			s.mu.Unlock()
-		})
+		m, cost, err := s.gen.Generate(ctx, name, plan, "",
+			func(stage string, done, total int, spent float64) {
+				s.mu.Lock()
+				s.progress.Stage, s.progress.Step, s.progress.Total = stage, done, total
+				s.progress.CostUSD = spent // visible while it runs, not only at the end
+				s.mu.Unlock()
+			})
 
 		s.mu.Lock()
 		s.running = false

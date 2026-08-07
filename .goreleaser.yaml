@@ -1,0 +1,68 @@
+# GoReleaser config for togo-builder.
+#
+# The binary is named `togo-builder` deliberately: togo's CLI resolves an
+# unknown verb to a `togo-<name>` binary on PATH, so this name IS the
+# integration. `togo builder new acme` works with zero changes to togo/cli.
+version: 2
+
+project_name: togo-builder
+
+before:
+  hooks:
+    - go mod tidy
+    # The blueprint is embedded, so a stale or missing template would ship
+    # silently. Building first proves the embed resolves.
+    - go build ./...
+
+builds:
+  - id: togo-builder
+    main: ./cmd/togo-builder
+    binary: togo-builder
+    env:
+      - CGO_ENABLED=0
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    ldflags:
+      - -s -w
+      - -X github.com/togo-framework/builder.Version={{.Version}}
+
+archives:
+  - id: default
+    # The npm installer derives this exact name; changing the template breaks
+    # `npx create-togo-builder` for every future release.
+    name_template: >-
+      {{ .ProjectName }}_{{ .Os }}_{{ .Arch }}
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+
+# The npm postinstall fetches this file and verifies the archive against it
+# before executing anything. Removing it silently disables that check.
+checksum:
+  name_template: "checksums.txt"
+  algorithm: sha256
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  use: github
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+
+release:
+  draft: false
+  prerelease: auto
+  footer: |
+    ## Install
+
+    ```bash
+    npx create-togo-builder@latest my-project
+    ```
+
+    The postinstall verifies the binary's SHA-256 against `checksums.txt`
+    before running it.

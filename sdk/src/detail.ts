@@ -1,6 +1,7 @@
 import { dict } from "./i18n";
 import { highlight } from "./picker";
 import type { PinAnchor } from "./types";
+import { renderMarkdown } from "./markdown";
 
 /**
  * Issue detail, rendered inside the widget's own panel.
@@ -107,7 +108,11 @@ export function createDetail(
     );
     el.append(meta, node("h3", "d-title", d.title));
 
-    if (d.body) el.appendChild(node("p", "d-body", d.body));
+    if (d.body) {
+      const body = node("div", "d-body", "");
+      body.appendChild(renderMarkdown(d.body));
+      el.appendChild(body);
+    }
 
     // The pin is the reason this view is worth having in-page: the element is
     // on the screen behind the panel, so it can actually be shown.
@@ -138,7 +143,9 @@ export function createDetail(
       const box = node("div", "d-comment", "");
       const who = node("p", "who", c.author || "someone");
       if (c.kind === "agent") who.appendChild(node("span", "chip agent", "agent"));
-      box.append(who, node("p", "txt", c.body));
+      const txt = node("div", "txt", "");
+      txt.appendChild(renderMarkdown(c.body));
+      box.append(who, txt);
       el.appendChild(box);
     }
 

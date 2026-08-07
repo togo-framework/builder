@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"mime/multipart"
 	"net"
 	"net/http"
 	"net/url"
@@ -65,6 +66,7 @@ func (s *Service) Routes(r chi.Router) {
 	r.Post("/issues/{number}/comments", s.handleComment)
 	r.Delete("/issues/{number}", s.handleDelete)
 	r.Post("/issues/bulk-delete", s.handleBulkDelete)
+	r.Get("/attachments/{id}", s.handleAttachment)
 }
 
 // ---------------------------------------------------------------------------
@@ -154,7 +156,7 @@ func (s *Service) handleFeedback(w http.ResponseWriter, r *http.Request) {
 	}
 	in.Route = truncate(in.Route, 512)
 
-	id, number, err := s.create(r.Context(), in, ipHash)
+	id, number, err := s.create(r.Context(), in, ipHash, r.MultipartForm)
 	if err != nil {
 		s.log.Error("create issue", "err", err)
 		httpErr(w, http.StatusInternalServerError, "could not create the issue")
@@ -171,7 +173,7 @@ func (s *Service) handleFeedback(w http.ResponseWriter, r *http.Request) {
 // before any implementer can claim it. Feedback ingress is the only path that
 // may set `triage`, which is what stops an anonymous reporter from injecting
 // work straight into the agent queue.
-func (s *Service) create(ctx context.Context, in newIssue, ipHash string) (string, int64, error) {
+func (s *Service) create(ctx context.Context, in newIssue, ipHash string, form *multipart.Form) (string, int64, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return "", 0, err
@@ -225,10 +227,18 @@ func (s *Service) create(ctx context.Context, in newIssue, ipHash string) (strin
 		}
 	}
 
+	// Attachments share the issue's transaction: a report that references a
+	// screenshot which was never stored is worse than one with no screenshot.
+	stored, problems := s.saveAttachments(ctx, tx, id, form)
+	if len(problems) > 0 {
+		s.log.Warn("some attachments were rejected", "issue", number, "problems", problems)
+	}
+
 	if _, err := tx.ExecContext(ctx,
 		`INSERT INTO builder_issue_activity (issue_id, action, actor_kind, detail)
 		 VALUES ($1,'created','anon',$2::jsonb)`,
-		id, fmt.Sprintf(`{"source":"feedback","route":%q,"pins":%d}`, in.Route, len(in.Pins)),
+		id, fmt.Sprintf(`{"source":"feedback","route":%q,"pins":%d,"attachments":%d}`,
+			in.Route, len(in.Pins), len(stored)),
 	); err != nil {
 		return "", 0, fmt.Errorf("insert activity: %w", err)
 	}
@@ -260,6 +270,11 @@ type issueRow struct {
 	Status       string `json:"status"`
 	Busy         bool   `json:"busy"`
 	CommentCount int    `json:"commentCount"`
+	// Agent is the agent currently holding the lease. Empty unless Busy.
+	// "An agent is working on this" is far less useful than "amr is working on
+	// this" — the operator wants to know WHO, so they can judge whether the
+	// right specialist picked it up.
+	Agent string `json:"agent,omitempty"`
 }
 
 func (s *Service) handleList(w http.ResponseWriter, r *http.Request) {
@@ -268,9 +283,14 @@ func (s *Service) handleList(w http.ResponseWriter, r *http.Request) {
 		route = "/"
 	}
 	rows, err := s.db.QueryContext(r.Context(),
+		// assignee_agent_id is the agent slug (builder_agents.slug is the key the
+		// claim writes). It is reported ONLY while the lease is live: a stale
+		// assignee on a finished issue would read as "still working".
 		`SELECT id, number, title, type::text, status::text,
 		        (status = 'in_progress' AND lease_expires_at > now()) AS busy,
-		        comment_count
+		        comment_count,
+		        CASE WHEN status = 'in_progress' AND lease_expires_at > now()
+		             THEN coalesce(assignee_agent_id, '') ELSE '' END AS agent
 		   FROM builder_issues
 		  WHERE route = $1 AND status <> 'rejected'
 		  ORDER BY created_at DESC
@@ -285,7 +305,8 @@ func (s *Service) handleList(w http.ResponseWriter, r *http.Request) {
 	out := make([]issueRow, 0, 16)
 	for rows.Next() {
 		var it issueRow
-		if err := rows.Scan(&it.ID, &it.Number, &it.Title, &it.Type, &it.Status, &it.Busy, &it.CommentCount); err != nil {
+		if err := rows.Scan(&it.ID, &it.Number, &it.Title, &it.Type, &it.Status,
+			&it.Busy, &it.CommentCount, &it.Agent); err != nil {
 			s.log.Error("scan issue", "err", err)
 			httpErr(w, http.StatusInternalServerError, "could not read issues")
 			return

@@ -1,0 +1,59 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  # The npm package's version drives the download URL its own postinstall
+  # builds. If package.json and the tag disagree, every install 404s — and it
+  # only shows up after publishing. Fail before anything is released.
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: npm version must equal the git tag
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PKG=$(node -p "require('./npm/package.json').version")
+          if [ "$TAG" != "$PKG" ]; then
+            echo "::error::git tag v$TAG != npm/package.json $PKG"
+            echo "The npm postinstall builds its download URL from package.json;"
+            echo "a mismatch makes every install 404."
+            exit 1
+          fi
+          echo "version $TAG matches"
+
+  goreleaser:
+    needs: guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-go@v5
+        with: { go-version: "1.26" }
+      - uses: goreleaser/goreleaser-action@v6
+        with: { version: "~> v2", args: "release --clean" }
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  npm:
+    # Must follow goreleaser: the postinstall downloads assets from the release
+    # this job's predecessor creates. Publishing first gives every early
+    # installer a 404.
+    needs: goreleaser
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+      - name: publish create-togo-builder
+        working-directory: npm
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

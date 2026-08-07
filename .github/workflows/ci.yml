@@ -1,0 +1,71 @@
+name: ci
+
+on:
+  push: { branches: [main] }
+  pull_request:
+
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: builder_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 10s
+          --health-timeout 5s --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: "1.26" }
+      - run: go build ./...
+      - run: go vet ./...
+      - name: apply migrations
+        run: |
+          for f in db/migrations/*.sql; do
+            PGPASSWORD=postgres psql -h localhost -U postgres -d builder_test -v ON_ERROR_STOP=1 -f "$f"
+          done
+      - name: test
+        # The suite refuses any DSN without "_test" in it — an earlier version
+        # wiped a development database.
+        env:
+          TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/builder_test?sslmode=disable
+        run: go test ./internal/...
+
+  sdk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "20" }
+      - run: corepack enable
+      - working-directory: sdk
+        run: pnpm install --frozen-lockfile || pnpm install
+      - working-directory: sdk
+        run: pnpm typecheck && pnpm build
+      # The markdown renderer runs in the HOST page's origin on untrusted issue
+      # text, so its XSS assertions gate the build.
+      - working-directory: sdk
+        run: pnpm test
+
+  hooks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: every guard hook must parse
+        # A hook with a syntax error fails open and silently stops guarding.
+        run: |
+          fail=0
+          for h in blueprint/_claude/hooks/*.sh; do
+            bash -n "$h" || { echo "::error file=$h::syntax error"; fail=1; }
+          done
+          exit $fail
+      - name: the blueprint must not name a specific product
+        run: |
+          if grep -rniE "sentra|mofa|sarde" blueprint/ --include="*.md" --include="*.json" --include="*.sh"; then
+            echo "::error::the blueprint leaked a product-specific reference"
+            exit 1
+          fi

@@ -110,9 +110,8 @@ The agent:
 You have READ-ONLY tools. Look at the actual repository so the persona names
 real paths and real commands, not generic advice.
 
-Reply with ONLY a JSON object:
-
-{ "persona": "markdown, second person, 150-400 words" }
+Reply with the persona as RAW MARKDOWN. No JSON, no code fence around it, no
+preamble — the entire response becomes the file.
 
 The persona must state: who this agent is, the concrete file globs it owns,
 what it must never touch, and how it decides when to stop and ask. A persona
@@ -129,9 +128,8 @@ The skill:
 
 You have READ-ONLY tools. Use the real commands and paths from this repository.
 
-Reply with ONLY a JSON object:
-
-{ "body": "markdown: the procedure, numbered steps, with real commands" }`
+Reply with the skill body as RAW MARKDOWN. No JSON, no wrapper, no preamble —
+the entire response becomes the file. Numbered steps, with real commands.`
 
 type rosterAgent struct {
 	AgentSpec
@@ -153,7 +151,11 @@ type roster struct {
 
 // Progress is reported back to the wizard as the phases advance, so a run that
 // takes ten minutes does not look like a hang.
-type Progress func(stage string, done, total int)
+//
+// spentUSD is included because a ten-minute run showing $0.00 throughout gives
+// the operator no way to tell a cheap run from an expensive one until it is
+// over — by which point the money is spent.
+type Progress func(stage string, done, total int, spentUSD float64)
 
 // Generate runs both phases, writes the tree and persists the fleet.
 func (g *Generator) Generate(ctx context.Context, fleetName, plan, model string, onProgress Progress) (*Manifest, float64, error) {
@@ -163,9 +165,10 @@ func (g *Generator) Generate(ctx context.Context, fleetName, plan, model string,
 	if model == "" {
 		model = "opus"
 	}
+	spent := 0.0
 	report := func(stage string, done, total int) {
 		if onProgress != nil {
-			onProgress(stage, done, total)
+			onProgress(stage, done, total, spent)
 		}
 	}
 
@@ -188,7 +191,7 @@ func (g *Generator) Generate(ctx context.Context, fleetName, plan, model string,
 
 	g.log.Info("fleet phase 1: roster", "model", model)
 	res, err := rosterSess.Run(ctx)
-	spent := res.CostUSD
+	spent = res.CostUSD
 	if err != nil {
 		return nil, spent, fmt.Errorf("roster session: %w", err)
 	}
@@ -268,8 +271,16 @@ func (g *Generator) Generate(ctx context.Context, fleetName, plan, model string,
 	return m, spent, nil
 }
 
-// writeOne runs a single small generation and returns the one string it asked
-// for. A failure here is never fatal — the caller substitutes a fallback.
+// writeOne runs a single small generation and returns its text.
+//
+// The response is RAW MARKDOWN, not JSON. Asking a model to embed a markdown
+// document inside a JSON string field fails three ways, all observed in one
+// run: a code fence containing braces derails the extractor, an unescaped
+// newline breaks the string, and the JSON overhead pushes a long body past the
+// output ceiling mid-object. When the answer is a single string, asking for
+// JSON buys nothing and costs reliability.
+//
+// A failure here is never fatal — the caller substitutes a fallback.
 func (g *Generator) writeOne(ctx context.Context, model, field, prompt string) (string, float64) {
 	sess := runner.Session{
 		ID:             newUUID(),
@@ -286,12 +297,20 @@ func (g *Generator) writeOne(ctx context.Context, model, field, prompt string) (
 		g.log.Warn("generation step failed", "field", field, "err", err)
 		return "", res.CostUSD
 	}
-	var out map[string]string
-	if err := res.JSON(&out); err != nil {
-		g.log.Warn("generation step unparsable", "field", field, "err", err)
+	body := strings.TrimSpace(res.Text)
+	// Strip a fence if the model wrapped the answer despite being told not to.
+	if strings.HasPrefix(body, "```") {
+		if i := strings.IndexByte(body, '\n'); i >= 0 {
+			body = body[i+1:]
+		}
+		body = strings.TrimSuffix(strings.TrimSpace(body), "```")
+		body = strings.TrimSpace(body)
+	}
+	if body == "" {
+		g.log.Warn("generation step returned nothing", "field", field)
 		return "", res.CostUSD
 	}
-	return strings.TrimSpace(out[field]), res.CostUSD
+	return body, res.CostUSD
 }
 
 // dumpRaw persists a failed response so the next failure is diagnosable.

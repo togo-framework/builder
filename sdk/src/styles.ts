@@ -186,19 +186,85 @@ textarea { min-height: 96px; resize: vertical; }
 .d-head { display: flex; align-items: center; justify-content: space-between; }
 .d-meta { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .d-title { margin: 2px 0 0; font-size: 15.5px; font-weight: 650; line-height: 1.35; }
-.d-body { margin: 0; font-size: 13.5px; line-height: 1.6; white-space: pre-wrap;
+.d-body { margin: 0; font-size: 13.5px; line-height: 1.6;
           background: var(--surface); border: 1px solid var(--border);
           border-radius: 8px; padding: 10px 12px; }
-.d-pin { display: flex; align-items: center; gap: 8px; font-size: 12.5px;
+.d-pin { display: flex; align-items: flex-start; gap: 8px; font-size: 12.5px;
          background: var(--surface); border: 1px solid var(--border);
          border-radius: 7px; padding: 7px 10px; }
-.d-pin .nm { flex: 1; font-family: ui-monospace, monospace; }
+/* min-width:0 lets the flex item shrink below its content width — without it
+   a long accessible name (the pinned node's whole text) forces the panel wider
+   and the WHOLE slide-over scrolls sideways. */
+.d-pin .nm { flex: 1; min-width: 0; font-family: ui-monospace, monospace;
+             overflow-wrap: anywhere; word-break: break-word; }
 .d-comment { border: 1px solid var(--border); border-radius: 8px; padding: 9px 11px; }
 .d-comment .who { margin: 0 0 4px; font-size: 11.5px; font-weight: 600; color: var(--muted);
                   display: flex; align-items: center; gap: 6px; }
 .d-comment .txt { margin: 0; font-size: 13px; line-height: 1.55; white-space: pre-wrap; }
 .chip.status { background: var(--surface-2, var(--surface)); color: var(--muted); }
 .chip.agent { background: var(--accent); color: var(--accent-fg); }
+
+/* ── moved here from HOST_CSS ───────────────────────────────────────────
+   These style elements INSIDE the shadow root, so they must live in CSS.
+   Appending them to the end of this file put them in HOST_CSS, which is
+   injected into the host document — where none of these selectors exist.
+   The markdown still rendered (the DOM was right) but with UA styling only,
+   which is exactly the kind of bug that looks fine in a screenshot. */
+/* ── rendered markdown (see markdown.ts) ─────────────────────────────── */
+.md-p { margin: 0 0 8px; line-height: 1.55; }
+.md-p:last-child { margin-bottom: 0; }
+.md-h { margin: 12px 0 6px; font-size: 13px; font-weight: 600; line-height: 1.35; color: var(--text); }
+.md-h:first-child { margin-top: 0; }
+.md-list { margin: 0 0 8px; padding-inline-start: 20px; }
+.md-list li { margin: 2px 0; line-height: 1.5; }
+.md-list:last-child { margin-bottom: 0; }
+.md-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px;
+  background: var(--bg); border: 1px solid var(--border);
+  border-radius: 4px; padding: 1px 4px;
+}
+.md-pre {
+  margin: 0 0 8px; padding: 9px 11px; overflow-x: auto;
+  border-radius: 8px; background: var(--bg); border: 1px solid var(--border);
+}
+.md-pre:last-child { margin-bottom: 0; }
+.md-pre code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px; line-height: 1.5; white-space: pre;
+  background: none; border: 0; padding: 0;
+}
+.md-quote {
+  margin: 0 0 8px; padding: 2px 0 2px 10px; color: var(--muted);
+  border-inline-start: 2px solid var(--border);
+}
+.md-quote .md-p:last-child { margin-bottom: 0; }
+.md-strong { font-weight: 600; }
+.md-em { font-style: italic; }
+.md-del { opacity: .65; }
+.md-a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+.d-body hr, .txt hr { margin: 10px 0; border: 0; border-top: 1px solid var(--border); }
+.txt { margin: 0; font-size: 13px; }
+
+/* Link out to the full board from the on-this-page listing. */
+.board-link {
+  display: inline-block; margin-top: 10px; padding: 7px 10px;
+  border: 1px solid var(--border); border-radius: 8px;
+  font-size: 12.5px; color: var(--text); text-decoration: none;
+  background: var(--bg);
+}
+.board-link:hover { border-color: var(--accent); color: var(--accent); }
+
+/* "who is working on this" — a spinner plus the agent's name. */
+.agent-tag {
+  display: inline-flex; align-items: center; gap: 5px; flex: none;
+  max-width: 42%; padding: 2px 7px 2px 5px; border-radius: 999px;
+  background: var(--surface); border: 1px solid var(--border);
+}
+.agent-tag .who {
+  font-size: 11px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.agent-tag .spin { width: 10px; height: 10px; border-width: 1.5px; flex: none; }
 `;
 
 /**
@@ -221,4 +287,5 @@ export const HOST_CSS = /* css */ `
   0%, 100% { outline-color: #4f46e5; }
   50% { outline-color: transparent; }
 }
+
 `;
