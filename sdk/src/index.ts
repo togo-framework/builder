@@ -236,6 +236,7 @@ export function mount(opts: MountOptions = {}): Handle {
   }
   function close() {
     panel.dataset.open = "false";
+    panel.dataset.detail = "false";
     fab.setAttribute("aria-expanded", "false");
     showForm(false);
     cancelPick?.();
@@ -245,6 +246,18 @@ export function mount(opts: MountOptions = {}): Handle {
   root.addEventListener("keydown", (e) => {
     if ((e as KeyboardEvent).key === "Escape" && !cancelPick) close();
   });
+
+  // The panel is deliberately aria-modal="false" — the host page stays
+  // interactive underneath it — so a click landing on that page must dismiss
+  // the panel instead of leaving both layers open at once. Capture phase, like
+  // the picker's own listeners, so a host handler that stops propagation on
+  // bubble can't swallow this first.
+  function onOutsideClick(e: MouseEvent) {
+    if (panel.dataset.open !== "true" || cancelPick) return;
+    if (e.composedPath().includes(host)) return;
+    close();
+  }
+  document.addEventListener("click", onOutsideClick, true);
 
   function showForm(on: boolean) {
     formOpen = on;
@@ -468,6 +481,7 @@ export function mount(opts: MountOptions = {}): Handle {
         detail?.el.classList.add("hidden");
         listing.classList.remove("hidden");
         $(".report").classList.remove("hidden");
+        panel.dataset.detail = "false";
         void refresh();
       });
       $(".body").appendChild(detail.el);
@@ -477,6 +491,10 @@ export function mount(opts: MountOptions = {}): Handle {
     form.classList.add("hidden");
     foot.classList.add("hidden");
     detail.el.classList.remove("hidden");
+    // A single issue's title, body, pin and comment thread need real room to
+    // read and to type a reply into — the listing's 420px column was sized for
+    // a scannable row of short titles, not a document.
+    panel.dataset.detail = "true";
     await detail.load(number);
   }
 
@@ -486,6 +504,7 @@ export function mount(opts: MountOptions = {}): Handle {
     refresh: () => void refresh(),
     destroy() {
       cancelPick?.();
+      document.removeEventListener("click", onOutsideClick, true);
       host.remove();
       hostStyle.remove();
     },

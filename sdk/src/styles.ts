@@ -69,10 +69,13 @@ button { font: inherit; cursor: pointer; }
   border-inline-start: 1px solid var(--border);
   box-shadow: var(--shadow);
   transform: translateX(var(--slide, 100%));
-  transition: transform .18s ease;
+  transition: transform .18s ease, width .18s ease;
 }
 :host([dir="rtl"]) .panel { --slide: -100%; }
 .panel[data-open="true"] { --slide: 0 !important; }
+/* A single issue's title, body, pin and comment thread need more room to read
+   and to type a reply into than the listing's scannable row of short titles. */
+.panel[data-detail="true"] { width: min(640px, 100vw); }
 
 .head {
   display: flex; align-items: center; justify-content: space-between;
