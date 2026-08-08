@@ -12,10 +12,19 @@
 //   - OFF unless BUILDER_TERMINAL=1. This ships inside a blueprint that other
 //     people generate applications from. A web shell that turned itself on
 //     because the plugin was installed would be indefensible.
-//   - Never in production. APP_ENV=production refuses regardless of the flag,
-//     because the flag will eventually be copied into an env file by accident.
-//   - Bound to the dashboard session. The same admin cookie that can edit
-//     personas and reveal secrets; nothing weaker.
+//   - Local environments ONLY, by allowlist across APP_ENV, ENV and TOGO_ENV —
+//     the same three the auth plugin reads. Anything unrecognised, including
+//     unset, denies.
+//   - Behind auth.Middleware + RequireRole("admin"), applied at the MOUNT in
+//     providers.go, and NOT MOUNTED AT ALL when the auth plugin is absent.
+//
+//     This comment used to say "bound to the dashboard session, the same admin
+//     cookie that can edit personas" — which was false. No builder route is
+//     session-authenticated; the global chain is recovery, logging and CORS.
+//     An adversarial review caught it: the terminal was an unauthenticated
+//     shell, as this process, with its whole environment, on a port that binds
+//     to every interface. Stating a control is not implementing one, and this
+//     package is the worst possible place to confuse the two.
 //   - Same-origin only. A WebSocket ignores CORS, so the Origin header is
 //     checked by hand — without that, any page the operator visits while
 //     logged in could open a shell on their machine.
@@ -57,12 +66,29 @@ type Service struct {
 func New(db *sql.DB, log *slog.Logger, workdir string) *Service {
 	s := &Service{db: db, log: log, workdir: workdir}
 
-	env := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV")))
+	// An ALLOWLIST, across the same three variables the rest of the framework
+	// reads.
+	//
+	// This was `APP_ENV == "production" || "prod"` — a two-string denylist on
+	// one variable, where everything else fell through to allowed. Two ways
+	// that failed open, both found by review:
+	//
+	//   - auth's own isProduction() reads APP_ENV, ENV and TOGO_ENV. A host
+	//     setting only ENV=production is production to the auth plugin (which
+	//     will refuse to boot without a real AUTH_SECRET) and was NOT
+	//     production here. One process, two answers.
+	//   - "live", "staging", "prd", or an unset variable all meant "not
+	//     production", so the backstop was absent on exactly the inputs its own
+	//     comment said it existed to catch.
+	//
+	// A control whose failure mode is a shell denies by default and names the
+	// environments it trusts.
+	env := strings.ToLower(strings.TrimSpace(firstEnv("APP_ENV", "ENV", "TOGO_ENV")))
+	local := env == "local" || env == "development" || env == "dev" || env == "test"
 	switch {
-	case env == "production" || env == "prod":
-		// Not negotiable, and checked before the flag: an env file copied from
-		// a laptop to a server is the normal way this would otherwise ship.
-		s.why = "the terminal is never available in production"
+	case !local:
+		s.why = "the terminal runs only in a local or development environment. " +
+			"Set APP_ENV=development if this machine really is one."
 	case os.Getenv("BUILDER_TERMINAL") != "1":
 		s.why = "the terminal is off. Set BUILDER_TERMINAL=1 to enable it — it gives anyone with dashboard access a shell on this machine."
 	default:
@@ -100,6 +126,13 @@ type statusOut struct {
 }
 
 func (s *Service) handleStatus(w http.ResponseWriter, r *http.Request) {
+	// Session names and the workdir are not public.
+	//
+	// This handler deliberately does NOT call guard() — the page needs to hear
+	// "disabled, and here is why" in order to render the explanation rather
+	// than a dead terminal. But it must still only answer an authenticated
+	// caller, which is now the mount's job. Review found it reporting the
+	// workdir and every running session name to anyone who asked.
 	out := statusOut{
 		Enabled:  s.allowed,
 		Reason:   s.why,
@@ -128,6 +161,18 @@ func installHint() string {
 	default:
 		return "install tmux with your package manager"
 	}
+}
+
+// firstEnv returns the first of these variables that is set, matching how the
+// auth plugin decides the same question. One process must not have two answers
+// to "is this production".
+func firstEnv(names ...string) string {
+	for _, n := range names {
+		if v := strings.TrimSpace(os.Getenv(n)); v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 func fileExists(p string) bool {

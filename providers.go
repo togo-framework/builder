@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/go-chi/chi/v5"
+
 	"github.com/togo-framework/auth"
 	"github.com/togo-framework/togo"
 
@@ -153,7 +155,32 @@ func provideIssues(k *togo.Kernel) error {
 	} else if k.Log != nil {
 		k.Log.Error("the embedded SDK is unavailable", "err", err)
 	}
+
+	// Static assets that are not the widget — today the terminal's icon font.
+	//
+	// Shipped with the plugin rather than relying on the operator's machine: a
+	// zsh prompt draws its separators and language icons from the Private Use
+	// Area, and a machine without a Nerd Font renders every one as a box. That
+	// worked here only because this laptop happens to have MesloLGS installed,
+	// which is exactly the kind of "works for me" that does not survive
+	// reaching anyone else.
+	if sub, err := AssetFiles(); err == nil {
+		k.Router.Handle("/builder-assets/*", http.StripPrefix("/builder-assets/",
+			cacheForever(http.FileServer(http.FS(sub)))))
+	} else if k.Log != nil {
+		k.Log.Error("the embedded assets are unavailable", "err", err)
+	}
 	return nil
+}
+
+// cacheForever marks immutable, content-addressed assets. The font is 600 kB
+// and never changes within a build, so re-fetching it on every navigation is
+// pure waste.
+func cacheForever(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		next.ServeHTTP(w, r)
+	})
 }
 
 func provideFleet(k *togo.Kernel) error {
@@ -213,7 +240,30 @@ func provideFleet(k *togo.Kernel) error {
 	if termRoot == "" {
 		termRoot = "."
 	}
-	k.Router.Route("/api/builder/term", term.New(db, k.Log, termRoot).Routes)
+	// Behind auth, and NOT MOUNTED AT ALL if auth is unavailable.
+	//
+	// The package used to claim it was "session-authenticated by the router it
+	// is mounted under, exactly like the rest of the dashboard API". That
+	// sentence was accurate and was the bug: no builder route is
+	// session-authenticated. The global chain is recovery, requestLogger and
+	// CORS — auth.Middleware is opt-in per route and nothing here opted in. An
+	// adversarial review found it: with BUILDER_TERMINAL=1, anyone who could
+	// reach the port had an unauthenticated shell running as this process, with
+	// its whole environment — the operator's gh and claude credentials included.
+	// The default listen address is :8080 on all interfaces, so that is the LAN,
+	// not loopback.
+	//
+	// Failing closed matters more here than anywhere else in the plugin: an
+	// absent terminal is a nuisance, an unauthenticated one is a compromise.
+	if as, ok := auth.FromKernel(k); ok && as != nil {
+		t := term.New(db, k.Log, termRoot)
+		k.Router.Route("/api/builder/term", func(r chi.Router) {
+			r.Use(as.Middleware, as.RequireRole("admin"))
+			t.Routes(r)
+		})
+	} else {
+		k.Log.Warn("builder.terminal NOT mounted: the auth plugin is unavailable, and an unauthenticated shell will not be served")
+	}
 	return nil
 }
 
