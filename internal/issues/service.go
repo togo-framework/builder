@@ -69,6 +69,7 @@ func (s *Service) Routes(r chi.Router) {
 	r.Post("/feedback", s.handleFeedback) // public ingress — the SDK posts here
 	r.Get("/issues", s.handleList)        // per-route listing (the SDK sidebar)
 	r.Get("/board", s.handleBoard)        // every issue, grouped by column
+	r.Post("/issues", s.handleCreate)     // filed by hand from the board
 	r.Get("/issues/{number}", s.handleDetail)
 	r.Patch("/issues/{number}", s.handlePatch)
 	r.Post("/issues/{number}/comments", s.handleComment)
