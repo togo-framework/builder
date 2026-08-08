@@ -148,6 +148,24 @@ func (o *Orchestrator) Run(ctx context.Context) {
 					break
 				}
 			}
+			// Then routing: triage classifies, but the area it picks is a string
+			// and nobody's declared areas may match it. Work in that state used
+			// to sit in `ready` forever under a comment telling the operator to
+			// route it by hand. The lead reads the whole roster and assigns.
+			//
+			// Bounded lower than triage — routing is the exception, and a burst
+			// of them usually means the fleet has a real coverage gap that more
+			// routing passes will not close.
+			for i := 0; i < 3; i++ {
+				did, err := o.RouteOne(ctx)
+				if err != nil {
+					o.log.Error("route", "err", err)
+					break
+				}
+				if !did {
+					break
+				}
+			}
 			o.reapExpiredLeases(ctx)
 			// Runs from other hosts that stopped heartbeating. Same tick as the
 			// lease reaper so run rows and issue rows stay consistent.
