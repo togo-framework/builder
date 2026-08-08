@@ -113,12 +113,21 @@ func (o *Orchestrator) TriageOne(ctx context.Context) (bool, error) {
 		// belongs — re-ran it every time. 32 triage runs and $5.82 went on
 		// re-classifying issues that had already been classified, each one
 		// overwriting the operator's own edits to type, priority and area.
+		// "Has triage already run?" is asked of the ACTIVITY log, not of the
+		// comments. The old test looked for a comment with author_agent_id =
+		// 'triage' — the same value the comments table's foreign key rejects, so
+		// it could never match and would have re-triaged forever if the status
+		// change had not moved the issue out of this column by itself.
+		//
+		// The activity row is written in the same transaction as the move, so it
+		// is present exactly when the issue really was triaged.
 		`SELECT id, number, title, body_md, route, page_url FROM builder_issues i
 		  WHERE status = 'triage'
 		    AND NOT EXISTS (
-		      SELECT 1 FROM builder_issue_comments c
-		       WHERE c.issue_id = i.id
-		         AND c.author_agent_id = 'triage')
+		      SELECT 1 FROM builder_issue_activity a
+		       WHERE a.issue_id = i.id
+		         AND a.action = 'moved'
+		         AND a.detail->>'by' = 'triage')
 		  ORDER BY created_at ASC LIMIT 1`).Scan(&id, &number, &title, &body, &route, &pageURL)
 	if err == sql.ErrNoRows {
 		return false, nil
@@ -172,42 +181,66 @@ func (o *Orchestrator) TriageOne(ctx context.Context) (bool, error) {
 		humanOnly = true
 	}
 
-	if _, err := o.db.ExecContext(ctx,
+	// The move and its explanation are ONE transaction.
+	//
+	// They used to be three separate statements, and the failure that produced
+	// was exactly the one the code claimed to prevent: the UPDATE committed, the
+	// comment INSERT was rejected, and an issue arrived on the board marked
+	// `blocked` and human-only with nothing anywhere saying why. The error was
+	// logged — which is how this was eventually found — but a log line is not
+	// something the operator looking at the board can see.
+	//
+	// Logging a failure is not the same as preventing one. If the reason cannot
+	// be written, the issue does not move: it stays in `triage` and is picked up
+	// again on the next pass, which costs another classification and is strictly
+	// better than a verdict nobody can question.
+	note := fmt.Sprintf("**Triaged** → `%s`\n\n%s\n\n_Understood as:_ %s",
+		status, v.Reason, v.Restated)
+
+	tx, err := o.db.BeginTx(ctx, nil)
+	if err != nil {
+		return true, fmt.Errorf("apply triage: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if _, err := tx.ExecContext(ctx,
 		`UPDATE builder_issues
 		    SET status = $1::builder_issue_status,
 		        type = $2::builder_issue_type,
 		        priority = $3::builder_issue_priority,
 		        area = $4, human_only = $5,
+		        comment_count = comment_count + 1,
 		        status_entered_at = now(), updated_at = now()
 		  WHERE id = $6 AND status = 'triage'`,
 		status, v.Type, v.Priority, area, humanOnly, id); err != nil {
 		return true, fmt.Errorf("apply triage: %w", err)
 	}
 
-	// The reasoning is posted as a comment so a human can see why an issue was
-	// parked or queued without reading a log.
-	note := fmt.Sprintf("**Triaged** → `%s`\n\n%s\n\n_Understood as:_ %s",
-		status, v.Reason, v.Restated)
-	// The error is NOT discarded. It used to be (`if err == nil { ... }`), so a
-	// failed insert moved the issue silently: status changed, money spent, and
-	// the board showed a verdict with no explanation and nothing in the log.
-	// An unexplained state change is the one outcome an operator cannot act on.
-	if _, err := o.db.ExecContext(ctx,
-		// Attributed to "triage" rather than NULL. Triage is not a fleet agent —
-		// it is the orchestrator's own classification pass — but leaving it null
-		// made its verdicts render as an anonymous "someone".
-		`INSERT INTO builder_issue_comments (issue_id, author_kind, author_agent_id, body_md)
-		 VALUES ($1,'agent','triage',$2)`, id, note); err != nil {
-		o.log.Error("triage verdict could not be posted — the issue moved with no explanation",
-			"issue", number, "to", status, "err", err)
-	} else {
-		_, _ = o.db.ExecContext(ctx,
-			`UPDATE builder_issues SET comment_count = comment_count + 1 WHERE id = $1`, id)
+	// author_kind 'system', with NO agent slug.
+	//
+	// This used to write author_agent_id='triage' to stop the verdict rendering
+	// as an anonymous "someone". That column is a foreign key onto
+	// builder_agents(slug) and triage is not a fleet agent — it is the
+	// orchestrator's own classification pass — so every single insert was
+	// rejected with a 23503 and every triaged issue moved unexplained. The
+	// reader already renders a system comment as "builder", which is the truth:
+	// this is the tool speaking, not one of the agents.
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO builder_issue_comments (issue_id, author_kind, body_md)
+		 VALUES ($1,'system',$2)`, id, note); err != nil {
+		return true, fmt.Errorf("post triage verdict (issue stays in triage): %w", err)
 	}
-	_, _ = o.db.ExecContext(ctx,
+
+	if _, err := tx.ExecContext(ctx,
 		`INSERT INTO builder_issue_activity (issue_id, action, actor_kind, detail)
 		 VALUES ($1,'moved','agent',$2::jsonb)`,
-		id, fmt.Sprintf(`{"by":"triage","to":%q,"cost_usd":%.6f}`, status, res.CostUSD))
+		id, fmt.Sprintf(`{"by":"triage","to":%q,"cost_usd":%.6f}`, status, res.CostUSD)); err != nil {
+		return true, fmt.Errorf("record triage activity: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return true, fmt.Errorf("commit triage: %w", err)
+	}
 
 	o.log.Info("triaged", "issue", number, "to", status, "type", v.Type,
 		"priority", v.Priority, "area", area, "cost", res.CostUSD)
