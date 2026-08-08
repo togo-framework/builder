@@ -190,6 +190,7 @@ func (o *Orchestrator) Implement(
 	// of who touched it or why. The operator asked for this directly: never start
 	// without a first comment, even if the comment is only a statement of intent.
 	o.announce(ctx, c, branch, areas, repo)
+	o.recordSkillLoads(ctx, c)
 
 	o.log.Info("implementing", "issue", c.Number, "agent", c.Agent, "branch", branch)
 	res, runErr := sess.Run(ctx)
@@ -669,6 +670,48 @@ func fileList(files []string) string {
 // Deliberately cheap and immediate — no model call. It runs at claim time, so a
 // run that dies in its first second still leaves a record of who took the issue,
 // on which branch, in which repository, and under what limits. Everything here
+// recordSkillLoads writes one row per skill the agent carries into this run.
+//
+// What it records is availability, not invocation. The runner reads Claude Code
+// with --output-format json, which returns the terminal result and nothing
+// about the tool calls inside the session, so "the agent reached for this
+// skill" is not observable from here. These skills were in its context; that is
+// the claim the column name `loaded_at` and the page's wording both make.
+//
+// Entirely best-effort. A skill the catalogue has never heard of, a duplicate
+// from a re-announced run, a failing insert — none of them are reasons to stop
+// a run that is otherwise ready to work.
+func (o *Orchestrator) recordSkillLoads(ctx context.Context, c *Claim) {
+	var raw string
+	if err := o.db.QueryRowContext(ctx,
+		`SELECT coalesce(skills, '{}')::text FROM builder_agents WHERE slug = $1`,
+		c.Agent).Scan(&raw); err != nil {
+		o.log.Warn("read agent skills", "agent", c.Agent, "err", err)
+		return
+	}
+	skills := parsePGArray(raw)
+	if len(skills) == 0 {
+		return
+	}
+
+	// One statement rather than a loop: the join against builder_skills both
+	// resolves the ids and drops names with no catalogue row, and the conflict
+	// clause absorbs a re-announce without inflating the count.
+	res, err := o.db.ExecContext(ctx, `
+INSERT INTO builder_skill_uses (skill_id, skill_name, agent_slug, run_id, issue_id, issue_number)
+SELECT s.id, s.name, $1, $2, $3, $4
+  FROM builder_skills s
+ WHERE s.name = ANY($5::text[])
+ON CONFLICT (run_id, skill_id) WHERE run_id IS NOT NULL DO NOTHING`,
+		c.Agent, c.RunID, c.IssueID, c.Number, pgArray(skills))
+	if err != nil {
+		o.log.Warn("record skill loads", "agent", c.Agent, "run", c.RunID, "err", err)
+		return
+	}
+	n, _ := res.RowsAffected()
+	o.log.Info("skills loaded", "agent", c.Agent, "run", c.RunID, "count", n)
+}
+
 // is known before the session starts.
 func (o *Orchestrator) announce(ctx context.Context, c *Claim, branch string, areas []string, repo string) {
 	scope := "anything it is allowed to touch"

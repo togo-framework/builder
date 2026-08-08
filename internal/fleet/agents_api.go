@@ -41,6 +41,7 @@ func (s *AgentsService) Routes(r chi.Router) {
 	r.Post("/agents", s.handleCreate)
 	r.Post("/agents/draft-persona", s.handleDraftPersona)
 	r.Get("/agents/{slug}/brain", s.handleBrain)
+	r.Get("/agents/{slug}/brain/entities/{id}", s.handleEntity)
 	r.Patch("/agents/{slug}", s.handlePatch)
 }
 
