@@ -74,6 +74,7 @@ func (s *Service) Routes(r chi.Router) {
 	r.Post("/import", s.handleImport)
 	r.Get("/{name}", s.handleGet)
 	r.Get("/{name}/activity", s.handleActivity)
+	r.Post("/{name}/regenerate", s.handleRegenerate)
 	r.Patch("/{name}", s.handlePatch)
 	r.Delete("/{name}", s.handleDelete)
 	r.Post("/{name}/agents", s.handleAssign)

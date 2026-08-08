@@ -117,19 +117,103 @@ The persona must state: who this agent is, the concrete file globs it owns,
 what it must never touch, and how it decides when to stop and ask. A persona
 that would fit any project is a failed persona — ground it in what you found.`
 
+// skillPrompt asks for a Claude Code skill, not a summary of one.
+//
+// The first version said only "reply with the skill body as raw markdown,
+// numbered steps, with real commands". Every skill came back as a single
+// sentence — the model restated the one-line brief it had just been given and
+// stopped. Ten skills averaged 46 words while the hand-written ones in the same
+// repository averaged 1,100. An agent loading one learned nothing it did not
+// already know from the skill's own name.
+//
+// So the shape is now specified rather than implied: the required sections, the
+// length floor, and an explicit statement that the brief is the topic and not
+// the answer. checkSkillBody below enforces the floor, because a prompt can ask
+// and still be ignored.
 const skillPrompt = `Write one skill for a software project's agent team.
+
+A skill is a procedure an agent LOADS AND FOLLOWS while it works. It is not a
+description of the topic, and it is not a summary. Assume the reader is a
+competent engineer who has never seen this repository.
 
 Project context:
 %s
 
 The skill:
 - name: %s
-- purpose: %s
+- topic: %s
 
-You have READ-ONLY tools. Use the real commands and paths from this repository.
+The topic line above is the SUBJECT, not the answer. Do not restate it. Your
+job is to write the procedure it names.
 
-Reply with the skill body as RAW MARKDOWN. No JSON, no wrapper, no preamble —
-the entire response becomes the file. Numbered steps, with real commands.`
+Investigate the repository first with your read-only tools, then write the
+skill. Every command, path, table, function and flag you mention must be one
+you actually found — no invented file names, no placeholder paths.
+
+Required structure:
+
+# <name> — <short sharp tagline>
+
+One or two sentences on what this procedure is for.
+
+## When to use this
+Concrete triggers, as a list. What is the agent about to do, or what has just
+gone wrong, that should make it open this file?
+
+## Steps
+Numbered. Each step is an action with a real command or a real code change, and
+says what a correct result looks like. Include the actual shell commands, file
+paths, and SQL from this repository, in fenced code blocks.
+
+## Getting it wrong
+The mistakes that are actually made here, and what each one looks like when it
+happens. This section is what makes a skill worth loading — write it from what
+the code shows, not from generic advice.
+
+## Related
+Other skills or files an agent should read next.
+
+Length: at least 400 words. A short answer here is a failed answer.
+
+Reply with the file body as RAW MARKDOWN. No JSON, no wrapper, no preamble,
+no closing remarks — the entire response becomes the file.`
+
+// Minimum length for a generated skill, in words.
+//
+// Calibrated against what is already in this repository: the hand-written
+// skills run 763 to 1,895 words, and the ten the generator produced before this
+// check existed ran 42 to 50. 250 is well below anything genuinely useful and
+// far above anything that is merely a restated brief, so it catches the failure
+// without rejecting a terse-but-real procedure.
+const minSkillWords = 250
+
+// checkSkillBody returns why a generated skill is unusable, or "" if it is fine.
+func checkSkillBody(body string) string {
+	b := strings.TrimSpace(body)
+	if b == "" {
+		return "the response was empty"
+	}
+	if n := len(strings.Fields(b)); n < minSkillWords {
+		return fmt.Sprintf("it was %d words — a skill needs at least %d, and yours read as a restatement of the topic rather than a procedure", n, minSkillWords)
+	}
+	// Structure, not exact wording.
+	//
+	// The first version of this check required a literal "## Steps" heading and
+	// was calibrated against nothing. Run over the skills already in the repo it
+	// rejected every hand-written one: they number their own sections ("## 1.
+	// Bundle scan"), or name them ("## The workflow"). Requiring a particular
+	// heading would have made the gate reject good work on every generation.
+	//
+	// What actually separates a procedure from a restated brief is that it is
+	// divided into sections and contains commands you can run.
+	if strings.Count(b, "\n## ") < 2 {
+		return "it had fewer than two sections — a procedure is divided into steps, not written as one block"
+	}
+	if !strings.Contains(b, "```") {
+		return "it contained no fenced code block — a procedure for this repository has real commands in it"
+	}
+	return ""
+}
 
 type rosterAgent struct {
 	AgentSpec
@@ -240,9 +324,35 @@ func (g *Generator) Generate(ctx context.Context, fleetName, plan, model string,
 
 	for _, rs := range r.Skills {
 		report("skill", done, total)
-		body, cost := g.writeOne(ctx, writeModel, "body",
-			fmt.Sprintf(skillPrompt, trunc(plan, 1500), rs.Name, rs.Brief))
+		prompt := fmt.Sprintf(skillPrompt, trunc(plan, 1500), rs.Name, rs.Brief)
+		body, cost := g.writeOne(ctx, writeModel, "body", prompt)
 		spent += cost
+
+		// One retry when the answer is too thin to be a procedure.
+		//
+		// The original prompt produced a single restated sentence every time.
+		// The prompt is much more specific now, but a model that ignored it once
+		// will ignore it again silently, and the result — a catalogue of stubs
+		// that look like skills — is worse than an obvious failure. The retry is
+		// told plainly what was wrong with the first attempt.
+		if why := checkSkillBody(body); why != "" {
+			g.log.Warn("skill body rejected; retrying", "skill", rs.Name, "why", why)
+			retry, rcost := g.writeOne(ctx, writeModel, "body",
+				prompt+"\n\nYour previous attempt was rejected: "+why+
+					"\nWrite the full procedure this time, with every required section.")
+			spent += rcost
+			if checkSkillBody(retry) == "" {
+				body = retry
+			} else if len(retry) > len(body) {
+				// Still short, but closer. Keep the better of the two rather
+				// than throwing away work that cost money.
+				body = retry
+			}
+			if why := checkSkillBody(body); why != "" {
+				g.log.Warn("skill still thin after a retry", "skill", rs.Name, "why", why)
+			}
+		}
+
 		if body == "" {
 			body = rs.Brief
 		}
