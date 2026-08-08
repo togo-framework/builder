@@ -50,6 +50,7 @@ const en = {
   appSkills: "Skills",
   appIssues: "Issues",
   appVault: "Vault",
+  appMcp: "MCP",
   openInTab: "Open in a new tab",
   dir: "ltr" as "ltr" | "rtl",
 };
@@ -101,6 +102,7 @@ const ar: Dict = {
   appSkills: "المهارات",
   appIssues: "المشكلات",
   appVault: "الخزنة",
+  appMcp: "MCP",
   openInTab: "فتح في تبويب جديد",
   dir: "rtl",
 };

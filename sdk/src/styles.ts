@@ -77,7 +77,10 @@ button { font: inherit; cursor: pointer; }
 /* ---- app launcher ---- */
 .apps { margin-top: 14px; }
 .appgrid {
-  display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;
+  /* auto-fill, not a fixed four. The launcher grew to five and a hard column
+     count either squeezes them or strands one alone on a second row. */
+  display: grid; gap: 8px;
+  grid-template-columns: repeat(auto-fill, minmax(76px, 1fr));
 }
 .app {
   display: flex; flex-direction: column; align-items: center; gap: 6px;

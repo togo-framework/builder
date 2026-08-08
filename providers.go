@@ -15,6 +15,7 @@ import (
 	"github.com/togo-framework/builder/internal/deploy"
 	"github.com/togo-framework/builder/internal/fleet"
 	"github.com/togo-framework/builder/internal/issues"
+	mcpsrv "github.com/togo-framework/builder/internal/mcp"
 	"github.com/togo-framework/builder/internal/notify"
 	"github.com/togo-framework/builder/internal/orchestrator"
 	"github.com/togo-framework/builder/internal/runner"
@@ -193,6 +194,15 @@ func provideFleet(k *togo.Kernel) error {
 		skillsRoot = "." // the process's own directory: this app
 	}
 	k.Router.Route("/api/builder/skills", skills.New(db, k.Log, skillsRoot).Routes)
+
+	// The MCP surface: this fleet, reachable from any MCP client.
+	//
+	// Its own prefix, not /api/builder — the issue plane already mounts there
+	// and chi panics on a second Mount of the same path (it did, at boot, which
+	// is the right place for that to be found). The two servers under it
+	// authenticate with their own bearer tokens rather than the dashboard
+	// session, because an MCP client cannot present a cookie.
+	k.Router.Route("/api/builder/mcp", mcpsrv.New(db, k.Log).Routes)
 	return nil
 }
 
