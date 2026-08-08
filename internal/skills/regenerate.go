@@ -120,9 +120,17 @@ func (s *Service) handleRegenerate(w http.ResponseWriter, r *http.Request) {
 		AllowedTools:   "Read,Glob,Grep",
 		MaxTurns:       20,
 		PermissionMode: "acceptEdits",
-		// Long enough to read a repository and write a page. Past this something
-		// is looping and the operator is watching a spinner.
-		Timeout: 5 * time.Minute,
+		// Ten minutes, not five.
+		//
+		// Five was picked by analogy with the persona drafter, which reads a
+		// repository and writes a page. This reads a repository and writes a
+		// procedure ABOUT that repository, which takes materially longer: of the
+		// first ten regenerations, eight landed between 2m03 and 4m55, and the
+		// two most cross-cutting skills — agent-run-lifecycle and
+		// human-in-the-loop, both of which span the orchestrator, the runner and
+		// the decision plane — hit the ceiling at exactly 5m00 and returned 502.
+		// A limit that fails the hardest cases is the wrong limit.
+		Timeout: 10 * time.Minute,
 	}
 
 	res, err := sess.Run(r.Context())
