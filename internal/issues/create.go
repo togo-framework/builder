@@ -26,6 +26,10 @@ type manualIssue struct {
 	Priority  string `json:"priority"`
 	Area      string `json:"area"`
 	HumanOnly bool   `json:"humanOnly"`
+	// Agent slug, or "" to leave it to routing. An explicit assignee outranks
+	// area matching in the claim statement, so this is the operator overriding
+	// the router rather than hinting to it.
+	Assignee string `json:"assignee"`
 	// Optional. A hand-filed issue is usually not about a page, so this is blank
 	// far more often than not — unlike everything the widget files.
 	Route string `json:"route"`
@@ -63,6 +67,20 @@ func (s *Service) handleCreate(w http.ResponseWriter, r *http.Request) {
 	area := truncate(strings.TrimSpace(in.Area), 120)
 	route := truncate(strings.TrimSpace(in.Route), 512)
 
+	// The assignee is verified, not trusted. assignee_agent_id is a foreign key
+	// onto builder_agents(slug), so an unknown value fails the insert with a
+	// 23503 and the operator sees "could not create the issue" for what is
+	// really a stale dropdown. Checking here turns that into a clear refusal.
+	assignee := strings.TrimSpace(in.Assignee)
+	if assignee != "" {
+		var ok bool
+		if err := s.db.QueryRowContext(r.Context(),
+			`SELECT true FROM builder_agents WHERE slug = $1`, assignee).Scan(&ok); err != nil {
+			httpErr(w, http.StatusUnprocessableEntity, "no agent called "+assignee)
+			return
+		}
+	}
+
 	var number int64
 	var id string
 
@@ -91,17 +109,18 @@ func (s *Service) handleCreate(w http.ResponseWriter, r *http.Request) {
 	if err := tx.QueryRowContext(r.Context(),
 		`INSERT INTO builder_issues
 		   (number, title, body_md, status, type, priority, area, human_only,
-		    board_rank, source, route, page_url, locale, reporter_kind)
+		    board_rank, source, route, page_url, locale, reporter_kind,
+		    assignee_agent_id)
 		 -- source 'manual' and reporter_kind 'human'. Both are constrained —
 		 -- source by a CHECK (manual|feedback|self_heal|agent|import) and
 		 -- reporter_kind by the builder_actor_kind enum (human|agent|anon|system)
 		 -- — and 'operator', which is what this path is called everywhere else,
 		 -- is a member of neither.
 		 VALUES ($1,$2,$3,'triage',$4::builder_issue_type,$5::builder_issue_priority,
-		         $6,$7,$8,'manual',$9,'','en','human')
+		         $6,$7,$8,'manual',$9,'','en','human',NULLIF($10,''))
 		 RETURNING id`,
 		number, in.Title, in.Body, in.Type, in.Priority, area, in.HumanOnly,
-		rankFor(number), route,
+		rankFor(number), route, assignee,
 	).Scan(&id); err != nil {
 		s.log.Error("insert manual issue", "err", err)
 		httpErr(w, http.StatusInternalServerError, "could not create the issue")

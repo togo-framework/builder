@@ -10,6 +10,10 @@ import { icon, label as iconLabel } from "./icons";
 
 const FAB_POS_KEY = "builder.fab.position";
 const TYPES: IssueType[] = ["bug", "feature", "question", "discussion"];
+// Mirrors the server's cap (internal/issues: maxPins). It truncates silently
+// past this, so the widget stops accepting pins at the same number rather than
+// letting a reporter place twelve and send eight.
+const MAX_PINS = 8;
 
 /**
  * Mount the feedback widget. One call is the entire integration:
@@ -557,14 +561,33 @@ export function mount(opts: MountOptions = {}): Handle {
       return;
     }
     // Get out of the user's way while they aim at the page behind us.
+    //
+    // BOTH surfaces. This used to hide only the panel, which was right when the
+    // form lived inside it — now the form is a modal sitting over the middle of
+    // the page, so picking an element meant aiming at whatever the modal was not
+    // covering. Hidden directly rather than through showForm(), which resets the
+    // form: the title and description typed so far must survive the pick.
     panel.dataset.open = "false";
+    modal.dataset.open = "false";
     pinBtn.setAttribute("aria-pressed", "true");
     pinBtn.textContent = t.pinning;
+
+    const restore = () => {
+      // Only the modal comes back if the form is what was open. Reopening the
+      // panel underneath a modal the operator is mid-way through leaves two
+      // layers up for no reason.
+      if (formOpen) modal.dataset.open = "true";
+      else panel.dataset.open = "true";
+    };
+
     cancelPick = startPicker(
       (anchor, pickedEl) => {
-        pins = [anchor];
+        // Appended, and capped at what the server accepts — it truncates
+        // silently past maxPins, so a reporter who pinned twelve things would
+        // lose the last few with no indication.
+        if (pins.length < MAX_PINS) pins = [...pins, anchor];
         cancelPick = null;
-        panel.dataset.open = "true";
+        restore();
         renderPins();
         // Confirm the pick on the page itself, not just in the panel text —
         // the reporter is looking at the page, not the button, at this instant.
@@ -573,7 +596,7 @@ export function mount(opts: MountOptions = {}): Handle {
       },
       () => {
         cancelPick = null;
-        panel.dataset.open = "true";
+        restore();
         renderPins();
       },
     );
@@ -583,17 +606,52 @@ export function mount(opts: MountOptions = {}): Handle {
     renderPins();
   });
 
+  // Several pins, not one.
+  //
+  // A report is often about a relationship between parts of a page — "this
+  // button writes to that panel", "these three cards are misaligned" — and with
+  // a single pin the reporter had to describe the rest in prose, which is
+  // exactly the ambiguity that gets an issue parked at triage. The backend and
+  // the schema always accepted a list; only this widget insisted on one.
   function renderPins() {
     const has = pins.length > 0;
     pinBtn.setAttribute("aria-pressed", String(has));
-    iconLabel(pinBtn, "pin", has ? t.pinned(pins[0].tag ?? "?") : t.pin);
+    // The button keeps working after the first pick, so adding a second is the
+    // same gesture as adding the first.
+    iconLabel(pinBtn, "pin", has ? t.pinAnother : t.pin);
     clearPinBtn.classList.toggle("hidden", !has);
     pinPreview.classList.toggle("hidden", !has);
-    if (has) {
-      const p = pins[0];
+
+    pinPreview.textContent = "";
+    pins.forEach((p, i) => {
+      const row = document.createElement("div");
+      row.className = "pinrow";
+
+      const n = document.createElement("span");
+      n.className = "pinnum";
+      n.textContent = String(i + 1);
+
       const label = p.name || p.hint || "";
-      pinPreview.textContent = `<${p.tag ?? "?"}>${label ? ` “${label}”` : ""}`;
-    }
+      const txt = document.createElement("span");
+      txt.className = "pintxt";
+      txt.textContent = `<${p.tag ?? "?"}>${label ? ` “${label}”` : ""}`;
+
+      // Each pin is removable on its own. With a list, one "Clear" that wipes
+      // every pin is the wrong granularity — mis-clicking the fourth pin should
+      // not cost the first three.
+      const del = document.createElement("button");
+      del.type = "button";
+      del.className = "pindel";
+      del.setAttribute("aria-label", `${t.clear} ${i + 1}`);
+      del.appendChild(icon("x", 12));
+      del.addEventListener("click", () => {
+        pins.splice(i, 1);
+        renderPins();
+      });
+
+      row.append(n, txt, del);
+      pinPreview.appendChild(row);
+    });
   }
 
   // ---- attachments -------------------------------------------------------

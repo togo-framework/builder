@@ -144,6 +144,24 @@ button { font: inherit; cursor: pointer; }
 .modal-foot .primary { width: auto; }
 .row2 { display: grid; gap: 10px; }
 .hint { margin: 4px 0 0; font-size: 11px; color: var(--muted); }
+/* One row per pin, each removable on its own. */
+.pinrow {
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 8px; border: 1px solid var(--border); border-radius: 8px;
+  margin-bottom: 5px; font-size: 11px;
+}
+.pinnum {
+  flex: 0 0 auto; width: 16px; height: 16px; border-radius: 999px;
+  background: var(--accent); color: var(--accent-fg);
+  font-size: 9.5px; font-weight: 700; line-height: 16px; text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.pintxt { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pindel {
+  flex: 0 0 auto; border: 0; background: transparent; color: var(--muted);
+  padding: 2px; border-radius: 6px; display: inline-flex; cursor: pointer;
+}
+.pindel:hover { color: var(--text); background: var(--border); }
 
 @media (prefers-reduced-motion: reduce) {
   .modal { transition: none; }
