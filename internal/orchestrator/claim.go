@@ -171,6 +171,37 @@ func (o *Orchestrator) release(ctx context.Context, c *Claim, why string) {
 		    SET status = 'ready', claim_token = NULL, claimed_by_run_id = NULL,
 		        lease_expires_at = NULL, status_entered_at = now(), updated_at = now()
 		  WHERE id = $1 AND claim_token = $2`, c.IssueID, c.Token)
+
+	// CLOSE THE RUN. This was missing, and it throttled the fleet.
+	//
+	// release() returned the issue to the queue and left builder_runs saying
+	// `running` forever. dispatch() counts in-flight work as rows with status
+	// 'running' and a heartbeat inside thirty minutes, so every released run
+	// occupied one of the three concurrency slots for half an hour after it had
+	// already finished. Three failures in quick succession — which is exactly
+	// what a batch of hard issues produces — and the whole fleet stops claiming
+	// anything at all.
+	//
+	// dispatch.go already carries a comment about this class of bug ("counting
+	// frozen rows meant three crashed runs permanently deadlocked the fleet");
+	// that fix bounded it by staleness, which hid this leak rather than closing
+	// it. The run row is now closed where the issue is.
+	// terminal_reason 'error', not 'released'. The column is CHECK-constrained to
+	// ''|completed|budget_exhausted|max_turns|blocked|lease_lost|error, and this
+	// statement discards its error — so an invalid value would fail silently and
+	// leave exactly the leak it is here to close. Found by running the same
+	// UPDATE by hand against the live table before trusting it.
+	if _, err := o.db.ExecContext(ctx,
+		`UPDATE builder_runs
+		    SET status = 'failed', terminal_reason = 'error', error = $2, ended_at = now()
+		  WHERE id = $1 AND status = 'running'`,
+		c.RunID, truncateText("released: "+why, 2000)); err != nil {
+		// Logged, not discarded. A run row that stays open occupies a
+		// concurrency slot, and silence is how that went unnoticed for a day.
+		o.log.Error("could not close the run row on release",
+			"issue", c.Number, "run", c.RunID, "err", err)
+	}
+
 	_, _ = o.db.ExecContext(ctx,
 		`INSERT INTO builder_issue_activity (issue_id, action, actor_kind, actor_agent_id, run_id, detail)
 		 VALUES ($1,'released','agent',$2,$3,$4::jsonb)`,
