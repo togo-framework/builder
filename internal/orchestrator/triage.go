@@ -34,6 +34,10 @@ type triageVerdict struct {
 	Decision string `json:"decision"` // ready | needs_human | rejected
 	Reason   string `json:"reason"`
 	Restated string `json:"restated_problem"`
+	// Only meaningful for needs_human: the ONE thing a person must answer.
+	// A parked issue without this is a dead end — the operator is told to
+	// decide something without being told what.
+	Question string `json:"question"`
 }
 
 const triagePrompt = `You are the triage agent for a software issue tracker.
@@ -52,7 +56,8 @@ Reply with ONLY a JSON object, no prose:
   "area": "MUST be one of the areas listed below — not a name you invent",
   "decision": "ready|needs_human|rejected",
   "reason": "one sentence explaining the decision",
-  "restated_problem": "one sentence restating the actual problem in your own words"
+  "restated_problem": "one sentence restating the actual problem in your own words",
+  "question": "REQUIRED when decision is needs_human, otherwise empty. The single specific question a person must answer before an engineer can start. Ask for the missing fact, not for permission."
 }
 
 ## Areas
@@ -79,6 +84,12 @@ Decision guidance:
                   park work pending sign-off, product confirmation, or design
                   review — there is nobody else to ask.
 - "rejected"    — spam, empty, or not a report at all.
+
+When you choose "needs_human" you MUST write "question", and it must be
+answerable. "Please clarify the requirements" is not a question — it tells the
+operator nothing they did not already know. "Should the timeline view be
+read-only, or can cards be dragged between dates?" is one: it names the exact
+fork that stops the work.
 
 Be conservative: when unsure between ready and needs_human, choose needs_human.
 A wrongly-queued issue costs an agent run; a wrongly-parked one costs a glance.
@@ -197,6 +208,27 @@ func (o *Orchestrator) TriageOne(ctx context.Context) (bool, error) {
 	note := fmt.Sprintf("**Triaged** → `%s`\n\n%s\n\n_Understood as:_ %s",
 		status, v.Reason, v.Restated)
 
+	// A parked issue must say what would unparks it.
+	//
+	// It used to set human_only and stop there, which tells the operator that a
+	// decision is required without saying which one — so the only way forward
+	// was to guess, or to untick the checkbox and hope. The question goes in
+	// the comment AND into a real decision row, so the issue is structurally
+	// blocked (the claim SQL joins against pending decisions) rather than
+	// blocked by convention, and answering it has a defined path.
+	question := strings.TrimSpace(v.Question)
+	if status == "blocked" {
+		if question == "" {
+			// The model ignored the instruction. Better a generic prompt with a
+			// working reply path than a parked issue with no way out at all.
+			question = "What is missing before an engineer can start on this?"
+		}
+		note += fmt.Sprintf(
+			"\n\n---\n\n**This needs an answer before an agent can start.**\n\n%s\n\n"+
+				"_Reply `approved` to send it to the queue as-is, `rejected` to close it, "+
+				"or just answer the question and then reply `approved`._", question)
+	}
+
 	tx, err := o.db.BeginTx(ctx, nil)
 	if err != nil {
 		return true, fmt.Errorf("apply triage: %w", err)
@@ -229,6 +261,24 @@ func (o *Orchestrator) TriageOne(ctx context.Context) (bool, error) {
 		`INSERT INTO builder_issue_comments (issue_id, author_kind, body_md)
 		 VALUES ($1,'system',$2)`, id, note); err != nil {
 		return true, fmt.Errorf("post triage verdict (issue stays in triage): %w", err)
+	}
+
+	// The decision row is what actually makes a parked issue unclaimable — the
+	// claim SQL joins against pending decisions. Without it, human_only alone
+	// is the only guard, and there is nothing for a reply to answer.
+	if status == "blocked" {
+		var decisionID string
+		if err := tx.QueryRowContext(ctx,
+			`INSERT INTO builder_decisions (issue_id, kind, state, question_md, context_md, urgency)
+			 VALUES ($1,'question','pending',$2,$3,'normal')
+			 RETURNING id`, id, question, v.Restated).Scan(&decisionID); err != nil {
+			return true, fmt.Errorf("open triage decision: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx,
+			`UPDATE builder_issues SET blocked_on_decision_id = $1 WHERE id = $2`,
+			decisionID, id); err != nil {
+			return true, fmt.Errorf("block on triage decision: %w", err)
+		}
 	}
 
 	if _, err := tx.ExecContext(ctx,

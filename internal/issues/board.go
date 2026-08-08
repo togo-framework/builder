@@ -569,9 +569,51 @@ func (s *Service) handleComment(w http.ResponseWriter, r *http.Request) {
 		httpErr(w, http.StatusInternalServerError, "could not comment")
 		return
 	}
+
+	// `approved` / `rejected` as a first word is a verdict, not a remark.
+	//
+	// This is the only way out of a human-only issue that does not involve
+	// hunting for a checkbox, and it is the answer path for a question an agent
+	// asked mid-run. Deliberately in the same transaction as the comment: the
+	// reply and the state it causes must land together or not at all.
+	//
+	// Safe to run on every comment because only the FIRST word is read — see
+	// readVerdict. And it is reachable only from this handler, which is the
+	// human path, so an agent can never approve its own issue.
+	verdict := readVerdict(in.Body)
+	note, err := applyVerdict(r.Context(), tx, id, in.Body, verdict)
+	if err != nil {
+		s.log.Error("apply verdict", "issue", num, "err", err)
+		httpErr(w, http.StatusInternalServerError, "could not apply that verdict")
+		return
+	}
+	if note != "" {
+		if _, err := tx.ExecContext(r.Context(),
+			`INSERT INTO builder_issue_comments (issue_id, author_kind, body_md)
+			 VALUES ($1,'system',$2)`, id, note); err != nil {
+			httpErr(w, http.StatusInternalServerError, "could not record the verdict")
+			return
+		}
+		if _, err := tx.ExecContext(r.Context(),
+			`UPDATE builder_issues SET comment_count = comment_count + 1 WHERE id = $1`, id); err != nil {
+			httpErr(w, http.StatusInternalServerError, "could not record the verdict")
+			return
+		}
+		if _, err := tx.ExecContext(r.Context(),
+			`INSERT INTO builder_issue_activity (issue_id, action, actor_kind, detail)
+			 VALUES ($1,'moved','human',$2::jsonb)`, id,
+			`{"by":"verdict","to":`+quoteJSON(verdictLabel(verdict))+`}`); err != nil {
+			httpErr(w, http.StatusInternalServerError, "could not record the verdict")
+			return
+		}
+	}
+
 	if err := tx.Commit(); err != nil {
 		httpErr(w, http.StatusInternalServerError, "could not comment")
 		return
+	}
+	if note != "" {
+		s.log.Info("verdict applied", "issue", num, "verdict", verdictLabel(verdict))
 	}
 
 	// Routing on a mention happens AFTER the commit: the comment is the record

@@ -263,12 +263,36 @@ func (s *Service) handleAnswer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Unblock and return the issue to the queue so an agent can pick it up.
-	if _, err := tx.ExecContext(r.Context(),
+	// A rejection STOPS the work. An answer resumes it.
+	//
+	// These used to be the same branch: every state — including 'rejected' —
+	// cleared the block and set the issue back to 'ready'. Observed on a real
+	// issue: an agent asked whether to build a large duplicate feature, the
+	// operator answered "you are correct, I will not build a todo list as we
+	// have issues", rejected the decision, and the issue went straight back
+	// into the queue. The same agent claimed it twice more and burned two runs
+	// before the operator moved the card by hand. Rejecting a decision meant
+	// the opposite of rejecting it.
+	//
+	// 'rejected' is a real board status, not 'done': an issue closed as
+	// unwanted must never be swept into a release as though it shipped.
+	if in.State == "rejected" {
+		if _, err := tx.ExecContext(r.Context(),
+			`UPDATE builder_issues
+			    SET blocked_on_decision_id = NULL,
+			        status = 'rejected'::builder_issue_status,
+			        status_entered_at = now(), updated_at = now()
+			  WHERE id = $1`, issueID); err != nil {
+			httpErr(w, http.StatusInternalServerError, "could not close the issue")
+			return
+		}
+	} else if _, err := tx.ExecContext(r.Context(),
+		// Unblock and return the issue to the queue so an agent can pick it up.
 		`UPDATE builder_issues
 		    SET blocked_on_decision_id = NULL,
 		        status = CASE WHEN status = 'blocked' THEN 'ready'::builder_issue_status ELSE status END,
 		        human_only = false,
+		        attempt_count = 0,
 		        status_entered_at = now(), updated_at = now()
 		  WHERE id = $1`, issueID); err != nil {
 		httpErr(w, http.StatusInternalServerError, "could not unblock the issue")
@@ -278,7 +302,10 @@ func (s *Service) handleAnswer(w http.ResponseWriter, r *http.Request) {
 	if _, err := tx.ExecContext(r.Context(),
 		`INSERT INTO builder_issue_comments (issue_id, author_kind, body_md)
 		 VALUES ($1,'human',$2)`, issueID,
-		"**Answered:** "+in.Answer); err == nil {
+		// The heading states the OUTCOME, not just that a reply happened. A
+		// thread that reads "Answered: no, do not build this" beside an issue
+		// sitting in the queue is how the previous bug hid in plain sight.
+		answerHeading(in.State)+in.Answer); err == nil {
 		_, _ = tx.ExecContext(r.Context(),
 			`UPDATE builder_issues SET comment_count = comment_count + 1 WHERE id = $1`, issueID)
 	}
@@ -338,4 +365,17 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 
 func httpErr(w http.ResponseWriter, code int, msg string) {
 	writeJSON(w, code, map[string]string{"error": msg})
+}
+
+// answerHeading renders what actually happened to the issue, so the comment
+// and the board can never disagree.
+func answerHeading(state string) string {
+	switch state {
+	case "rejected":
+		return "**Rejected — this issue is closed and no agent will pick it up.**\n\n"
+	case "approved":
+		return "**Approved — back in the queue.**\n\n"
+	default:
+		return "**Answered — back in the queue.**\n\n"
+	}
 }
