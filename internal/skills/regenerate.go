@@ -117,8 +117,18 @@ func (s *Service) handleRegenerate(w http.ResponseWriter, r *http.Request) {
 		Model:  "sonnet",
 		// Read-only. This runs on the operator's real checkout, not an isolated
 		// worktree, so it must not be able to change anything it reads.
-		AllowedTools:   "Read,Glob,Grep",
-		MaxTurns:       20,
+		AllowedTools: "Read,Glob,Grep",
+		// Fifty. The timeout is the real bound; this is the runaway backstop.
+		//
+		// Twenty and then thirty both failed on the same skill —
+		// agent-run-lifecycle, whose topic spans the claim, the lease, the
+		// heartbeat, the SDK session, workspace isolation, terminal states and
+		// the budget guard. Reading that much before writing simply takes more
+		// steps than a cap chosen by feel, and a turn limit that stops a session
+		// at 1m31 of a 10-minute budget is measuring the wrong thing. Fifty
+		// turns of read-only tools cannot run away far — the wall clock stops it
+		// first, and the tools cannot write.
+		MaxTurns:       50,
 		PermissionMode: "acceptEdits",
 		// Ten minutes, not five.
 		//
@@ -140,8 +150,20 @@ func (s *Service) handleRegenerate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if res.IsError {
-		s.log.Warn("skill regeneration errored", "skill", name, "text", truncate(res.Text, 300))
-		httpErr(w, http.StatusBadGateway, "the writing session failed: "+truncate(res.Text, 300))
+		// The subtype, not just the text.
+		//
+		// A failed run reported itself as `the writing session failed: ` —
+		// nothing after the colon, because Claude Code returns an empty result
+		// string when it stops on max turns. An error message with no error in
+		// it is worse than no message: it says something went wrong and refuses
+		// to say what.
+		why := strings.TrimSpace(truncate(res.Text, 300))
+		if why == "" {
+			why = explainSubtype(res.Subtype)
+		}
+		s.log.Warn("skill regeneration errored", "skill", name,
+			"subtype", res.Subtype, "turns", res.NumTurns, "text", truncate(res.Text, 300))
+		httpErr(w, http.StatusBadGateway, "the writing session failed: "+why)
 		return
 	}
 
@@ -177,6 +199,22 @@ func (s *Service) handleRegenerate(w http.ResponseWriter, r *http.Request) {
 		"installedPath": path,
 		"grounded":      dir != "",
 	})
+}
+
+// explainSubtype turns Claude Code's terminal subtype into something an
+// operator can act on. Used when the result text is empty, which is exactly
+// when the operator has the least to go on.
+func explainSubtype(subtype string) string {
+	switch subtype {
+	case "error_max_turns":
+		return "it ran out of turns before finishing — the skill may span too much of the repository to write in one pass"
+	case "error_during_execution":
+		return "the session errored partway through; try again"
+	case "":
+		return "it returned no result and no reason"
+	default:
+		return subtype
+	}
 }
 
 // stripWrapper removes what models add despite being told not to: a fence
