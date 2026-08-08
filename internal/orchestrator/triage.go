@@ -94,6 +94,23 @@ fork that stops the work.
 Be conservative: when unsure between ready and needs_human, choose needs_human.
 A wrongly-queued issue costs an agent run; a wrongly-parked one costs a glance.
 
+## A title with no description
+
+Filing a title on its own is allowed and normal — it is how someone writes work
+down before they have thought it through. So an empty description is not a
+formatting mistake to be worked around; it is a signal that the detail exists
+only in the reporter's head.
+
+Ask for it. If the title alone does not determine what "done" looks like,
+choose "needs_human" and make the question the specific thing the title leaves
+open. Do not invent a scope and do not start on a guess — an agent that builds
+the wrong feature from a five-word title costs a full run and a review, where a
+question costs a reply.
+
+The exception is a title that is already complete on its own: "remove the
+background from the board columns" needs nothing added. Judge whether an
+engineer could start, not whether the field is empty.
+
 ## Weigh the pin before you call something underspecified
 
 A pinned element is the reporter physically pointing at the thing they mean, so
