@@ -97,6 +97,58 @@ button { font: inherit; cursor: pointer; }
 }
 .app-ico svg { width: 18px; height: 18px; }
 
+/* ---- the report modal ---- */
+.modal {
+  position: fixed; inset: 0; z-index: 2147483646;
+  display: grid; place-items: center;
+  /* No backdrop fill.
+     The whole point of dragging this out of the way is to keep looking at the
+     page underneath — dimming it would defeat that, and a modal you can move
+     is not one that should be blocking the view in the first place. */
+  background: transparent;
+  opacity: 0; pointer-events: none;
+  transition: opacity .14s ease;
+}
+.modal[data-open="true"] { opacity: 1; pointer-events: auto; }
+.modal-card {
+  /* Positioned rather than centred once dragging starts; place-items handles
+     the first paint and JS takes over from there. */
+  width: min(440px, calc(100vw - 24px));
+  max-height: min(86vh, 720px);
+  display: flex; flex-direction: column;
+  background: var(--bg); color: var(--text);
+  border: 1px solid var(--border); border-radius: 14px;
+  box-shadow: 0 24px 60px rgba(0,0,0,.35);
+  overflow: hidden;
+}
+.modal-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 12px 14px; border-bottom: 1px solid var(--border);
+  cursor: grab; user-select: none;
+  touch-action: none;                 /* pointer events drive the drag */
+  flex: 0 0 auto;
+}
+.modal-head:active { cursor: grabbing; }
+.modal-title { margin: 0; font-size: 14px; font-weight: 600; }
+.modal-x {
+  margin-inline-start: auto;
+  border: 0; background: transparent; color: var(--muted);
+  cursor: pointer; padding: 5px; border-radius: 8px; display: inline-flex;
+}
+.modal-x:hover { color: var(--text); background: var(--border); }
+.modal-body { padding: 14px; overflow-y: auto; flex: 1 1 auto; }
+.modal-foot {
+  display: flex; align-items: center; justify-content: flex-end; gap: 8px;
+  padding: 12px 14px; border-top: 1px solid var(--border); flex: 0 0 auto;
+}
+.modal-foot .primary { width: auto; }
+.row2 { display: grid; gap: 10px; }
+.hint { margin: 4px 0 0; font-size: 11px; color: var(--muted); }
+
+@media (prefers-reduced-motion: reduce) {
+  .modal { transition: none; }
+}
+
 /* ---- full-screen overlay hosting a builder screen ---- */
 .ov {
   position: fixed; inset: 0; z-index: 2147483646;   /* above the panel */

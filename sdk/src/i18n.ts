@@ -19,6 +19,11 @@ const en = {
   titlePlaceholder: "Brief description",
   details: "Details",
   detailsPlaceholder: "Steps to reproduce, expected vs actual, etc.",
+  cancel: "Cancel",
+  // Said explicitly. The body is rendered as markdown everywhere it is read —
+  // the issue page, the panel, the agent's prompt — and a reporter who does
+  // not know that writes a wall of plain text where a list would have done.
+  markdownHint: "Markdown supported — **bold**, `code`, lists.",
   pageUrl: "Page URL",
   location: "Location",
   pin: "Pin location",
@@ -70,6 +75,8 @@ const ar: Dict = {
   titlePlaceholder: "وصف مختصر",
   details: "التفاصيل",
   detailsPlaceholder: "خطوات إعادة الإنتاج، المتوقع مقابل الفعلي، إلخ.",
+  cancel: "إلغاء",
+  markdownHint: "يدعم Markdown — **عريض**، `شيفرة`، قوائم.",
   pageUrl: "رابط الصفحة",
   location: "الموقع",
   pin: "تحديد الموقع",

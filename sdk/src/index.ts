@@ -73,37 +73,6 @@ export function mount(opts: MountOptions = {}): Handle {
           <div class="appgrid"></div>
         </div>
 
-        <form class="form hidden" novalidate>
-          <div class="label lbl-type"></div>
-          <div class="pills"></div>
-
-          <div class="label lbl-title"></div>
-          <input type="text" name="title" maxlength="255" required>
-
-          <div class="label lbl-details"></div>
-          <textarea name="body"></textarea>
-
-          <div class="label lbl-url"></div>
-          <input type="text" name="url" disabled>
-
-          <div class="label lbl-loc"></div>
-          <div class="btns">
-            <button type="button" class="ghost pin" aria-pressed="false"></button>
-            <button type="button" class="ghost clearpin hidden"></button>
-          </div>
-          <div class="pin-preview hidden"></div>
-
-          <div class="label lbl-att"></div>
-          <div class="btns">
-            <button type="button" class="ghost addfile"></button>
-            <button type="button" class="ghost shot"></button>
-          </div>
-          <div class="files"></div>
-          <input type="file" class="filein hidden" multiple accept="${ACCEPT}">
-
-          <p class="note hidden"></p>
-        </form>
-
         <div class="listing">
           <div class="label lbl-page"></div>
           <div class="rows"></div>
@@ -112,8 +81,63 @@ export function mount(opts: MountOptions = {}): Handle {
           <a class="board-link" href="/issues" target="_blank" rel="noopener"></a>
         </div>
       </div>
-      <div class="foot hidden"><button type="submit" class="primary send"></button></div>
     </aside>
+
+    <!-- The report form, as a draggable modal.
+         It used to live inline in the slide-over, which meant filling it in
+         covered the right-hand third of the page you were reporting on — and
+         pinning an element or taking a screenshot needs you to SEE that page.
+         A modal you can drag out of the way solves both: the form stays put
+         while you work around it. -->
+    <div class="modal" data-open="false" role="dialog" aria-modal="true" aria-label="">
+      <div class="modal-card">
+        <div class="modal-head">
+          <h2 class="modal-title"></h2>
+          <button type="button" class="modal-x" aria-label=""></button>
+        </div>
+        <form class="form" novalidate>
+          <div class="modal-body">
+            <div class="label lbl-title"></div>
+            <input type="text" name="title" maxlength="255" required>
+
+            <div class="row2">
+              <div>
+                <div class="label lbl-type"></div>
+                <div class="pills"></div>
+              </div>
+            </div>
+
+            <div class="label lbl-loc"></div>
+            <div class="btns">
+              <button type="button" class="ghost pin" aria-pressed="false"></button>
+              <button type="button" class="ghost clearpin hidden"></button>
+            </div>
+            <div class="pin-preview hidden"></div>
+
+            <div class="label lbl-details"></div>
+            <textarea name="body"></textarea>
+            <p class="hint lbl-md"></p>
+
+            <div class="label lbl-att"></div>
+            <div class="btns">
+              <button type="button" class="ghost addfile"></button>
+              <button type="button" class="ghost shot"></button>
+            </div>
+            <div class="files"></div>
+            <input type="file" class="filein hidden" multiple accept="${ACCEPT}">
+
+            <div class="label lbl-url"></div>
+            <input type="text" name="url" disabled>
+
+            <p class="note hidden"></p>
+          </div>
+          <div class="modal-foot">
+            <button type="button" class="ghost cancel"></button>
+            <button type="submit" class="primary send"></button>
+          </div>
+        </form>
+      </div>
+    </div>
 
     <!-- The overlay that hosts a builder screen.
          An iframe on the same origin rather than a re-implementation: these
@@ -135,7 +159,11 @@ export function mount(opts: MountOptions = {}): Handle {
   const panel = $<HTMLElement>(".panel");
   const form = $<HTMLFormElement>(".form");
   const listing = $<HTMLElement>(".listing");
-  const foot = $<HTMLElement>(".foot");
+  const modal = $<HTMLElement>(".modal");
+  const modalCard = $<HTMLElement>(".modal-card");
+  const modalHead = $<HTMLElement>(".modal-head");
+  const modalX = $<HTMLButtonElement>(".modal-x");
+  const cancelBtn = $<HTMLButtonElement>(".cancel");
   const rows = $<HTMLElement>(".rows");
   const pillbox = $<HTMLElement>(".pills");
   const note = $<HTMLParagraphElement>(".note");
@@ -194,6 +222,12 @@ export function mount(opts: MountOptions = {}): Handle {
   $(".lbl-page").textContent = t.onThisPage;
   iconLabel($(".board-link"), "arrowRight", t.openBoard);
   $(".lbl-apps").textContent = t.apps;
+  $(".modal-title").textContent = t.reportTitle;
+  modalX.setAttribute("aria-label", t.close);
+  modalX.appendChild(icon("x", 15));
+  modal.setAttribute("aria-label", t.reportTitle);
+  cancelBtn.textContent = t.cancel;
+  $(".lbl-md").textContent = t.markdownHint;
   ovX.setAttribute("aria-label", t.close);
   ovX.appendChild(icon("x", 16));
   ovTab.setAttribute("aria-label", t.openInTab);
@@ -395,6 +429,69 @@ export function mount(opts: MountOptions = {}): Handle {
   }
 
   ovX.addEventListener("click", closeApp);
+
+  // ---- the report modal, dragged by its header ---------------------------
+  //
+  // Reporting means looking at the thing you are reporting on. A form pinned
+  // to the right edge of the screen covers exactly the part of the page you
+  // most often need to see while describing it, and pinning an element or
+  // taking a screenshot needs the page visible. So: move it.
+  //
+  // Position is not remembered between openings. It is moved to uncover
+  // something specific on THIS page, and restoring yesterday's offset on a
+  // different layout would put it somewhere arbitrary.
+  let mDrag: { dx: number; dy: number } | null = null;
+
+  modalHead.addEventListener("pointerdown", (e) => {
+    // Not from the close button — that is a click, not a handle.
+    if ((e.target as Element).closest(".modal-x")) return;
+    const r = modalCard.getBoundingClientRect();
+    // Switch from grid-centred to absolutely placed at the position it is
+    // already in, so the first drag frame does not jump.
+    modalCard.style.position = "fixed";
+    modalCard.style.margin = "0";
+    modalCard.style.left = `${r.left}px`;
+    modalCard.style.top = `${r.top}px`;
+    mDrag = { dx: e.clientX - r.left, dy: e.clientY - r.top };
+    modalHead.setPointerCapture(e.pointerId);
+  });
+
+  modalHead.addEventListener("pointermove", (e) => {
+    if (!mDrag) return;
+    const r = modalCard.getBoundingClientRect();
+    // Clamped so the header can never be dragged off-screen — a modal whose
+    // handle is past the edge cannot be brought back.
+    const x = Math.min(Math.max(e.clientX - mDrag.dx, 8 - r.width + 80), innerWidth - 80);
+    const y = Math.min(Math.max(e.clientY - mDrag.dy, 8), innerHeight - 44);
+    modalCard.style.left = `${x}px`;
+    modalCard.style.top = `${y}px`;
+  });
+
+  const endDrag = (e: PointerEvent) => {
+    if (!mDrag) return;
+    mDrag = null;
+    try { modalHead.releasePointerCapture(e.pointerId); } catch { /* already gone */ }
+  };
+  modalHead.addEventListener("pointerup", endDrag);
+  modalHead.addEventListener("pointercancel", endDrag);
+
+  // Re-centre on the next open, and drop the inline placement so the grid
+  // centring applies again.
+  function recentreModal() {
+    modalCard.style.position = "";
+    modalCard.style.left = "";
+    modalCard.style.top = "";
+    modalCard.style.margin = "";
+  }
+
+  modalX.addEventListener("click", () => showForm(false));
+  cancelBtn.addEventListener("click", () => showForm(false));
+
+  // Escape closes the form. Bound to the host document because the pin picker
+  // moves focus onto the page itself.
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && formOpen && !cancelPick) showForm(false);
+  });
   $(".x").addEventListener("click", close);
   root.addEventListener("keydown", (e) => {
     if ((e as KeyboardEvent).key === "Escape" && !cancelPick) close();
@@ -412,14 +509,21 @@ export function mount(opts: MountOptions = {}): Handle {
   }
   document.addEventListener("click", onOutsideClick, true);
 
+  // The form is a modal now, not a section of the panel. The panel stays open
+  // behind it — the list of issues on this page is context for what you are
+  // about to write, and closing it would hide the duplicate you are about to
+  // file.
   function showForm(on: boolean) {
     formOpen = on;
-    form.classList.toggle("hidden", !on);
-    listing.classList.toggle("hidden", on);
-    foot.classList.toggle("hidden", !on);
-    $(".report").classList.toggle("hidden", on);
-    if (on) setTimeout(() => titleIn.focus(), 30);
-    else reset();
+    modal.dataset.open = on ? "true" : "false";
+    if (on) {
+      recentreModal();
+      setTimeout(() => titleIn.focus(), 30);
+    } else {
+      reset();
+      cancelPick?.();
+      cancelPick = null;
+    }
   }
   $(".report").addEventListener("click", () => showForm(true));
 
@@ -660,8 +764,10 @@ export function mount(opts: MountOptions = {}): Handle {
     }
     listing.classList.add("hidden");
     $(".report").classList.add("hidden");
-    form.classList.add("hidden");
-    foot.classList.add("hidden");
+    $(".apps").classList.add("hidden");
+    // The form is its own modal now, so it is dismissed rather than hidden —
+    // leaving it open over a detail view would stack two dialogs.
+    showForm(false);
     detail.el.classList.remove("hidden");
     // A single issue's title, body, pin and comment thread need real room to
     // read and to type a reply into — the listing's 420px column was sized for
