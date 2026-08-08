@@ -21,6 +21,7 @@ import (
 	"github.com/togo-framework/builder/internal/runner"
 	"github.com/togo-framework/builder/internal/setup"
 	"github.com/togo-framework/builder/internal/skills"
+	"github.com/togo-framework/builder/internal/term"
 	"github.com/togo-framework/builder/internal/vault"
 )
 
@@ -203,6 +204,16 @@ func provideFleet(k *togo.Kernel) error {
 	// authenticate with their own bearer tokens rather than the dashboard
 	// session, because an MCP client cannot present a cookie.
 	k.Router.Route("/api/builder/mcp", mcpsrv.New(db, k.Log).Routes)
+
+	// The terminal. Off unless BUILDER_TERMINAL=1, and never in production —
+	// the service refuses at construction, so the routes exist but answer 403
+	// rather than the mount being conditional. A missing route reads as a bug;
+	// a route that says why it will not run reads as a decision.
+	termRoot := os.Getenv("BUILDER_WORKDIR")
+	if termRoot == "" {
+		termRoot = "."
+	}
+	k.Router.Route("/api/builder/term", term.New(db, k.Log, termRoot).Routes)
 	return nil
 }
 
