@@ -158,9 +158,17 @@ func (o *Orchestrator) flagUnroutable(ctx context.Context, agents []agent) {
 		}
 	}
 
+	// Attempt-exhausted issues are flagged FIRST, because they are the most
+	// deceptive state on the board: status says `ready`, the card looks like
+	// every other card, and the claim statement excludes it silently. An issue
+	// that has burned its attempts sits in To do forever with nothing to explain
+	// why, and the operator's only clue is that nothing ever happens.
+	o.flagExhausted(ctx)
+
 	rows, err := o.db.QueryContext(ctx,
 		`SELECT id, number, area FROM builder_issues i
 		  WHERE status = 'ready' AND human_only = false
+		    AND attempt_count < max_attempts
 		    AND blocked_on_decision_id IS NULL
 		    AND NOT EXISTS (
 		      SELECT 1 FROM builder_issue_comments c
@@ -229,4 +237,69 @@ func coveredList(covered map[string]bool) string {
 	}
 	sort.Strings(out)
 	return strings.Join(out, ", ")
+}
+
+// flagExhausted says so when an issue has used every attempt.
+//
+// The claim statement excludes `attempt_count >= max_attempts` — correctly, or a
+// mis-specified issue would burn budget forever. But the exclusion is silent:
+// the issue keeps its `ready` status and its place on the board while being
+// permanently unclaimable. Two issues sat like that for an hour, and the only
+// visible symptom was that no agent ever touched them.
+//
+// Said once per issue, and it moves the issue to `blocked` so the board stops
+// claiming the work is queued when it is not.
+func (o *Orchestrator) flagExhausted(ctx context.Context) {
+	rows, err := o.db.QueryContext(ctx,
+		`SELECT id, number, attempt_count, max_attempts
+		   FROM builder_issues i
+		  WHERE status = 'ready'
+		    AND attempt_count >= max_attempts
+		    AND NOT EXISTS (
+		      SELECT 1 FROM builder_issue_comments c
+		       WHERE c.issue_id = i.id AND c.author_kind = 'system'
+		         AND c.body_md ILIKE '%every attempt%')
+		  LIMIT 20`)
+	if err != nil {
+		o.log.Error("scan for exhausted issues", "err", err)
+		return
+	}
+	defer rows.Close()
+
+	type stuck struct {
+		id             string
+		number         int64
+		attempts, max_ int
+	}
+	var list []stuck
+	for rows.Next() {
+		var s stuck
+		if rows.Scan(&s.id, &s.number, &s.attempts, &s.max_) == nil {
+			list = append(list, s)
+		}
+	}
+	rows.Close()
+
+	for _, s := range list {
+		body := fmt.Sprintf(
+			"**Stopped — this issue has used every attempt (%d of %d).**\n\n"+
+				"No agent will claim it again until the attempts are reset. Three runs "+
+				"that all stopped without a fix usually means the issue is "+
+				"under-specified rather than hard: say what the expected result is, "+
+				"or narrow it to one change, then press Retry.",
+			s.attempts, s.max_)
+		if _, err := o.db.ExecContext(ctx,
+			`INSERT INTO builder_issue_comments (issue_id, author_kind, body_md)
+			 VALUES ($1,'system',$2)`, s.id, body); err != nil {
+			o.log.Error("flag exhausted issue", "issue", s.number, "err", err)
+			continue
+		}
+		_, _ = o.db.ExecContext(ctx,
+			`UPDATE builder_issues
+			    SET comment_count = comment_count + 1,
+			        status = 'blocked', status_entered_at = now(), updated_at = now()
+			  WHERE id = $1 AND status = 'ready'`, s.id)
+		o.log.Warn("issue has used every attempt", "issue", s.number,
+			"attempts", s.attempts, "max", s.max_)
+	}
 }

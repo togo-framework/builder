@@ -156,9 +156,13 @@ func (o *Orchestrator) Implement(
 	// the in-session guards rather than left to .claude/autonomy.yaml. Without
 	// this the file's own numbers won silently: a run aborted on a $5/day
 	// ceiling from the file while the settings said $16.
+	// 0 = unlimited for this agent. Passing 0 through tells budget-meter.sh there
+	// is no per-run ceiling; it used to be silently rewritten to $2, so an agent
+	// configured as unlimited stopped at two dollars and reported a budget
+	// failure the operator had explicitly opted out of.
 	runBudget := c.MaxBudgetUSD
-	if runBudget <= 0 {
-		runBudget = 2
+	if runBudget < 0 {
+		runBudget = 0
 	}
 	sessEnv := []string{
 		fmt.Sprintf("BUILDER_RUN_BUDGET_USD=%.4f", runBudget),
@@ -671,9 +675,9 @@ func (o *Orchestrator) announce(ctx context.Context, c *Claim, branch string, ar
 	if len(areas) > 0 {
 		scope = "`" + strings.Join(areas, "`, `") + "`"
 	}
-	budget := c.MaxBudgetUSD
-	if budget <= 0 {
-		budget = 2
+	budgetLabel := fmt.Sprintf("$%.2f for this run", c.MaxBudgetUSD)
+	if c.MaxBudgetUSD <= 0 {
+		budgetLabel = "unlimited for this run (the fleet's daily ceiling still applies)"
 	}
 	attempt := ""
 	if c.Attempt > 1 {
@@ -689,9 +693,9 @@ func (o *Orchestrator) announce(ctx context.Context, c *Claim, branch string, ar
 			"yours to make, I will stop and ask rather than guess.\n\n"+
 			"| | |\n|---|---|\n"+
 			"| Branch | `%s` |\n| Repository | `%s` |\n| Areas | %s |\n"+
-			"| Model | `%s` |\n| Budget | $%.2f for this run |\n"+
+			"| Model | `%s` |\n| Budget | %s |\n"+
 			"| Blast radius | at most %d files, %d net lines |%s",
-		c.Agent, branch, repo, scope, c.Model, budget, maxFilesChanged, maxNetLines, attempt)
+		c.Agent, branch, repo, scope, c.Model, budgetLabel, maxFilesChanged, maxNetLines, attempt)
 
 	_, err := o.db.ExecContext(ctx,
 		`INSERT INTO builder_issue_comments (issue_id, author_kind, author_agent_id, body_md, run_id)

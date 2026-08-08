@@ -280,6 +280,8 @@ type patchIssue struct {
 	Type      *string `json:"type,omitempty"`
 	Area      *string `json:"area,omitempty"`
 	HumanOnly *bool   `json:"humanOnly,omitempty"`
+	// Retry resets attempt_count and returns the issue to the queue.
+	Retry *bool `json:"retry,omitempty"`
 	// Assignee is an agent slug, or "" to unassign. Assigning to a person is
 	// expressed as humanOnly — there is no per-user assignment, because the
 	// dispatcher's question is only ever "may an agent take this, and which".
@@ -340,6 +342,21 @@ func (s *Service) handlePatch(w http.ResponseWriter, r *http.Request) {
 		add("area = ", truncate(*in.Area, 120))
 	}
 	clearHumanOnly := false
+	// Retry: give a stuck issue its attempts back.
+	//
+	// Without this an exhausted issue is permanently dead — the claim excludes
+	// it and nothing in the UI could change that. The operator who clarifies a
+	// report needs a way to say "try again", and editing attempt_count in
+	// Postgres is not a UI.
+	if in.Retry != nil && *in.Retry {
+		sets = append(sets, "attempt_count = 0")
+		if in.Status == nil {
+			// An exhausted issue was moved to `blocked` when it was flagged; a
+			// retry that left it there would reset the counter and change nothing
+			// anyone can see.
+			sets = append(sets, "status = 'ready'::builder_issue_status")
+		}
+	}
 	if in.Assignee != nil {
 		// Refuse while an agent holds a live lease. Reassigning mid-run does not
 		// stop the agent that is actually working — it just makes the row lie

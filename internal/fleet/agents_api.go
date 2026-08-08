@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -38,6 +39,7 @@ func (s *AgentsService) Routes(r chi.Router) {
 	r.Get("/agents", s.handleList)
 	r.Get("/agents/{slug}", s.handleGet)
 	r.Post("/agents", s.handleCreate)
+	r.Get("/agents/{slug}/brain", s.handleBrain)
 	r.Patch("/agents/{slug}", s.handlePatch)
 }
 
@@ -78,7 +80,10 @@ SELECT a.slug, a.display_name, a.title, a.description, a.role::text, a.model,
        coalesce((SELECT count(*) FROM builder_memories m
                   JOIN builder_brains b ON b.namespace = m.namespace
                  WHERE b.id = a.brain_id), 0) AS memories,
-       to_char(a.last_run_at, 'YYYY-MM-DD"T"HH24:MI:SSOF') AS last_run_at,
+       -- to_char's OF emits "+03"; RFC 3339 needs "+03:00" and JS Date returns
+       -- NaN for the short form, which rendered as "NaNd ago". to_json emits a
+       -- full ISO-8601 timestamp, so the quotes are trimmed instead.
+       btrim(to_json(a.last_run_at)::text, '"') AS last_run_at,
        -- A run is only "live" while it is actually running; a crashed runner's
        -- row would otherwise read as busy forever.
        -- Belt and braces with the reconciler: a run whose heartbeat has stopped
@@ -184,16 +189,31 @@ func (s *AgentsService) handleGet(w http.ResponseWriter, r *http.Request) {
 	_ = s.db.QueryRowContext(r.Context(),
 		`SELECT persona_md FROM builder_agents WHERE slug = $1`, slug).Scan(&persona)
 
+	// Paged, not a fixed slice. A busy agent accumulates hundreds of runs, and
+	// LIMIT 25 with no way to reach the rest meant the history simply stopped —
+	// the operator could not see what an agent did an hour ago.
+	limit, offset := 25, 0
+	if v := r.URL.Query().Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 100 {
+			limit = n
+		}
+	}
+	if v := r.URL.Query().Get("offset"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			offset = n
+		}
+	}
+
 	arows, err := s.db.QueryContext(r.Context(),
 		`SELECT r.kind::text, r.status::text, i.number, coalesce(i.title,''),
 		        r.files_changed, r.lines_added, r.lines_removed, r.cost_usd,
 		        coalesce(r.branch,''), coalesce(r.terminal_reason,''),
-		        to_char(r.started_at, 'YYYY-MM-DD"T"HH24:MI:SSOF')
+		        btrim(to_json(r.started_at)::text, '"')
 		   FROM builder_runs r
 		   LEFT JOIN builder_issues i ON i.id = r.issue_id
 		  WHERE r.agent_slug = $1
 		  ORDER BY r.started_at DESC
-		  LIMIT 25`, slug)
+		  LIMIT $2 OFFSET $3`, slug, limit, offset)
 	activity := make([]agentActivity, 0, 8)
 	if err == nil {
 		defer arows.Close()
@@ -212,8 +232,15 @@ func (s *AgentsService) handleGet(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// totalRuns lets the caller know whether another page exists without asking
+	// for one that turns out to be empty.
+	var totalRuns int
+	_ = s.db.QueryRowContext(r.Context(),
+		`SELECT count(*) FROM builder_runs WHERE agent_slug = $1`, slug).Scan(&totalRuns)
+
 	writeJSON(w, http.StatusOK, map[string]any{
 		"agent": a, "persona": persona, "activity": activity,
+		"totalRuns": totalRuns, "offset": offset, "limit": limit,
 	})
 }
 
@@ -310,8 +337,14 @@ func (s *AgentsService) handlePatch(w http.ResponseWriter, r *http.Request) {
 		add("persona_md = ", *in.Persona)
 	}
 	if in.MaxBudget != nil {
+		// 0 means UNLIMITED — no per-run ceiling for this agent.
+		//
+		// An operator running an agent on a long, expensive job should not have to
+		// guess a number that is high enough; the fleet's daily ceiling is still
+		// the backstop, so "unlimited" here is unlimited per RUN, not per day.
 		if *in.MaxBudget < 0 || *in.MaxBudget > 1000 {
-			httpErr(w, http.StatusUnprocessableEntity, "a per-run budget must be between 0 and 1000")
+			httpErr(w, http.StatusUnprocessableEntity,
+				"a per-run budget must be between 0 and 1000 — use 0 for unlimited")
 			return
 		}
 		add("max_budget_usd = ", *in.MaxBudget)
@@ -693,4 +726,156 @@ func orDefault(s, fallback string) string {
 		return fallback
 	}
 	return s
+}
+
+// ── the brain ───────────────────────────────────────────────────────────────
+
+type brainView struct {
+	Namespace string        `json:"namespace"`
+	Memories  int           `json:"memories"`
+	Gaps      int           `json:"gaps"`
+	Entities  int           `json:"entities"`
+	Edges     int           `json:"edges"`
+	Embedder  string        `json:"embedder"`
+	Recent    []brainMemory `json:"recent"`
+	Graph     struct {
+		Nodes []graphNode `json:"nodes"`
+		Edges []graphEdge `json:"edges"`
+	} `json:"graph"`
+	OpenGaps []string `json:"openGaps"`
+}
+
+type brainMemory struct {
+	ID         string  `json:"id"`
+	Content    string  `json:"content"`
+	SourceKind string  `json:"sourceKind"`
+	SourceRef  string  `json:"sourceRef"`
+	Importance float64 `json:"importance"`
+	CreatedAt  string  `json:"createdAt"`
+}
+
+type graphNode struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Kind     string `json:"kind"`
+	Mentions int    `json:"mentions"`
+}
+
+type graphEdge struct {
+	From   string `json:"from"`
+	To     string `json:"to"`
+	Weight int    `json:"weight"`
+}
+
+// handleBrain returns what an agent actually remembers.
+//
+// The brain was invisible: rows existed in Postgres and nothing surfaced them,
+// so "does this agent learn anything?" could only be answered with a psql
+// session. Memories, the entity graph and the open gaps are the three things
+// that answer it.
+func (s *AgentsService) handleBrain(w http.ResponseWriter, r *http.Request) {
+	slug := chi.URLParam(r, "slug")
+
+	var v brainView
+	if err := s.db.QueryRowContext(r.Context(),
+		// driver, not embedder: the schema records the store (pgvector) rather
+		// than the embedding model. The embedder is a runtime choice.
+		`SELECT b.namespace, b.driver FROM builder_brains b WHERE b.agent_slug = $1`, slug).
+		Scan(&v.Namespace, &v.Embedder); err != nil {
+		httpErr(w, http.StatusNotFound, "this agent has no brain")
+		return
+	}
+
+	_ = s.db.QueryRowContext(r.Context(),
+		`SELECT count(*) FROM builder_memories WHERE namespace = $1 AND invalid_at IS NULL`,
+		v.Namespace).Scan(&v.Memories)
+	_ = s.db.QueryRowContext(r.Context(),
+		`SELECT count(*) FROM builder_entities WHERE namespace = $1`, v.Namespace).Scan(&v.Entities)
+	_ = s.db.QueryRowContext(r.Context(),
+		`SELECT count(*) FROM builder_entity_edges WHERE namespace = $1`, v.Namespace).Scan(&v.Edges)
+	_ = s.db.QueryRowContext(r.Context(),
+		`SELECT count(*) FROM builder_memory_gaps WHERE namespace = $1 AND status = 'open'`,
+		v.Namespace).Scan(&v.Gaps)
+
+	if rows, err := s.db.QueryContext(r.Context(),
+		`SELECT id, content, source_kind, source_ref, importance,
+		        btrim(to_json(created_at)::text, '"')
+		   FROM builder_memories
+		  WHERE namespace = $1 AND invalid_at IS NULL
+		  ORDER BY created_at DESC LIMIT 25`, v.Namespace); err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var m brainMemory
+			if rows.Scan(&m.ID, &m.Content, &m.SourceKind, &m.SourceRef,
+				&m.Importance, &m.CreatedAt) == nil {
+				v.Recent = append(v.Recent, m)
+			}
+		}
+	}
+
+	// The graph, capped: 60 nodes is a picture, 400 is a hairball.
+	if rows, err := s.db.QueryContext(r.Context(),
+		`SELECT id, name, kind, mention_count FROM builder_entities
+		  WHERE namespace = $1 ORDER BY mention_count DESC, last_seen DESC LIMIT 60`,
+		v.Namespace); err == nil {
+		defer rows.Close()
+		ids := []string{}
+		for rows.Next() {
+			var n graphNode
+			if rows.Scan(&n.ID, &n.Name, &n.Kind, &n.Mentions) == nil {
+				v.Graph.Nodes = append(v.Graph.Nodes, n)
+				ids = append(ids, n.ID)
+			}
+		}
+		rows.Close()
+		if len(ids) > 0 {
+			// Only edges BETWEEN drawn nodes — an edge to something off-screen
+			// renders as a line into nowhere.
+			if erows, err := s.db.QueryContext(r.Context(),
+				`SELECT from_id, to_id, weight FROM builder_entity_edges
+				  WHERE namespace = $1 AND from_id = ANY($2::uuid[]) AND to_id = ANY($2::uuid[])
+				  ORDER BY weight DESC LIMIT 300`, v.Namespace, encodePGArray(ids)); err == nil {
+				defer erows.Close()
+				for erows.Next() {
+					var e graphEdge
+					if erows.Scan(&e.From, &e.To, &e.Weight) == nil {
+						v.Graph.Edges = append(v.Graph.Edges, e)
+					}
+				}
+			}
+		}
+	}
+
+	// Gaps are queries that recalled nothing — the brain saying what it does not
+	// know, which is the most actionable thing on this page.
+	if rows, err := s.db.QueryContext(r.Context(),
+		`SELECT query FROM builder_memory_gaps
+		  WHERE namespace = $1 AND status = 'open'
+		  ORDER BY created_at DESC LIMIT 15`, v.Namespace); err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var q string
+			if rows.Scan(&q) == nil {
+				v.OpenGaps = append(v.OpenGaps, q)
+			}
+		}
+	}
+
+	// Go marshals a nil slice as `null`, and the UI reads .length on these — so a
+	// brain with no memories crashed the page with "Cannot read properties of
+	// null". `v.Recent[:0]` does NOT fix it: re-slicing a nil slice is still nil.
+	// They have to be allocated.
+	if v.Recent == nil {
+		v.Recent = make([]brainMemory, 0)
+	}
+	if v.OpenGaps == nil {
+		v.OpenGaps = make([]string, 0)
+	}
+	if v.Graph.Nodes == nil {
+		v.Graph.Nodes = make([]graphNode, 0)
+	}
+	if v.Graph.Edges == nil {
+		v.Graph.Edges = make([]graphEdge, 0)
+	}
+	writeJSON(w, http.StatusOK, v)
 }

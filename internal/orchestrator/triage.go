@@ -106,8 +106,19 @@ func (o *Orchestrator) TriageOne(ctx context.Context) (bool, error) {
 	var id, title, body, route, pageURL string
 	var number int64
 	err := o.db.QueryRowContext(ctx,
-		`SELECT id, number, title, body_md, route, page_url FROM builder_issues
+		// Never triage the same issue twice.
+		//
+		// Triage runs on anything in `triage`, and moving a card back to that
+		// column — which an operator does while working out where an issue
+		// belongs — re-ran it every time. 32 triage runs and $5.82 went on
+		// re-classifying issues that had already been classified, each one
+		// overwriting the operator's own edits to type, priority and area.
+		`SELECT id, number, title, body_md, route, page_url FROM builder_issues i
 		  WHERE status = 'triage'
+		    AND NOT EXISTS (
+		      SELECT 1 FROM builder_issue_comments c
+		       WHERE c.issue_id = i.id
+		         AND c.author_agent_id = 'triage')
 		  ORDER BY created_at ASC LIMIT 1`).Scan(&id, &number, &title, &body, &route, &pageURL)
 	if err == sql.ErrNoRows {
 		return false, nil
