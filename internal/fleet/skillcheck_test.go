@@ -7,16 +7,20 @@ import (
 	"testing"
 )
 
-// TestCheckSkillBodyAgainstRealSkills calibrates the gate against the two
-// populations that actually exist in a builder install: the skills a human
-// wrote, and the ones the generator produced before the gate existed.
+// TestNoSkillInTheCatalogueIsAStub asserts the invariant the gate exists to
+// protect: every skill an agent can load is a procedure, not a restated brief.
 //
-// This is the assertion that matters. A word-count threshold is easy to write
-// and easy to get wrong in either direction — too low and the stubs pass, too
-// high and a real-but-terse skill is rejected on every generation. Pointing it
-// at the real files is the only way to know which it is.
-func TestCheckSkillBodyAgainstRealSkills(t *testing.T) {
-	// The dev app is where both populations live. Skipped rather than failed
+// This replaces a calibration test that hardcoded the ten names the generator
+// had produced and asserted the gate rejected all of them. That test did its
+// job — it caught a first version of checkSkillBody that required a literal
+// "## Steps" heading and would have rejected all nineteen hand-written skills —
+// and then invalidated itself the moment those ten were regenerated, because
+// the population it named no longer existed. A test that fails when you fix the
+// problem it measures is a test that will be deleted rather than read.
+//
+// The invariant is durable: whatever is in .claude/skills/, none of it is thin.
+func TestNoSkillInTheCatalogueIsAStub(t *testing.T) {
+	// The dev app is where a real catalogue lives. Skipped rather than failed
 	// when absent: the plugin's own tests must pass without it checked out.
 	root := os.Getenv("BUILDER_SKILLS_FIXTURE")
 	if root == "" {
@@ -27,16 +31,8 @@ func TestCheckSkillBodyAgainstRealSkills(t *testing.T) {
 		t.Skipf("no skills fixture at %s: %v", root, err)
 	}
 
-	// The ten the generator produced. Each is a single restated sentence.
-	generated := map[string]bool{
-		"brain-memory": true, "blueprint-scaffold": true, "feedback-sdk": true,
-		"vault-secrets": true, "human-in-the-loop": true, "issue-plane": true,
-		"pin-anchor-resolution": true, "agent-run-lifecycle": true,
-		"realtime-sse": true, "setup-preflight": true,
-	}
-
-	var passedStub, rejectedReal []string
-	seenGenerated, seenReal := 0, 0
+	var thin []string
+	checked := 0
 
 	for _, e := range entries {
 		if !e.IsDir() {
@@ -46,43 +42,34 @@ func TestCheckSkillBodyAgainstRealSkills(t *testing.T) {
 		if err != nil {
 			continue
 		}
-		// Strip the frontmatter: the gate judges the body the model returns,
-		// and the frontmatter is added afterwards by renderSkill.
+		// Strip the frontmatter: the gate judges the body a model returns, and
+		// the frontmatter is added afterwards by renderSkill.
 		body := string(b)
 		if strings.HasPrefix(body, "---") {
 			if i := strings.Index(body[3:], "\n---"); i >= 0 {
 				body = body[i+7:]
 			}
 		}
-
-		why := checkSkillBody(body)
-		if generated[e.Name()] {
-			seenGenerated++
-			if why == "" {
-				passedStub = append(passedStub, e.Name())
-			}
-		} else {
-			seenReal++
-			if why != "" {
-				rejectedReal = append(rejectedReal, e.Name()+": "+why)
-			}
+		checked++
+		if why := checkSkillBody(body); why != "" {
+			thin = append(thin, e.Name()+": "+why)
 		}
 	}
 
-	if seenGenerated == 0 || seenReal == 0 {
-		t.Skipf("fixture did not contain both populations (generated=%d real=%d)",
-			seenGenerated, seenReal)
+	if checked == 0 {
+		t.Skip("fixture contained no skills")
 	}
-	if len(passedStub) > 0 {
-		t.Errorf("the gate let %d generated stub(s) through: %v", len(passedStub), passedStub)
+	if len(thin) > 0 {
+		t.Errorf("%d of %d skills would not pass the generator's own gate.\n"+
+			"Regenerate them (POST /skills/{name}/regenerate) or write them by hand:\n  %s",
+			len(thin), checked, strings.Join(thin, "\n  "))
 	}
-	if len(rejectedReal) > 0 {
-		t.Errorf("the gate rejected %d hand-written skill(s):\n  %s",
-			len(rejectedReal), strings.Join(rejectedReal, "\n  "))
-	}
-	t.Logf("checked %d generated and %d hand-written skills", seenGenerated, seenReal)
+	t.Logf("checked %d skills", checked)
 }
 
+// TestCheckSkillBodyRejects pins the gate's behaviour against fixed inputs, so
+// it keeps working regardless of what is on disk. The "one sentence" case is
+// the exact shape the generator used to produce.
 func TestCheckSkillBodyRejects(t *testing.T) {
 	long := strings.Repeat("word ", minSkillWords+50)
 
@@ -96,6 +83,11 @@ func TestCheckSkillBodyRejects(t *testing.T) {
 		{"long but no sections", long + "\n```sh\nls\n```", true},
 		{"sections but no commands", long + "\n## When\n1. Do it.\n## Steps\n2. More.", true},
 		{"complete", long + "\n## When to use this\nTriggers.\n## Steps\n1. Run it.\n```sh\ngo test ./...\n```", false},
+		// Hand-written skills in this repository number or name their own
+		// sections rather than using a literal "## Steps". Requiring that
+		// heading rejected all nineteen of them; this case is why.
+		{"numbered sections, no literal Steps heading",
+			long + "\n## 1. Bundle scan\nDo it.\n## 2. Live render\n```sh\ncurl -s localhost\n```", false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
