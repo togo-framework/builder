@@ -40,12 +40,16 @@ export const CSS = /* css */ `
 button { font: inherit; cursor: pointer; }
 
 /* ---- floating action button ---- */
+/* The launcher button.
+   Trimmed from a 14px/10-16 pill to a compact one: this sits on top of
+   somebody's product all day, so it should read as a tool at the edge of the
+   screen rather than as a call to action in the middle of their design. */
 .fab {
   position: fixed; z-index: 2147483645;
-  display: inline-flex; align-items: center; gap: 8px;
-  padding: 10px 16px; border: 0; border-radius: 999px;
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 7px 12px; border: 0; border-radius: 999px;
   background: var(--accent); color: var(--accent-fg);
-  font-size: 14px; font-weight: 600; line-height: 1;
+  font-size: 12.5px; font-weight: 600; line-height: 1;
   box-shadow: var(--shadow);
   touch-action: none;                 /* let pointer events drive the drag */
   user-select: none;
@@ -54,10 +58,74 @@ button { font: inherit; cursor: pointer; }
 .fab:hover { transform: translateY(-1px); }
 .fab:active { cursor: grabbing; }
 .fab:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+/* The count.
+   place-items alone centred the box but not the digit: the badge inherited the
+   button's line-height:1 and the glyph sat high in the circle. An explicit
+   line-height and tabular figures put the number in the middle and keep it
+   there when it goes from 9 to 10. */
 .fab .count {
-  min-width: 18px; height: 18px; padding: 0 5px;
+  min-width: 17px; height: 17px; padding: 0 4px;
+  box-sizing: border-box;
   border-radius: 999px; background: rgba(255,255,255,.24);
-  font-size: 11px; display: grid; place-items: center;
+  font-size: 10.5px; font-weight: 700;
+  line-height: 17px;
+  font-variant-numeric: tabular-nums;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.fab-ico svg { width: 13px; height: 13px; }
+
+/* ---- app launcher ---- */
+.apps { margin-top: 14px; }
+.appgrid {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;
+}
+.app {
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  padding: 10px 4px; border: 1px solid var(--border); border-radius: 12px;
+  background: transparent; color: var(--text);
+  font-size: 11px; font-weight: 500; line-height: 1.2; text-align: center;
+  cursor: pointer;
+  transition: transform .15s ease, border-color .15s ease, background .15s ease;
+}
+.app:hover { transform: translateY(-2px); border-color: var(--accent); }
+.app:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* The tile's own colour, set per app from JS. Kept to the icon chip so four
+   saturated tiles never compete with the panel's own content. */
+.app-ico {
+  width: 34px; height: 34px; border-radius: 10px;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.app-ico svg { width: 18px; height: 18px; }
+
+/* ---- full-screen overlay hosting a builder screen ---- */
+.ov {
+  position: fixed; inset: 0; z-index: 2147483646;   /* above the panel */
+  display: flex; flex-direction: column;
+  background: var(--bg); color: var(--text);
+  opacity: 0; pointer-events: none;
+  transition: opacity .16s ease;
+}
+.ov[data-open="true"] { opacity: 1; pointer-events: auto; }
+.ov-head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 14px; border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
+}
+.ov-ico { display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; border-radius: 8px; }
+.ov-ico svg { width: 16px; height: 16px; }
+.ov-title { margin: 0; font-size: 14px; font-weight: 600; }
+.ov-tab, .ov-x {
+  border: 0; background: transparent; color: var(--muted);
+  cursor: pointer; padding: 6px; border-radius: 8px; display: inline-flex;
+}
+.ov-tab { margin-inline-start: auto; text-decoration: none; }
+.ov-tab:hover, .ov-x:hover { color: var(--text); background: var(--border); }
+.ov-frame { flex: 1 1 auto; width: 100%; border: 0; display: block; }
+
+@media (prefers-reduced-motion: reduce) {
+  .app, .ov { transition: none; }
+  .app:hover { transform: none; }
 }
 
 /* ---- slide-over panel ---- */

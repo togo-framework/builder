@@ -64,6 +64,15 @@ export function mount(opts: MountOptions = {}): Handle {
         <p class="intro"></p>
         <button class="primary report"></button>
 
+        <!-- The builder's own screens, as an app launcher.
+             These used to be four permanent items in the product's sidebar.
+             They belong to the tooling, not to the app being built, so they
+             live behind this button and open as a layer over the page. -->
+        <div class="apps">
+          <div class="label lbl-apps"></div>
+          <div class="appgrid"></div>
+        </div>
+
         <form class="form hidden" novalidate>
           <div class="label lbl-type"></div>
           <div class="pills"></div>
@@ -104,7 +113,21 @@ export function mount(opts: MountOptions = {}): Handle {
         </div>
       </div>
       <div class="foot hidden"><button type="submit" class="primary send"></button></div>
-    </aside>`;
+    </aside>
+
+    <!-- The overlay that hosts a builder screen.
+         An iframe on the same origin rather than a re-implementation: these
+         are the real pages, with the real session cookie, and keeping one copy
+         of them is the entire point of moving them out of the sidebar. -->
+    <div class="ov" data-open="false" role="dialog" aria-modal="true" aria-label="">
+      <div class="ov-head">
+        <span class="ov-ico"></span>
+        <h2 class="ov-title"></h2>
+        <a class="ov-tab" target="_blank" rel="noopener" aria-label=""></a>
+        <button class="ov-x" aria-label=""></button>
+      </div>
+      <iframe class="ov-frame" title=""></iframe>
+    </div>`;
   root.appendChild(wrap);
 
   const $ = <T extends Element>(s: string) => root.querySelector(s) as T;
@@ -119,6 +142,13 @@ export function mount(opts: MountOptions = {}): Handle {
   const fileList = $<HTMLElement>(".files");
   const fileIn = $<HTMLInputElement>(".filein");
   const countEl = $<HTMLElement>(".count");
+  const appGrid = $<HTMLElement>(".appgrid");
+  const ov = $<HTMLElement>(".ov");
+  const ovFrame = $<HTMLIFrameElement>(".ov-frame");
+  const ovTitle = $<HTMLElement>(".ov-title");
+  const ovIco = $<HTMLElement>(".ov-ico");
+  const ovTab = $<HTMLAnchorElement>(".ov-tab");
+  const ovX = $<HTMLButtonElement>(".ov-x");
   const titleIn = $<HTMLInputElement>('input[name="title"]');
   const bodyIn = $<HTMLTextAreaElement>('textarea[name="body"]');
   const urlIn = $<HTMLInputElement>('input[name="url"]');
@@ -163,6 +193,11 @@ export function mount(opts: MountOptions = {}): Handle {
   $(".lbl-att").textContent = t.attachments;
   $(".lbl-page").textContent = t.onThisPage;
   iconLabel($(".board-link"), "arrowRight", t.openBoard);
+  $(".lbl-apps").textContent = t.apps;
+  ovX.setAttribute("aria-label", t.close);
+  ovX.appendChild(icon("x", 16));
+  ovTab.setAttribute("aria-label", t.openInTab);
+  ovTab.appendChild(icon("external", 15));
   titleIn.placeholder = t.titlePlaceholder;
   bodyIn.placeholder = t.detailsPlaceholder;
   iconLabel(pinBtn, "pin", t.pin);
@@ -264,6 +299,102 @@ export function mount(opts: MountOptions = {}): Handle {
     cancelPick?.();
     cancelPick = null;
   }
+
+  // ---- app launcher ------------------------------------------------------
+  //
+  // The builder's four screens, opened as a layer over the host page instead of
+  // living in its navigation. Each is the real route in an iframe on the app's
+  // own origin, so there is exactly one implementation of each and the session
+  // cookie already applies.
+  //
+  // Colours are fixed per app rather than derived: these four are a permanent,
+  // memorised set, and a hash-derived palette would reshuffle them the day one
+  // is renamed.
+  const APPS = [
+    { key: "agents", path: "/agents", color: "#8b5cf6", label: t.appAgents },
+    { key: "skills", path: "/skills", color: "#06b6d4", label: t.appSkills },
+    { key: "issues", path: "/issues", color: "#f59e0b", label: t.appIssues },
+    { key: "vault", path: "/vault", color: "#10b981", label: t.appVault },
+  ] as const;
+
+  // Where the app lives. apiBase is the builder's origin when the widget is
+  // embedded in a different product; same-origin is the default and the common
+  // case, and an invalid value must not produce a link to nowhere.
+  function appOrigin(): string {
+    const base = (opts.apiBase ?? "").trim();
+    if (!base) return "";
+    try {
+      return new URL(base, location.href).origin;
+    } catch {
+      return "";
+    }
+  }
+
+  const appURL = (path: string, embed: boolean) =>
+    `${appOrigin()}${path}${embed ? "?embed=1" : ""}`;
+
+  for (const app of APPS) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "app";
+    b.dataset.app = app.key;
+
+    const chip = document.createElement("span");
+    chip.className = "app-ico";
+    // 22% alpha on the fill, full strength on the glyph: the tile reads as that
+    // colour without four saturated blocks fighting the panel behind them.
+    chip.style.background = `${app.color}38`;
+    chip.style.color = app.color;
+    chip.appendChild(icon(app.key, 18));
+
+    const name = document.createElement("span");
+    name.textContent = app.label;
+
+    b.append(chip, name);
+    b.addEventListener("click", () => openApp(app));
+    appGrid.appendChild(b);
+  }
+
+  let ovEscape: ((e: KeyboardEvent) => void) | null = null;
+
+  function openApp(app: (typeof APPS)[number]) {
+    ovFrame.src = appURL(app.path, true);
+    ovFrame.title = app.label;
+    ovTitle.textContent = app.label;
+    ovTab.href = appURL(app.path, false);
+    ov.setAttribute("aria-label", app.label);
+
+    ovIco.textContent = "";
+    ovIco.style.background = `${app.color}38`;
+    ovIco.style.color = app.color;
+    ovIco.appendChild(icon(app.key, 16));
+
+    ov.dataset.open = "true";
+    // The panel goes away underneath: the overlay covers it anyway, and leaving
+    // it open means closing the overlay reveals a panel the operator had
+    // forgotten was there.
+    close();
+
+    // Escape closes. Bound on the host document because focus is inside the
+    // iframe as soon as the page loads, and a listener on the shadow root would
+    // never see the key.
+    ovEscape = (e: KeyboardEvent) => {
+      if (e.key === "Escape") closeApp();
+    };
+    document.addEventListener("keydown", ovEscape);
+  }
+
+  function closeApp() {
+    ov.dataset.open = "false";
+    // Blank the frame rather than leaving it loaded. A hidden iframe keeps
+    // polling — the board and the fleet both refresh on an interval — and the
+    // operator closed it precisely to stop paying attention to it.
+    ovFrame.src = "about:blank";
+    if (ovEscape) document.removeEventListener("keydown", ovEscape);
+    ovEscape = null;
+  }
+
+  ovX.addEventListener("click", closeApp);
   $(".x").addEventListener("click", close);
   root.addEventListener("keydown", (e) => {
     if ((e as KeyboardEvent).key === "Escape" && !cancelPick) close();

@@ -36,6 +36,15 @@ const en = {
   agentWorking: "An agent is working on this",
   agentWorkingBy: (who: string) => `${who} is working on this`,
   openBoard: "Open the issue board",
+  // The launcher. "Build" rather than "Admin" or "Tools": these four screens
+  // are how the app in front of you gets built, and naming them for that is
+  // what makes it obvious they are not part of the product.
+  apps: "Build",
+  appAgents: "Agents",
+  appSkills: "Skills",
+  appIssues: "Issues",
+  appVault: "Vault",
+  openInTab: "Open in a new tab",
   dir: "ltr" as "ltr" | "rtl",
 };
 
@@ -78,6 +87,12 @@ const ar: Dict = {
   agentWorking: "يعمل أحد الوكلاء على هذه المشكلة",
   agentWorkingBy: (who: string) => `${who} يعمل على هذه المشكلة`,
   openBoard: "فتح لوحة المشكلات",
+  apps: "البناء",
+  appAgents: "الوكلاء",
+  appSkills: "المهارات",
+  appIssues: "المشكلات",
+  appVault: "الخزنة",
+  openInTab: "فتح في تبويب جديد",
   dir: "rtl",
 };
 

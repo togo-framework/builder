@@ -30,6 +30,22 @@ const PATHS: Record<string, string[]> = {
   eye: ["M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0", "M12 9a3 3 0 1 0 0 6 3 3 0 1 0 0-6"],
   // arrow-right
   arrowRight: ["M5 12h14", "m12 5 7 7-7 7"],
+
+  // The four builder surfaces, for the launcher. One glyph each, chosen so the
+  // shapes stay apart at 20px — a launcher whose icons are only distinguishable
+  // by colour is a colour picker, not a launcher.
+  //
+  // bot
+  agents: ["M12 8V4H8", "M2 14h2", "M20 14h2", "M15 13v2", "M9 13v2", "M4 8h16a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2"],
+  // graduation-cap
+  skills: ["M21.42 10.922a1 1 0 0 0-.019-1.838L12.83 5.18a2 2 0 0 0-1.66 0L2.6 9.08a1 1 0 0 0 0 1.832l8.57 3.908a2 2 0 0 0 1.66 0z", "M22 10v6", "M6 12.5V16a6 3 0 0 0 12 0v-3.5"],
+  // list-todo
+  issues: ["M13 5h8", "M13 12h8", "M13 19h8", "m3 17 2 2 4-4", "M3 7h6v-4H3z"],
+  // key-round
+  vault: ["M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z", "M16.5 7.5h.01"],
+
+  // external-link, for the launcher's "open in a tab" affordance.
+  external: ["M15 3h6v6", "M10 14 21 3", "M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"],
 };
 
 /**
