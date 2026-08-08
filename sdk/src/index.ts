@@ -354,6 +354,7 @@ export function mount(opts: MountOptions = {}): Handle {
     { key: "issues", path: "/issues", color: "#f59e0b", label: t.appIssues },
     { key: "vault", path: "/vault", color: "#10b981", label: t.appVault },
     { key: "mcp", path: "/mcp", color: "#ec4899", label: t.appMcp },
+    { key: "terminal", path: "/terminal", color: "#64748b", label: t.appTerminal },
   ] as const;
 
   // Where the app lives. apiBase is the builder's origin when the widget is

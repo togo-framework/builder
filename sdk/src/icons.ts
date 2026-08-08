@@ -47,6 +47,9 @@ const PATHS: Record<string, string[]> = {
   // plug-zap — the MCP surface, where outside clients connect.
   mcp: ["M6.3 20.3a2.4 2.4 0 0 0 3.4 0L12 18l-6-6-2.3 2.3a2.4 2.4 0 0 0 0 3.4Z", "m2 22 3-3", "M7.5 13.5 10 11", "M10.5 16.5 13 14", "m18 3-4 4h6l-4 4", "M22 2 12 12"],
 
+  // square-terminal
+  terminal: ["m7 11 2-2-2-2", "M11 13h4", "M3 5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"],
+
   // external-link, for the launcher's "open in a tab" affordance.
   external: ["M15 3h6v6", "M10 14 21 3", "M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"],
 };

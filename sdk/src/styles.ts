@@ -132,6 +132,20 @@ button { font: inherit; cursor: pointer; }
   flex: 0 0 auto;
 }
 .modal-head:active { cursor: grabbing; }
+/* The form is a flex item AND a flex container.
+   The card is a column with a max-height, but the scrollable body is not its
+   child — the form element is, and the body sits inside that. An ordinary block
+   form grows to fit its content, so the body inherited unlimited height and its
+   overflow-y never had anything to overflow: the footer holding Submit was
+   pushed off the bottom of the screen and could not be reached at all.
+   min-height:0 is the other half — a flex child defaults to min-height:auto,
+   which refuses to shrink below its content and defeats the scroll on its own.
+   (No backticks in this file: the whole stylesheet is a template literal, and
+   one closes it. esbuild caught that; it is the reason for this note.) */
+.modal-card > .form {
+  display: flex; flex-direction: column;
+  flex: 1 1 auto; min-height: 0;
+}
 .modal-title { margin: 0; font-size: 14px; font-weight: 600; }
 .modal-x {
   margin-inline-start: auto;
@@ -139,7 +153,7 @@ button { font: inherit; cursor: pointer; }
   cursor: pointer; padding: 5px; border-radius: 8px; display: inline-flex;
 }
 .modal-x:hover { color: var(--text); background: var(--border); }
-.modal-body { padding: 14px; overflow-y: auto; flex: 1 1 auto; }
+.modal-body { padding: 14px; overflow-y: auto; flex: 1 1 auto; min-height: 0; }
 .modal-foot {
   display: flex; align-items: center; justify-content: flex-end; gap: 8px;
   padding: 12px 14px; border-top: 1px solid var(--border); flex: 0 0 auto;
