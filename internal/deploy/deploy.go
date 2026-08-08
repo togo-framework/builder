@@ -179,19 +179,36 @@ func (s *Service) handleDeploy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// A dirty tree means someone is mid-edit. Merging into it mixes their work
-	// with the agent's and makes "what did this deploy change?" unanswerable.
-	if out, err := git(r.Context(), p.Repo, "status", "--porcelain"); err != nil {
-		writeJSON(w, http.StatusInternalServerError,
-			deployResult{Step: "check", Message: "could not read the repository state"})
-		return
-	} else if strings.TrimSpace(out) != "" {
-		writeJSON(w, http.StatusConflict, deployResult{
-			Step:    "check",
-			Message: "the working tree has uncommitted changes — commit or stash them first",
-			Output:  truncate(out, 2000),
-		})
-		return
+	// A dirty tree is SET ASIDE, not a refusal.
+	//
+	// This used to answer "commit or stash them first", which put whatever the
+	// operator happened to have open between them and a one-click deploy. In
+	// practice something is almost always uncommitted, so it blocked nearly
+	// every attempt. The work is stashed, the merge runs against a clean tree,
+	// and the stash is restored on every exit path below — including failures.
+	if out, err := git(r.Context(), p.Repo, "status", "--porcelain"); err == nil &&
+		strings.TrimSpace(out) != "" {
+		// --include-untracked, or a new file left behind collides with the same
+		// path arriving from the branch.
+		if _, serr := git(r.Context(), p.Repo, "stash", "push", "--include-untracked",
+			"-m", fmt.Sprintf("builder: deploy #%d", num)); serr != nil {
+			writeJSON(w, http.StatusConflict, deployResult{
+				Step:    "check",
+				Message: "there are uncommitted changes and they could not be set aside",
+				Output:  truncate(out, 2000),
+			})
+			return
+		}
+		s.log.Info("stashed uncommitted work for a deploy", "issue", num)
+		defer func() {
+			// WithoutCancel: the request context may already be done by the time
+			// this runs, and failing to restore would strand the operator's work
+			// in the stash with no indication why.
+			if _, err := git(context.WithoutCancel(r.Context()), p.Repo, "stash", "pop"); err != nil {
+				s.log.Error("could not restore the stash — it is still in `git stash list`",
+					"issue", num, "err", err)
+			}
+		}()
 	}
 
 	// Verify BEFORE merging. Merging first and reverting on failure leaves the

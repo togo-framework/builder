@@ -4,8 +4,11 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"unicode/utf8"
@@ -34,6 +37,7 @@ func NewAgentsService(db *sql.DB, log *slog.Logger) *AgentsService {
 func (s *AgentsService) Routes(r chi.Router) {
 	r.Get("/agents", s.handleList)
 	r.Get("/agents/{slug}", s.handleGet)
+	r.Post("/agents", s.handleCreate)
 	r.Patch("/agents/{slug}", s.handlePatch)
 }
 
@@ -477,3 +481,216 @@ func httpErr(w http.ResponseWriter, code int, msg string) {
 }
 
 var errNotFound = errors.New("not found")
+
+// ── hiring ──────────────────────────────────────────────────────────────────
+
+// newAgent is the hire form.
+//
+// Deliberately small: a slug, who they are, and what they own. Everything else
+// has a working default, because an operator who has just realised they need a
+// specialist should be able to create one in one step and refine it afterwards
+// on the profile page.
+type newAgent struct {
+	Slug        string   `json:"slug"`
+	DisplayName string   `json:"displayName"`
+	Title       string   `json:"title"`
+	Description string   `json:"description"`
+	Model       string   `json:"model"`
+	Areas       []string `json:"areas"`
+	Skills      []string `json:"skills"`
+	Persona     string   `json:"persona"`
+	Workdir     string   `json:"workdir"`
+	Color       string   `json:"color"`
+	Enabled     bool     `json:"enabled"`
+}
+
+// handleCreate hires a new agent into the fleet.
+//
+// The fleet used to be fixed at setup: generated once by the wizard, with no
+// way to add to it. An operator who discovered a gap — nobody owns the app's
+// UI, nobody owns search — had no move except editing Postgres by hand, and an
+// agent asked to "hire a specialist" could only explain that it could not.
+//
+// Order matters and is not obvious: builder_brains.agent_slug is a foreign key
+// to builder_agents, while an ENABLED builder must already have a brain. The
+// two constraints point at each other, so the row is filled in three steps.
+func (s *AgentsService) handleCreate(w http.ResponseWriter, r *http.Request) {
+	var in newAgent
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 256<<10)).Decode(&in); err != nil {
+		httpErr(w, http.StatusBadRequest, "malformed body")
+		return
+	}
+
+	in.Slug = strings.ToLower(strings.TrimSpace(in.Slug))
+	if !slugRe.MatchString(in.Slug) {
+		httpErr(w, http.StatusUnprocessableEntity,
+			"a slug must be lowercase letters, digits and hyphens, starting with a letter")
+		return
+	}
+	if in.Model == "" {
+		in.Model = "sonnet"
+	}
+	if !allowedModels[in.Model] {
+		httpErr(w, http.StatusUnprocessableEntity, "unknown model — use haiku, sonnet or opus")
+		return
+	}
+	if strings.TrimSpace(in.DisplayName) == "" {
+		in.DisplayName = in.Slug
+	}
+	areas := cleanList(in.Areas, 40)
+	if len(areas) == 0 {
+		httpErr(w, http.StatusUnprocessableEntity,
+			"give the agent at least one area — an agent that owns nothing can never claim work")
+		return
+	}
+	// Enabling requires a persona: the dispatcher skips agents whose persona is
+	// empty, so an enabled one without it would sit idle looking healthy.
+	if strings.TrimSpace(in.Persona) == "" {
+		if in.Enabled {
+			httpErr(w, http.StatusUnprocessableEntity,
+				"an enabled agent needs a persona — it is the system prompt it runs with")
+			return
+		}
+		in.Persona = defaultPersona(in)
+	}
+	if in.Color != "" && !colorRe.MatchString(in.Color) {
+		httpErr(w, http.StatusUnprocessableEntity, "colour must be #rrggbb")
+		return
+	}
+	if in.Workdir != "" && !strings.HasPrefix(in.Workdir, "/") {
+		httpErr(w, http.StatusUnprocessableEntity, "a working directory must be an absolute path")
+		return
+	}
+
+	var exists bool
+	if err := s.db.QueryRowContext(r.Context(),
+		`SELECT true FROM builder_agents WHERE slug = $1`, in.Slug).Scan(&exists); err == nil {
+		httpErr(w, http.StatusConflict, "an agent with that slug already exists")
+		return
+	}
+
+	tx, err := s.db.BeginTx(r.Context(), nil)
+	if err != nil {
+		httpErr(w, http.StatusInternalServerError, "could not hire the agent")
+		return
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	// 1. The agent, DISABLED — it has no brain yet, and the CHECK forbids an
+	//    enabled builder without one.
+	spec := ".claude/agents/" + in.Slug + ".md"
+	if _, err := tx.ExecContext(r.Context(),
+		`INSERT INTO builder_agents
+		   (slug, display_name, title, description, role, model, spec_path,
+		    persona_md, areas, skills, workdir, color, enabled, generated_by)
+		 VALUES ($1,$2,$3,$4,'builder',$5,$6,$7,$8,$9,$10,$11,false,'operator')`,
+		in.Slug, truncate(in.DisplayName, 120), truncate(in.Title, 120),
+		truncate(in.Description, 2000), in.Model, spec, in.Persona,
+		encodePGArray(areas), encodePGArray(cleanList(in.Skills, 60)),
+		truncate(in.Workdir, 500), in.Color); err != nil {
+		s.log.Error("hire agent", "slug", in.Slug, "err", err)
+		httpErr(w, http.StatusInternalServerError, "could not hire the agent")
+		return
+	}
+
+	// 2. Its brain. Isolated namespace, same shape the wizard produces.
+	var brainID string
+	if err := tx.QueryRowContext(r.Context(),
+		`INSERT INTO builder_brains (agent_slug, namespace, embedding_dim)
+		 VALUES ($1, 'default:'||$1, 1024) RETURNING id`, in.Slug).Scan(&brainID); err != nil {
+		s.log.Error("create brain", "slug", in.Slug, "err", err)
+		httpErr(w, http.StatusInternalServerError, "the agent was created but its brain was not")
+		return
+	}
+
+	// 3. Link, and only now honour `enabled`.
+	if _, err := tx.ExecContext(r.Context(),
+		`UPDATE builder_agents SET brain_id = $1, enabled = $2 WHERE slug = $3`,
+		brainID, in.Enabled, in.Slug); err != nil {
+		httpErr(w, http.StatusInternalServerError, "could not finish hiring the agent")
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		httpErr(w, http.StatusInternalServerError, "could not hire the agent")
+		return
+	}
+
+	// The spec file is best-effort and written AFTER the commit: the database is
+	// the source of truth for dispatch, and a read-only checkout must not stop an
+	// operator from growing the fleet.
+	s.writeSpec(in, spec)
+
+	s.log.Info("hired an agent", "slug", in.Slug, "areas", areas, "enabled", in.Enabled)
+	writeJSON(w, http.StatusCreated, map[string]any{
+		"slug": in.Slug, "enabled": in.Enabled, "specPath": spec,
+	})
+}
+
+// writeSpec mirrors the persona to .claude/agents/<slug>.md so the file tree and
+// the database agree. Failure is logged, never fatal.
+func (s *AgentsService) writeSpec(in newAgent, spec string) {
+	repo := strings.TrimSpace(in.Workdir)
+	if repo == "" {
+		repo = os.Getenv("BUILDER_WORKDIR")
+	}
+	if repo == "" {
+		return
+	}
+	full := filepath.Join(repo, spec)
+	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+		s.log.Warn("could not create the agents directory", "path", full, "err", err)
+		return
+	}
+	if err := os.WriteFile(full, []byte(in.Persona), 0o644); err != nil {
+		s.log.Warn("could not write the agent spec", "path", full, "err", err)
+	}
+}
+
+// defaultPersona is the starting point for an agent hired without one.
+//
+// It is written to be edited, not to be used as-is: the areas are filled in, the
+// boundaries are stated, and the parts only the operator knows are marked.
+func defaultPersona(in newAgent) string {
+	return fmt.Sprintf(`---
+name: %s
+description: "%s"
+model: %s
+tools: Read, Write, Edit, Grep, Glob, Bash
+---
+
+# %s
+
+**Areas:** %s
+
+%s
+
+## What you own
+
+Describe the files and surfaces this agent is responsible for. Be specific —
+an agent that does not know its boundaries will edit a neighbour's code.
+
+## What you do NOT own
+
+List the areas that belong to other agents. If a report spans yours and
+someone else's, do YOUR half and say plainly in the verdict which part belongs
+to whom.
+
+## How you work
+
+1. **Reproduce first.** Confirm the problem is real before changing anything.
+   If you cannot reproduce it, say so and stop.
+2. Make the smallest change that fixes it.
+3. Run the project's tests and state the exact command you ran.
+4. If the fix needs a decision that is the operator's to make, stop and ask
+   rather than guessing.
+`, in.Slug, strings.ReplaceAll(in.Description, `"`, `'`), in.Model,
+		orDefault(in.DisplayName, in.Slug), strings.Join(cleanList(in.Areas, 40), ", "),
+		in.Description)
+}
+
+func orDefault(s, fallback string) string {
+	if strings.TrimSpace(s) == "" {
+		return fallback
+	}
+	return s
+}
