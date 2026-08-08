@@ -40,19 +40,57 @@ type boardCard struct {
 }
 
 func (s *Service) handleBoard(w http.ResponseWriter, r *http.Request) {
+	// Search in the DATABASE, and page PER COLUMN.
+	//
+	// The board used to fetch a flat LIMIT 500 and filter in the browser. Two
+	// things break with that: a search only ever matched the rows that happened
+	// to be fetched, and one busy column could consume the whole 500 and starve
+	// the others — the board would show an empty "Blocked" not because nothing
+	// was blocked but because "To do" had used the budget.
+	//
+	// A window function ranks within each status, so every column gets its own
+	// allowance regardless of how full its neighbours are.
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	per := 50
+	if v := r.URL.Query().Get("per"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 200 {
+			per = n
+		}
+	}
+
+	args := []any{per}
+	filter := ""
+	if q != "" {
+		args = append(args, "%"+q+"%")
+		// Body and area too: an operator searching "dashboard" means the issue
+		// about the dashboard, not only one with it in the title.
+		filter = ` WHERE (i.title ILIKE $2 OR i.body_md ILIKE $2 OR i.area ILIKE $2
+		            OR CAST(i.number AS text) = btrim($2, '%'))`
+	}
+
 	rows, err := s.db.QueryContext(r.Context(),
-		`SELECT i.id, i.number, i.title, i.type::text, i.status::text, i.priority::text,
+		`WITH ranked AS (
+		   SELECT i.*, row_number() OVER (
+		            PARTITION BY i.status
+		            ORDER BY CASE i.priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1
+		                                     WHEN 'normal' THEN 2 ELSE 3 END,
+		                     i.board_rank
+		          ) AS rn,
+		          count(*) OVER (PARTITION BY i.status) AS col_total
+		     FROM builder_issues i`+filter+`
+		 )
+		 SELECT i.id, i.number, i.title, i.type::text, i.status::text, i.priority::text,
 		        i.area, i.human_only,
 		        (i.status = 'in_progress' AND i.lease_expires_at IS NOT NULL AND i.lease_expires_at > now()) AS busy,
 		        i.source, i.route, i.comment_count, i.vote_count,
 		        coalesce(i.assignee_agent_id, '') AS assignee,
-		        i.attempt_count, i.labels, i.created_at
-		   FROM builder_issues i
+		        i.attempt_count, i.labels, i.created_at, i.col_total
+		   FROM ranked i
+		  WHERE i.rn <= $1
 		  ORDER BY
 		    CASE i.priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1
 		                    WHEN 'normal' THEN 2 ELSE 3 END,
-		    i.board_rank
-		  LIMIT 500`)
+		    i.board_rank`, args...)
 	if err != nil {
 		s.log.Error("board query", "err", err)
 		httpErr(w, http.StatusInternalServerError, "could not load the board")
@@ -63,28 +101,36 @@ func (s *Service) handleBoard(w http.ResponseWriter, r *http.Request) {
 	// Pre-seed every column so an empty one still renders as a column rather
 	// than vanishing from the board.
 	cols := make(map[string][]boardCard, len(boardColumns))
+	// totals is how many the column HAS, not how many were sent — the difference
+	// is what tells the UI whether to keep loading as the operator scrolls.
+	totals := make(map[string]int, len(boardColumns))
 	for _, c := range boardColumns {
 		cols[c] = []boardCard{}
+		totals[c] = 0
 	}
 
 	for rows.Next() {
 		var c boardCard
 		var labels sql.NullString
+		var colTotal int
 		if err := rows.Scan(&c.ID, &c.Number, &c.Title, &c.Type, &c.Status, &c.Priority,
 			&c.Area, &c.HumanOnly, &c.Busy, &c.Source, &c.Route, &c.CommentCount,
-			&c.VoteCount, &c.Assignee, &c.Attempts, &labels, &c.CreatedAt); err != nil {
+			&c.VoteCount, &c.Assignee, &c.Attempts, &labels, &c.CreatedAt, &colTotal); err != nil {
 			s.log.Error("board scan", "err", err)
 			httpErr(w, http.StatusInternalServerError, "could not read the board")
 			return
 		}
 		c.Labels = parsePGArray(labels.String)
 		cols[c.Status] = append(cols[c.Status], c)
+		totals[c.Status] = colTotal
 	}
 	if err := rows.Err(); err != nil {
 		httpErr(w, http.StatusInternalServerError, "could not read the board")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"columns": boardColumns, "cards": cols})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"columns": boardColumns, "cards": cols, "totals": totals, "per": per,
+	})
 }
 
 type pinOut struct {

@@ -23,6 +23,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -115,8 +116,44 @@ func scanSkill(rows *sql.Rows) (skill, error) {
 }
 
 func (s *Service) handleList(w http.ResponseWriter, r *http.Request) {
-	rows, err := s.db.QueryContext(r.Context(), skillSelect+`
-	 ORDER BY s.enabled DESC, s.name ASC`)
+	// Search runs in the DATABASE, not the browser.
+	//
+	// Filtering client-side means shipping the whole catalogue on every page
+	// load and searching only what happened to be fetched — which silently
+	// misses anything past the first page as soon as paging exists. The body is
+	// searched too, because a skill is usually remembered by what it says rather
+	// than by its slug.
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	limit, offset := 50, 0
+	if v := r.URL.Query().Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 200 {
+			limit = n
+		}
+	}
+	if v := r.URL.Query().Get("offset"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			offset = n
+		}
+	}
+
+	where, args := "", []any{}
+	if q != "" {
+		// ILIKE rather than full-text: a catalogue this size wants substring and
+		// prefix matches on identifiers ("togo-mig"), which to_tsquery does not
+		// give without extra configuration.
+		args = append(args, "%"+q+"%")
+		where = ` WHERE (s.name ILIKE $1 OR s.title ILIKE $1 OR s.description ILIKE $1 OR s.body_md ILIKE $1)`
+	}
+
+	var total int
+	if err := s.db.QueryRowContext(r.Context(),
+		`SELECT count(*) FROM builder_skills s`+where, args...).Scan(&total); err != nil {
+		s.log.Error("count skills", "err", err)
+	}
+
+	args = append(args, limit, offset)
+	rows, err := s.db.QueryContext(r.Context(), skillSelect+where+fmt.Sprintf(`
+	 ORDER BY s.enabled DESC, s.name ASC LIMIT $%d OFFSET $%d`, len(args)-1, len(args)), args...)
 	if err != nil {
 		s.log.Error("list skills", "err", err)
 		httpErr(w, http.StatusInternalServerError, "could not list the skills")
@@ -142,7 +179,10 @@ func (s *Service) handleList(w http.ResponseWriter, r *http.Request) {
 		httpErr(w, http.StatusInternalServerError, "could not read the skills")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"skills": out, "dir": s.relSkillsDir()})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"skills": out, "dir": s.relSkillsDir(),
+		"total": total, "offset": offset, "limit": limit,
+	})
 }
 
 // skillAgent is one row of the assignment picker: every agent in the fleet, and

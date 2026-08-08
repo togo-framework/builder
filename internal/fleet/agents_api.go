@@ -800,6 +800,9 @@ type brainView struct {
 		Edges []graphEdge `json:"edges"`
 	} `json:"graph"`
 	OpenGaps []string `json:"openGaps"`
+	// Paging over `recent`; `memories` above is the full count.
+	MemoryOffset int `json:"memoryOffset"`
+	MemoryLimit  int `json:"memoryLimit"`
 }
 
 type brainMemory struct {
@@ -854,12 +857,26 @@ func (s *AgentsService) handleBrain(w http.ResponseWriter, r *http.Request) {
 		`SELECT count(*) FROM builder_memory_gaps WHERE namespace = $1 AND status = 'open'`,
 		v.Namespace).Scan(&v.Gaps)
 
+	// Memories are paged for the same reason activity is: an agent that has been
+	// running for a week has hundreds, and a fixed LIMIT makes its history simply
+	// stop with no way to reach the rest.
+	mLimit, mOffset := 25, 0
+	if q := r.URL.Query().Get("limit"); q != "" {
+		if n, err := strconv.Atoi(q); err == nil && n > 0 && n <= 100 {
+			mLimit = n
+		}
+	}
+	if q := r.URL.Query().Get("offset"); q != "" {
+		if n, err := strconv.Atoi(q); err == nil && n >= 0 {
+			mOffset = n
+		}
+	}
 	if rows, err := s.db.QueryContext(r.Context(),
 		`SELECT id, content, source_kind, source_ref, importance,
 		        btrim(to_json(created_at)::text, '"')
 		   FROM builder_memories
 		  WHERE namespace = $1 AND invalid_at IS NULL
-		  ORDER BY created_at DESC LIMIT 25`, v.Namespace); err == nil {
+		  ORDER BY created_at DESC LIMIT $2 OFFSET $3`, v.Namespace, mLimit, mOffset); err == nil {
 		defer rows.Close()
 		for rows.Next() {
 			var m brainMemory
@@ -934,5 +951,6 @@ func (s *AgentsService) handleBrain(w http.ResponseWriter, r *http.Request) {
 	if v.Graph.Edges == nil {
 		v.Graph.Edges = make([]graphEdge, 0)
 	}
+	v.MemoryOffset, v.MemoryLimit = mOffset, mLimit
 	writeJSON(w, http.StatusOK, v)
 }
