@@ -196,7 +196,45 @@ func stripWrapper(text string) string {
 		}
 	}
 
+	// Conversational preamble before the document.
+	//
+	// "No preamble" is in the prompt and is still ignored: one skill shipped
+	// with "That's fine — the file and directory removal already ran. Here is
+	// the skill as raw markdown, per the actual instructions:" as its opening
+	// line, sitting above the H1 in the editor. The required structure starts
+	// with "# <name>", so anything above the first H1 is chatter by definition.
+	//
+	// Only applied when an H1 exists — a response with no heading at all is
+	// already failing checkBody, and truncating it to nothing would replace a
+	// useful error with an empty one.
+	if i := indexH1(s); i > 0 {
+		s = s[i:]
+	}
+
+	// A closing fence orphaned by the step above.
+	//
+	// When a response opens with chatter AND wraps the document in a fence, the
+	// opening fence sits below the chatter, so the leading-fence branch never
+	// fires — it only matches at position zero. Removing the preamble then takes
+	// the opener with it and leaves the closer stranded on the last line. Found
+	// by the test, not in review.
+	s = strings.TrimSpace(s)
+	if strings.HasSuffix(s, "\n```") {
+		s = strings.TrimSpace(strings.TrimSuffix(s, "```"))
+	}
+
 	return strings.TrimSpace(s)
+}
+
+// indexH1 returns the offset of the first line beginning "# ", or -1.
+func indexH1(s string) int {
+	if strings.HasPrefix(s, "# ") {
+		return 0
+	}
+	if i := strings.Index(s, "\n# "); i >= 0 {
+		return i + 1
+	}
+	return -1
 }
 
 func stripGeneratedMarker(body string) string {
