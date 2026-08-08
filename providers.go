@@ -19,6 +19,7 @@ import (
 	"github.com/togo-framework/builder/internal/orchestrator"
 	"github.com/togo-framework/builder/internal/runner"
 	"github.com/togo-framework/builder/internal/setup"
+	"github.com/togo-framework/builder/internal/skills"
 	"github.com/togo-framework/builder/internal/vault"
 )
 
@@ -178,6 +179,20 @@ func provideFleet(k *togo.Kernel) error {
 	if db, err := k.SQL(context.Background()); err == nil {
 		k.Router.Route("/api/builder/fleet", fleet.NewAgentsService(db, k.Log).Routes)
 	}
+
+	// The skill catalogue.
+	//
+	// Rooted at the APP's own directory, not BUILDER_WORKDIR. Skills live in
+	// .claude/skills/ next to the application's other Claude configuration,
+	// while BUILDER_WORKDIR is the repository AGENTS branch from — and since
+	// agents now carry per-agent workdirs spanning more than one repository,
+	// there is no single "the agents' repo" to read skills from. Using it here
+	// scanned the plugin and found none of the app's 29 skills.
+	skillsRoot := os.Getenv("BUILDER_SKILLS_DIR")
+	if skillsRoot == "" {
+		skillsRoot = "." // the process's own directory: this app
+	}
+	k.Router.Route("/api/builder/skills", skills.New(db, k.Log, skillsRoot).Routes)
 	return nil
 }
 

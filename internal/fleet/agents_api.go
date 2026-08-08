@@ -39,6 +39,7 @@ func (s *AgentsService) Routes(r chi.Router) {
 	r.Get("/agents", s.handleList)
 	r.Get("/agents/{slug}", s.handleGet)
 	r.Post("/agents", s.handleCreate)
+	r.Post("/agents/draft-persona", s.handleDraftPersona)
 	r.Get("/agents/{slug}/brain", s.handleBrain)
 	r.Patch("/agents/{slug}", s.handlePatch)
 }
@@ -657,6 +658,62 @@ func (s *AgentsService) handleCreate(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"slug": in.Slug, "enabled": in.Enabled, "specPath": spec,
 	})
+}
+
+// handleDraftPersona drafts a persona and returns it. It creates NOTHING.
+//
+// Splitting the draft from the hire is the whole point: the operator reads what
+// the model wrote, edits the parts it got wrong, and only then hires. A single
+// button that drafted and created in one step would make every bad draft a live
+// agent that has to be found and disabled.
+func (s *AgentsService) handleDraftPersona(w http.ResponseWriter, r *http.Request) {
+	var in newAgent
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&in); err != nil {
+		httpErr(w, http.StatusBadRequest, "malformed body")
+		return
+	}
+
+	in.Slug = strings.ToLower(strings.TrimSpace(in.Slug))
+	if !slugRe.MatchString(in.Slug) {
+		httpErr(w, http.StatusUnprocessableEntity,
+			"a slug must be lowercase letters, digits and hyphens, starting with a letter")
+		return
+	}
+	if in.Model != "" && !allowedModels[in.Model] {
+		httpErr(w, http.StatusUnprocessableEntity, "unknown model — use haiku, sonnet or opus")
+		return
+	}
+	if in.Workdir != "" && !strings.HasPrefix(in.Workdir, "/") {
+		httpErr(w, http.StatusUnprocessableEntity, "a working directory must be an absolute path")
+		return
+	}
+	// The draft is only worth running once there is something to draft FROM.
+	// Given a bare slug the model has nothing to ground on and returns generic
+	// advice, which is exactly the starter template the operator is trying to
+	// escape.
+	if len(cleanList(in.Areas, 40)) == 0 && strings.TrimSpace(in.Description) == "" {
+		httpErr(w, http.StatusUnprocessableEntity,
+			"describe what the agent does, or give it at least one area, before drafting")
+		return
+	}
+
+	persona, cost, err := draftPersona(r.Context(), s.log, personaRequest{
+		Slug:        in.Slug,
+		DisplayName: in.DisplayName,
+		Title:       in.Title,
+		Description: in.Description,
+		Model:       in.Model,
+		Areas:       in.Areas,
+		Workdir:     strings.TrimSpace(in.Workdir),
+	})
+	if err != nil {
+		// 502, not 500: the failure is upstream in the Claude Code session, and
+		// the message says which part failed so the operator can decide between
+		// retrying and writing the persona by hand.
+		httpErr(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"persona": persona, "costUsd": cost})
 }
 
 // writeSpec mirrors the persona to .claude/agents/<slug>.md so the file tree and
