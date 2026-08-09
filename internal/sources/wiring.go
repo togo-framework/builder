@@ -2,6 +2,7 @@ package sources
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"strings"
 )
@@ -37,28 +38,36 @@ func (s sourceSecrets) Reveal(ctx context.Context, name string) (string, error) 
 	return s.v.RevealFor(ctx, name, "source:"+s.kind+":"+s.name, s.runID)
 }
 
-// Cursor and SetCursor persist where a source got to, in the row the scheduler
-// already owns. builder_sources.cursor exists for exactly this; an in-memory
-// cursor would re-read every document on every restart.
+// rowCursor persists where a source got to, in the row the scheduler owns.
 //
-// Scoped by kind and name rather than by id because that is the CursorStore
-// contract, and the pair is unique per source.
-func (s *Store) Cursor(ctx context.Context, kind, name string) (string, error) {
+// Bound to the row ID, and it has to be. CursorStore is keyed by (kind, name)
+// as the source REPORTS them, and a connector names itself after what it
+// connects to, not after the row that configured it: a GitHub source in a row
+// called "togo-docs" reports its name as "golang/example". Looking the row up
+// by that pair found nothing, and every refresh failed on "sql: no rows in
+// result set" before it fetched a byte.
+//
+// Binding to the id also makes two rows pointing at the same repository keep
+// separate cursors, which is what an operator who created two of them meant.
+type rowCursor struct {
+	db *sql.DB
+	id string
+}
+
+func (c rowCursor) Cursor(ctx context.Context, _, _ string) (string, error) {
 	var cur string
-	err := s.db.QueryRowContext(ctx,
-		`SELECT cursor FROM builder_sources WHERE kind = $1 AND name = $2`, kind, name).Scan(&cur)
-	if err != nil {
-		return "", fmt.Errorf("read cursor for %s/%s: %w", kind, name, err)
+	if err := c.db.QueryRowContext(ctx,
+		`SELECT cursor FROM builder_sources WHERE id = $1`, c.id).Scan(&cur); err != nil {
+		return "", fmt.Errorf("read cursor: %w", err)
 	}
 	return cur, nil
 }
 
-func (s *Store) SetCursor(ctx context.Context, kind, name, cursor string) error {
-	_, err := s.db.ExecContext(ctx,
-		`UPDATE builder_sources SET cursor = $3, updated_at = now()
-		  WHERE kind = $1 AND name = $2`, kind, name, cursor)
-	if err != nil {
-		return fmt.Errorf("save cursor for %s/%s: %w", kind, name, err)
+func (c rowCursor) SetCursor(ctx context.Context, _, _, cursor string) error {
+	if _, err := c.db.ExecContext(ctx,
+		`UPDATE builder_sources SET cursor = $2, updated_at = now() WHERE id = $1`,
+		c.id, cursor); err != nil {
+		return fmt.Errorf("save cursor: %w", err)
 	}
 	return nil
 }
@@ -75,7 +84,7 @@ func (s *Store) runPlugin(ctx context.Context, row sourceRow, ns, runID string) 
 	if err != nil {
 		return Report{}, err
 	}
-	return Refresh(ctx, src, s, s.brain, ns)
+	return Refresh(ctx, src, rowCursor{db: s.db, id: row.ID}, s.brain, ns)
 }
 
 // isPlugin reports whether a kind is served by the registry rather than by the

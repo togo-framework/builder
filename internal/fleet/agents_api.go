@@ -877,7 +877,7 @@ type brainView struct {
 	ReadsAll []string          `json:"readsAll"`
 
 	Recent []brainMemory `json:"recent"`
-	Graph     struct {
+	Graph  struct {
 		Nodes []graphNode `json:"nodes"`
 		Edges []graphEdge `json:"edges"`
 	} `json:"graph"`

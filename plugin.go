@@ -32,6 +32,7 @@ const (
 	ProviderFleet        = "builder.fleet"        // agent registry + .claude/ sync
 	ProviderOrchestrator = "builder.orchestrator" // claim/lease/route/triage
 	ProviderNotify       = "builder.notify"       // realtime + push + sound
+	ProviderSources      = "builder.sources"      // scheduled ingestion into the brain
 )
 
 // Boot order. togo runs providers ascending, and a later provider overwrites an
@@ -57,6 +58,9 @@ const (
 	priIssues       = togo.PriorityLate + 14
 	priFleet        = togo.PriorityLate + 15
 	priOrchestrator = togo.PriorityLate + 16
+	// After the orchestrator so both loops start last, and after brain and
+	// vault because a source cannot be constructed without either.
+	priSources = togo.PriorityLate + 17
 )
 
 func init() {
@@ -66,6 +70,7 @@ func init() {
 	register(ProviderIssues, priIssues, provideIssues)
 	register(ProviderFleet, priFleet, provideFleet)
 	register(ProviderOrchestrator, priOrchestrator, provideOrchestrator)
+	register(ProviderSources, priSources, provideSources)
 }
 
 // register wires one provider unless it is named in BUILDER_DISABLE.

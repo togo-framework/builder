@@ -23,6 +23,7 @@ import (
 	"github.com/togo-framework/builder/internal/runner"
 	"github.com/togo-framework/builder/internal/setup"
 	"github.com/togo-framework/builder/internal/skills"
+	"github.com/togo-framework/builder/internal/sources"
 	"github.com/togo-framework/builder/internal/term"
 	"github.com/togo-framework/builder/internal/vault"
 )
@@ -267,6 +268,55 @@ func provideFleet(k *togo.Kernel) error {
 	return nil
 }
 
+// provideSources mounts the ingestion registry and starts its scheduler.
+//
+// Everything in internal/sources was unreachable before this: the registry
+// could build a connector, the scheduler could lease and run one, and nothing
+// constructed either. A subsystem with no provider is dead code that compiles.
+//
+// NOT gated on BUILDER_RUNNER. That flag exists because the agent loop spends
+// money on model calls; a source spends nobody's budget and every row is
+// created disabled (0011 makes `enabled` DEFAULT false), so the only sources
+// that ever run are ones an operator deliberately switched on. Gating this on
+// the agent loop would mean a source you enabled silently never collecting.
+func provideSources(k *togo.Kernel) error {
+	db, err := k.SQL(context.Background())
+	if err != nil {
+		if k.Log != nil {
+			k.Log.Warn("builder.sources disabled: no database", "err", err)
+		}
+		k.Set(ProviderSources, nil)
+		return nil
+	}
+
+	// The brain is the only place a source writes, and the vault the only place
+	// it reads a credential from. Without both, the surface would accept a
+	// configuration it could never run.
+	b, _ := k.Get(ProviderBrain)
+	bs, okBrain := b.(*brain.Store)
+	v, _ := k.Get(ProviderVault + ".store")
+	vs, okVault := v.(*vault.Store)
+	if !okBrain || bs == nil {
+		k.Log.Warn("builder.sources disabled: the brain is unavailable, so there is nowhere to collect into")
+		k.Set(ProviderSources, nil)
+		return nil
+	}
+	if !okVault || vs == nil {
+		k.Log.Warn("builder.sources disabled: the vault is unavailable, and a source reads its credentials by name")
+		k.Set(ProviderSources, nil)
+		return nil
+	}
+
+	store := sources.New(db, k.Log, bs, vs)
+	k.Set(ProviderSources, store)
+	k.Router.Route("/api/builder/sources", store.Routes)
+
+	// Detached, like the orchestrator: the schedule outlives any request.
+	go store.Run(context.Background())
+	k.Log.Info("builder.sources running", "kinds", strings.Join(append(sources.Kinds(), "sql"), ", "))
+	return nil
+}
+
 func provideOrchestrator(k *togo.Kernel) error {
 	db, dbErr := k.SQL(context.Background())
 
@@ -356,7 +406,7 @@ func provideOrchestrator(k *togo.Kernel) error {
 func activeProviders() []string {
 	all := []string{
 		ProviderVault, ProviderBrain, ProviderNotify,
-		ProviderIssues, ProviderFleet, ProviderOrchestrator,
+		ProviderIssues, ProviderFleet, ProviderOrchestrator, ProviderSources,
 	}
 	out := make([]string, 0, len(all))
 	for _, name := range all {
