@@ -26,12 +26,21 @@ func TestIngestRefusesAnAgentsPrivateBrain(t *testing.T) {
 		t.Fatalf("unhelpful error: %v", err)
 	}
 
-	// The project brain of any fleet is fine — the constant is this install's,
-	// not the only legal value.
-	for _, ns := range []string{ProjectNamespace, "proj:project", "acme:project"} {
-		if _, err := guardStore().IngestDocument(context.Background(), ns, doc, ChunkOptions{}); err != nil &&
-			strings.Contains(err.Error(), "project brain") {
+	// The project brain of ANY fleet is fine — "default" is this install's, not
+	// the only legal value.
+	//
+	// Asserted against the predicate rather than by calling IngestDocument
+	// again: past the guard the next step is a real Retain, and this store has
+	// no database handle, so the call panicked instead of testing anything. A
+	// guard test should exercise the guard.
+	for _, ns := range []string{"default:project", "proj:project", "acme:project"} {
+		if !IsProjectNamespace(ns) {
 			t.Errorf("%s was refused as a project namespace", ns)
+		}
+	}
+	for _, ns := range []string{"default:api-dev", "project", "", "projectish"} {
+		if IsProjectNamespace(ns) {
+			t.Errorf("%s was accepted as a project namespace", ns)
 		}
 	}
 }
@@ -41,7 +50,7 @@ func TestIngestRefusesAnAgentsPrivateBrain(t *testing.T) {
 // prefix, so a forged name is a way to delete somebody else's document.
 func TestIngestRejectsNamesThatCouldForgeARef(t *testing.T) {
 	for _, name := range []string{"", "   ", "spec#0001", "spec\nmd", "spec\x00"} {
-		_, err := guardStore().IngestDocument(context.Background(), ProjectNamespace,
+		_, err := guardStore().IngestDocument(context.Background(), "default:project",
 			Document{Name: name, Mime: "text/markdown", Data: []byte("hello there friend")},
 			ChunkOptions{})
 		if err == nil {

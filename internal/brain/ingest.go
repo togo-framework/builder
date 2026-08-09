@@ -10,12 +10,11 @@ import (
 // ProjectNamespace is the brain the whole system shares, as opposed to the
 // per-agent brains named `<fleet>:<agent-slug>`.
 //
-// `<fleet>:project` is the canonical shape and `default` is this install's
-// fleet, so `default:project` — settled by the operator on #35 after three
-// spellings had been live at once. The slug position holds `project` because
-// the project brain is the same shape as every other brain, not a new kind of
-// thing with its own convention.
-const ProjectNamespace = "default:project"
+// The namespace itself comes from ProjectNamespace(fleet) in project.go. This
+// file used to carry its own `const ProjectNamespace = "default:project"`,
+// which was the same name for a different thing: a hardcoded fleet, on an
+// install where the fleet is configurable. Two spellings of one idea is how a
+// document ends up in a brain nobody reads.
 
 // DocSourceKind is the source_kind every document chunk carries, so a citation
 // can say "this came from an uploaded document" and a cleanup can find them all.
@@ -85,9 +84,17 @@ func (s *Store) IngestDocument(ctx context.Context, ns string, d Document, opt C
 	// other agent can see it and no operator thinks to look — and it is the
 	// same reasoning that CHECK-constrains webhook sources to a project
 	// namespace: an inbound payload must never reach an agent's own memory.
-	if !strings.HasSuffix(ns, ":project") {
-		return res, fmt.Errorf("refusing to ingest %q into %q: documents belong in a project brain (%s), not an agent's private one",
-			d.Name, ns, ProjectNamespace)
+	// IsProjectNamespace, not a local HasSuffix: the predicate belongs next to
+	// the constant it derives from and to the CHECK constraint it mirrors, and
+	// two copies of "what counts as a project brain" drift apart the first time
+	// one of them changes.
+	if !IsProjectNamespace(ns) {
+		// Names the SHAPE, not one namespace. Resolving the fleet here would
+		// mean a database round-trip to build an error string — which panics on
+		// a store with no handle, and would report one install's fleet as if it
+		// were the rule.
+		return res, fmt.Errorf("refusing to ingest %q into %q: documents belong in a project brain (a %q namespace), not an agent's private one",
+			d.Name, ns, "<fleet>:"+ProjectSlot)
 	}
 
 	text, err := Extract(d)
