@@ -52,7 +52,6 @@ const en = {
   appVault: "Vault",
   appMcp: "MCP",
   appTerminal: "Terminal",
-  openInTab: "Open in a new tab",
   dir: "ltr" as "ltr" | "rtl",
 };
 
@@ -105,7 +104,6 @@ const ar: Dict = {
   appVault: "الخزنة",
   appMcp: "MCP",
   appTerminal: "الطرفية",
-  openInTab: "فتح في تبويب جديد",
   dir: "rtl",
 };
 

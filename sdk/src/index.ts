@@ -143,19 +143,7 @@ export function mount(opts: MountOptions = {}): Handle {
       </div>
     </div>
 
-    <!-- The overlay that hosts a builder screen.
-         An iframe on the same origin rather than a re-implementation: these
-         are the real pages, with the real session cookie, and keeping one copy
-         of them is the entire point of moving them out of the sidebar. -->
-    <div class="ov" data-open="false" role="dialog" aria-modal="true" aria-label="">
-      <div class="ov-head">
-        <span class="ov-ico"></span>
-        <h2 class="ov-title"></h2>
-        <a class="ov-tab" target="_blank" rel="noopener" aria-label=""></a>
-        <button class="ov-x" aria-label=""></button>
-      </div>
-      <iframe class="ov-frame" title=""></iframe>
-    </div>`;
+`;
   root.appendChild(wrap);
 
   const $ = <T extends Element>(s: string) => root.querySelector(s) as T;
@@ -175,12 +163,6 @@ export function mount(opts: MountOptions = {}): Handle {
   const fileIn = $<HTMLInputElement>(".filein");
   const countEl = $<HTMLElement>(".count");
   const appGrid = $<HTMLElement>(".appgrid");
-  const ov = $<HTMLElement>(".ov");
-  const ovFrame = $<HTMLIFrameElement>(".ov-frame");
-  const ovTitle = $<HTMLElement>(".ov-title");
-  const ovIco = $<HTMLElement>(".ov-ico");
-  const ovTab = $<HTMLAnchorElement>(".ov-tab");
-  const ovX = $<HTMLButtonElement>(".ov-x");
   const titleIn = $<HTMLInputElement>('input[name="title"]');
   const bodyIn = $<HTMLTextAreaElement>('textarea[name="body"]');
   const urlIn = $<HTMLInputElement>('input[name="url"]');
@@ -232,10 +214,6 @@ export function mount(opts: MountOptions = {}): Handle {
   modal.setAttribute("aria-label", t.reportTitle);
   cancelBtn.textContent = t.cancel;
   $(".lbl-md").textContent = t.markdownHint;
-  ovX.setAttribute("aria-label", t.close);
-  ovX.appendChild(icon("x", 16));
-  ovTab.setAttribute("aria-label", t.openInTab);
-  ovTab.appendChild(icon("external", 15));
   titleIn.placeholder = t.titlePlaceholder;
   bodyIn.placeholder = t.detailsPlaceholder;
   iconLabel(pinBtn, "pin", t.pin);
@@ -395,46 +373,35 @@ export function mount(opts: MountOptions = {}): Handle {
     appGrid.appendChild(b);
   }
 
-  let ovEscape: ((e: KeyboardEvent) => void) | null = null;
-
+  // Opening an app NAVIGATES. It does not open a layer.
+  //
+  // These screens used to load in an iframe overlay stapled to the host's
+  // viewport, and that was the panel wearing a page. The URL never changed, so
+  // an operator could not link a colleague to an issue, could not bookmark the
+  // board, could not press Back, and lost their place on refresh. The board
+  // itself was squeezed into a floating layer with two scroll contexts and a
+  // close button where a page just wants to be navigated away from.
+  //
+  // No ?embed=1 either: that flag exists to strip the app's own chrome for the
+  // iframe case, and a real page should arrive with its real navigation.
   function openApp(app: (typeof APPS)[number]) {
-    ovFrame.src = appURL(app.path, true);
-    ovFrame.title = app.label;
-    ovTitle.textContent = app.label;
-    ovTab.href = appURL(app.path, false);
-    ov.setAttribute("aria-label", app.label);
+    const origin = appOrigin();
+    const url = appURL(app.path, false);
 
-    ovIco.textContent = "";
-    ovIco.style.background = `${app.color}38`;
-    ovIco.style.color = app.color;
-    ovIco.appendChild(icon(app.key, 16));
-
-    ov.dataset.open = "true";
-    // The panel goes away underneath: the overlay covers it anyway, and leaving
-    // it open means closing the overlay reveals a panel the operator had
-    // forgotten was there.
+    // Cross-origin means the widget is embedded in somebody else's product. We
+    // navigate the top-level document only when the app lives on THIS origin;
+    // yanking an operator out of the host application they were using, losing
+    // whatever they had unsaved, is not a thing a feedback widget may do. A new
+    // tab is still a real page with a real URL, which is the whole ask.
+    if (origin && origin !== location.origin) {
+      window.open(url, "_blank", "noopener");
+      close();
+      return;
+    }
     close();
-
-    // Escape closes. Bound on the host document because focus is inside the
-    // iframe as soon as the page loads, and a listener on the shadow root would
-    // never see the key.
-    ovEscape = (e: KeyboardEvent) => {
-      if (e.key === "Escape") closeApp();
-    };
-    document.addEventListener("keydown", ovEscape);
+    location.assign(url);
   }
 
-  function closeApp() {
-    ov.dataset.open = "false";
-    // Blank the frame rather than leaving it loaded. A hidden iframe keeps
-    // polling — the board and the fleet both refresh on an interval — and the
-    // operator closed it precisely to stop paying attention to it.
-    ovFrame.src = "about:blank";
-    if (ovEscape) document.removeEventListener("keydown", ovEscape);
-    ovEscape = null;
-  }
-
-  ovX.addEventListener("click", closeApp);
 
   // ---- the report modal, dragged by its header ---------------------------
   //

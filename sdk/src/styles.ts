@@ -184,34 +184,9 @@ button { font: inherit; cursor: pointer; }
   .modal { transition: none; }
 }
 
-/* ---- full-screen overlay hosting a builder screen ---- */
-.ov {
-  position: fixed; inset: 0; z-index: 2147483646;   /* above the panel */
-  display: flex; flex-direction: column;
-  background: var(--bg); color: var(--text);
-  opacity: 0; pointer-events: none;
-  transition: opacity .16s ease;
-}
-.ov[data-open="true"] { opacity: 1; pointer-events: auto; }
-.ov-head {
-  display: flex; align-items: center; gap: 10px;
-  padding: 10px 14px; border-bottom: 1px solid var(--border);
-  flex: 0 0 auto;
-}
-.ov-ico { display: inline-flex; align-items: center; justify-content: center;
-  width: 28px; height: 28px; border-radius: 8px; }
-.ov-ico svg { width: 16px; height: 16px; }
-.ov-title { margin: 0; font-size: 14px; font-weight: 600; }
-.ov-tab, .ov-x {
-  border: 0; background: transparent; color: var(--muted);
-  cursor: pointer; padding: 6px; border-radius: 8px; display: inline-flex;
-}
-.ov-tab { margin-inline-start: auto; text-decoration: none; }
-.ov-tab:hover, .ov-x:hover { color: var(--text); background: var(--border); }
-.ov-frame { flex: 1 1 auto; width: 100%; border: 0; display: block; }
 
 @media (prefers-reduced-motion: reduce) {
-  .app, .ov { transition: none; }
+  .app { transition: none; }
   .app:hover { transform: none; }
 }
 
