@@ -15,6 +15,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/go-chi/chi/v5"
+
+	"github.com/togo-framework/builder/internal/brain"
 )
 
 // The agents surface: a roster an operator can read, and a profile they can
@@ -669,12 +671,39 @@ func (s *AgentsService) handleCreate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 2. Its brain. Isolated namespace, same shape the wizard produces.
+	//
+	// The fleet name is looked up rather than hardcoded to 'default'. It was
+	// hardcoded, and the wizard builds '<fleet>:<slug>' — so on any install whose
+	// fleet is not called "default", an agent hired here got a namespace in a
+	// different scheme from every agent hired by the wizard, and the project
+	// grant below would point somewhere nothing writes.
+	fleet := brain.FleetName(r.Context(), s.db)
+	ns := fleet + ":" + in.Slug
+	projectNS := brain.ProjectNamespace(fleet)
+
 	var brainID string
 	if err := tx.QueryRowContext(r.Context(),
-		`INSERT INTO builder_brains (agent_slug, namespace, embedding_dim)
-		 VALUES ($1, 'default:'||$1, 1024) RETURNING id`, in.Slug).Scan(&brainID); err != nil {
+		`INSERT INTO builder_brains (agent_slug, namespace, embedding_dim, shared_namespaces)
+		 VALUES ($1, $2, $3, $4) RETURNING id`,
+		in.Slug, ns, brain.Dim, encodePGArray([]string{projectNS})).Scan(&brainID); err != nil {
 		s.log.Error("create brain", "slug", in.Slug, "err", err)
 		httpErr(w, http.StatusInternalServerError, "the agent was created but its brain was not")
+		return
+	}
+
+	// 2b. Read-only on the project brain.
+	//
+	// This step did not exist. The wizard granted it and this path did not, so an
+	// agent hired through the UI was the only kind of agent that could not read
+	// what the team knows — it started with an empty brain and no way to reach a
+	// shared one. Read-only, never write: see brain.GrantProjectRead.
+	if _, err := tx.ExecContext(r.Context(),
+		`INSERT INTO builder_brain_grants (namespace, agent_slug, can_read, can_write)
+		 VALUES ($1,$2,true,false) ON CONFLICT (namespace, agent_slug) DO NOTHING`,
+		projectNS, in.Slug); err != nil {
+		s.log.Error("grant the project brain", "slug", in.Slug, "err", err)
+		httpErr(w, http.StatusInternalServerError,
+			"the agent was created but could not be given the project brain")
 		return
 	}
 
@@ -829,13 +858,25 @@ func orDefault(s, fallback string) string {
 // ── the brain ───────────────────────────────────────────────────────────────
 
 type brainView struct {
-	Namespace string        `json:"namespace"`
-	Memories  int           `json:"memories"`
-	Gaps      int           `json:"gaps"`
-	Entities  int           `json:"entities"`
-	Edges     int           `json:"edges"`
-	Embedder  string        `json:"embedder"`
-	Recent    []brainMemory `json:"recent"`
+	Namespace string `json:"namespace"`
+	Memories  int    `json:"memories"`
+	Gaps      int    `json:"gaps"`
+	Entities  int    `json:"entities"`
+	Edges     int    `json:"edges"`
+	Embedder  string `json:"embedder"`
+
+	// The shared brain this agent also reads. Everything above describes the
+	// agent's OWN namespace and nothing said that a run recalls from two places,
+	// so the page could not explain where a memory the agent clearly had — but
+	// which was not in its list — came from.
+	//
+	// Project is empty when the agent has no read grant, which is a real and
+	// visible state rather than an error: it means this agent cannot see what
+	// the team knows.
+	Project  *projectBrainView `json:"project"`
+	ReadsAll []string          `json:"readsAll"`
+
+	Recent []brainMemory `json:"recent"`
 	Graph     struct {
 		Nodes []graphNode `json:"nodes"`
 		Edges []graphEdge `json:"edges"`
@@ -844,6 +885,18 @@ type brainView struct {
 	// Paging over `recent`; `memories` above is the full count.
 	MemoryOffset int `json:"memoryOffset"`
 	MemoryLimit  int `json:"memoryLimit"`
+}
+
+// projectBrainView is the shared brain as seen from an agent's page: which one
+// it is, how much is in it, and — always — that this agent may not write it.
+type projectBrainView struct {
+	Namespace string `json:"namespace"`
+	Memories  int    `json:"memories"`
+	Entities  int    `json:"entities"`
+	// Always false today. It is sent explicitly rather than left implicit so the
+	// page states the rule instead of the reader inferring it from an absent
+	// button.
+	CanWrite bool `json:"canWrite"`
 }
 
 type brainMemory struct {
@@ -885,6 +938,35 @@ func (s *AgentsService) handleBrain(w http.ResponseWriter, r *http.Request) {
 		Scan(&v.Namespace, &v.Embedder); err != nil {
 		httpErr(w, http.StatusNotFound, "this agent has no brain")
 		return
+	}
+
+	// Which shared brains this agent reads, and which of them is the project one.
+	// Read from the grants rather than assumed from the fleet name: a grant is
+	// what recall actually consults, so a page built on the fleet name would keep
+	// claiming the agent reads a brain after the grant was revoked.
+	if rows, err := s.db.QueryContext(r.Context(),
+		`SELECT namespace, can_write FROM builder_brain_grants
+		  WHERE agent_slug = $1 AND can_read ORDER BY namespace`, slug); err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var ns string
+			var canWrite bool
+			if rows.Scan(&ns, &canWrite) != nil {
+				continue
+			}
+			v.ReadsAll = append(v.ReadsAll, ns)
+			if v.Project == nil && brain.IsProjectNamespace(ns) {
+				v.Project = &projectBrainView{Namespace: ns, CanWrite: canWrite}
+			}
+		}
+	}
+	if v.Project != nil {
+		_ = s.db.QueryRowContext(r.Context(),
+			`SELECT count(*) FROM builder_memories WHERE namespace = $1 AND invalid_at IS NULL`,
+			v.Project.Namespace).Scan(&v.Project.Memories)
+		_ = s.db.QueryRowContext(r.Context(),
+			`SELECT count(*) FROM builder_entities WHERE namespace = $1`,
+			v.Project.Namespace).Scan(&v.Project.Entities)
 	}
 
 	_ = s.db.QueryRowContext(r.Context(),
