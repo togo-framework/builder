@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import {
-  Button, Callout, EmptyState, Input, MarkdownEditor, PageHeader, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, StatCard, StatusBadge,
+  Button, Callout, EmptyState, Input, MarkdownEditor, PageHeader, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, StatusBadge,
 } from "@togo-framework/ui";
 import { Sparkles, UserPlus, Users } from "lucide-react";
 import { agentColor, draftPersona, hireAgent, initials, listAgents, type Agent } from "../lib/agents";
-import { Field, FormCard, FormFooter, GridSkeleton, PageShell, StatRow } from "../components/page-shell";
+import { Field, FormCard, FormFooter, GridSkeleton, PageShell, Stat, StatRow } from "../components/page-shell";
 
 /** Avatar: the picture if there is one, otherwise initials on the agent's colour. */
 const AgentAvatar = ({ a, size = 40 }: { a: Agent; size?: number }) => {
@@ -104,10 +104,10 @@ export const Agents = () => {
       />
 
       <StatRow>
-        <StatCard label="Agents" value={String(fleet.length)} />
-        <StatCard label="Enabled" value={String(enabled)} tone="info" />
-        <StatCard label="Working now" value={String(working)} tone={working ? "success" : "muted"} />
-        <StatCard label="Areas covered" value={String(covered)} />
+        <Stat label="Agents" value={fleet.length} />
+        <Stat label="Enabled" value={enabled} tone="info" />
+        <Stat label="Working now" value={working} tone={working ? "success" : "muted"} />
+        <Stat label="Areas covered" value={covered} />
       </StatRow>
 
       {err && <Callout kind="warn" title="Could not load the fleet">{err}</Callout>}

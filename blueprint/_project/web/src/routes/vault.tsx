@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   Button, Callout, EmptyState, Input, PageHeader, Select, SelectContent, SelectItem,
-  SelectTrigger, SelectValue, StatCard, StatusBadge, Table, TableBody, TableCell,
+  SelectTrigger, SelectValue, StatusBadge, Table, TableBody, TableCell,
   TableHead, TableHeader, TableRow,
 } from "@togo-framework/ui";
 import { Eye, EyeOff, KeyRound, Plus, Trash2, UserPlus, X } from "lucide-react";
@@ -10,7 +10,8 @@ import {
   type AuditEntry, type Secret,
 } from "../lib/vault";
 import {
-  Field, FormCard, FormFooter, ListSkeleton, PageShell, Row, RowTitle, Section, StatRow,
+  Field, FormCard, FormFooter, ListSkeleton, PageShell, Row, RowTitle, Rows,
+  Section, Stat, StatRow,
 } from "../components/page-shell";
 
 const OUTCOME_TONE: Record<string, "success" | "danger" | "warning" | "neutral"> = {
@@ -22,7 +23,7 @@ const OUTCOME_TONE: Record<string, "success" | "danger" | "warning" | "neutral">
 
 const KINDS = ["token", "api_key", "password", "ssh_key", "webhook", "other"];
 
-export function Vault() {
+export const Vault = () => {
   const [secrets, setSecrets] = useState<Secret[] | null>(null);
   const [audit, setAudit] = useState<AuditEntry[]>([]);
   const [err, setErr] = useState("");
@@ -126,9 +127,9 @@ export function Vault() {
       />
 
       <StatRow cols={3}>
-        <StatCard label="Secrets" value={String(secrets?.length ?? 0)} />
-        <StatCard label="Reads" value={String(audit.length)} />
-        <StatCard label="Refused" value={String(denials)} tone={denials ? "warning" : "muted"} />
+        <Stat label="Secrets" value={secrets?.length ?? 0} />
+        <Stat label="Reads" value={audit.length} />
+        <Stat label="Refused" value={denials} tone={denials ? "warning" : "muted"} />
       </StatRow>
 
       {err && <Callout kind="warn" title="Something went wrong">{err}</Callout>}
@@ -194,7 +195,7 @@ export function Vault() {
           />
         )}
         {secrets && secrets.length > 0 && (
-          <div className="flex flex-col gap-2">
+          <Rows>
             {secrets.map((s) => (
               <Row key={s.id}>
                 <RowTitle>
@@ -208,9 +209,9 @@ export function Vault() {
                 </RowTitle>
 
                 {revealed[s.name] && (
-                  <div className="mt-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-2">
+                  <div className="mt-2 rounded-md border border-warning/40 bg-warning/10 p-2">
                     <code className="break-all font-mono text-xs">{revealed[s.name]}</code>
-                    <p className="mt-1 text-[11px] text-amber-700 dark:text-amber-400">
+                    <p className="mt-1 text-[11px] text-warning">
                       This read is in the audit log. Hide it when you are done.
                     </p>
                   </div>
@@ -259,7 +260,7 @@ export function Vault() {
                 )}
               </Row>
             ))}
-          </div>
+          </Rows>
         )}
       </Section>
 
@@ -299,4 +300,5 @@ export function Vault() {
       </Section>
     </PageShell>
   );
-}
+};
+Vault.displayName = "Vault";

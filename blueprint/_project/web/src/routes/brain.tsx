@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Button, Callout, EmptyState, PageHeader, StatCard } from "@togo-framework/ui";
+import { Button, Callout, EmptyState, PageHeader } from "@togo-framework/ui";
 import { Brain as BrainIcon, X } from "lucide-react";
 import { BrainGraph } from "../components/brain-graph";
 import {
@@ -8,20 +8,22 @@ import {
 } from "../lib/brainproject";
 import type { BrainGraphNode } from "../lib/agents";
 import {
-  FilterChip, ListSkeleton, MonoBadge, PageShell, Section, StatRow,
+  FilterChip, ListSkeleton, MonoBadge, PageShell, Rows, Section, Stat, StatRow,
 } from "../components/page-shell";
 
-/** A memory with where it came from. Provenance is the point of this screen. */
-const MemoryCard = ({ m }: { m: ProjectMemory }) => (
-  <div className="rounded-lg border border-border bg-card p-3">
+/** A memory with where it came from. Provenance is the point of this screen.
+ *  A row inside a grouped list, not its own card — twenty memories each in a
+ *  bordered slab drowned the content in chrome. */
+const MemoryRow = ({ m }: { m: ProjectMemory }) => (
+  <div className="px-3 py-2.5 transition-colors hover:bg-muted/40">
     <p className="whitespace-pre-wrap text-sm">{m.content}</p>
-    <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+    <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
       <MonoBadge>{m.from.kind}</MonoBadge>
       <span className="break-all">{m.from.label}</span>
     </div>
   </div>
 );
-MemoryCard.displayName = "MemoryCard";
+MemoryRow.displayName = "MemoryRow";
 
 export const Brain = () => {
   const [b, setB] = useState<ProjectBrain | null>(null);
@@ -63,10 +65,10 @@ export const Brain = () => {
       )}
 
       <StatRow>
-        <StatCard label="Memories" value={String(b?.memories ?? 0)} />
-        <StatCard label="Entities" value={String(b?.entities ?? 0)} />
-        <StatCard label="Connections" value={String(b?.edges ?? 0)} />
-        <StatCard label="Namespace" value={b?.namespace ?? "—"} />
+        <Stat label="Memories" value={b?.memories ?? 0} />
+        <Stat label="Entities" value={b?.entities ?? 0} />
+        <Stat label="Connections" value={b?.edges ?? 0} />
+        <Stat label="Namespace" value={b?.namespace ?? "—"} mono />
       </StatRow>
 
       {/* Built from what is actually in the brain, so a deleted source still
@@ -112,9 +114,13 @@ export const Brain = () => {
               <X className="size-4" />
             </Button>
           </div>
-          <div className="mt-3 space-y-2">
+          <div className="mt-3">
             {!entity && <ListSkeleton rows={2} />}
-            {entity?.memories.map((m) => <MemoryCard key={m.id} m={m} />)}
+            {entity && entity.memories.length > 0 && (
+              <Rows>
+                {entity.memories.map((m) => <MemoryRow key={m.id} m={m} />)}
+              </Rows>
+            )}
             {entity?.memories.length === 0 && (
               <p className="text-sm text-muted-foreground">No memories reference this yet.</p>
             )}
@@ -135,9 +141,9 @@ export const Brain = () => {
           />
         )}
         {b && b.recent.length > 0 && (
-          <div className="flex flex-col gap-2">
-            {b.recent.map((m) => <MemoryCard key={m.id} m={m} />)}
-          </div>
+          <Rows>
+            {b.recent.map((m) => <MemoryRow key={m.id} m={m} />)}
+          </Rows>
         )}
       </Section>
     </PageShell>

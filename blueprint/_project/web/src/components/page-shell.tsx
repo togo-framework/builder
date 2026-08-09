@@ -5,10 +5,21 @@ import { CircleAlert } from "lucide-react";
 /**
  * page-shell — the layout primitives every builder screen is assembled from.
  *
- * Ten pages each inventing their own container, stat strip, row layout and
- * form spacing is what made the product read as ten side projects. These
- * primitives fix the decisions once — width, rhythm, grouping, the shape of a
- * row, the shape of a form field — so a page is only ever its content.
+ * The reference is the SDK feedback panel (builder/sdk/src/styles.ts), the one
+ * surface the operator has signed off. Its decisions are load-bearing here:
+ *
+ *   - Lists are ONE grouped card with hairline dividers, not a stack of
+ *     individually bordered slabs. Slabs make every row shout at the same
+ *     volume; a grouped list lets the content carry the hierarchy.
+ *   - Types are a coloured dot + word. Filled pills are reserved for status,
+ *     because ten tinted pills in a list is decoration, one dot per row is
+ *     information.
+ *   - Numbers are tabular, quiet, and grouped — an instrument strip, not four
+ *     floating dashboard tiles.
+ *   - Status colours come from the theme's semantic tokens (success, warning,
+ *     info, destructive) so every theme preset retints them. A hardcoded
+ *     emerald stays emerald under a rose theme, which is how a page stops
+ *     belonging to the product.
  *
  * Everything here is presentation. Nothing fetches, nothing owns state.
  */
@@ -60,14 +71,20 @@ const PageShell = ({
 PageShell.displayName = "PageShell";
 
 /* ------------------------------------------------------------------ */
-/* Stat row                                                            */
+/* Stat strip                                                          */
 /* ------------------------------------------------------------------ */
 
 /**
- * The stat strip under the page header. One grid, one gap, so four StatCards
- * read as a single instrument panel instead of four floating tiles. `cols={3}`
- * exists because a 3-stat page in a 2+4 responsive grid wraps into 2-then-1,
- * which reads as a mistake.
+ * The stat strip under the page header: ONE bordered card divided into cells
+ * by hairlines, matching the panel's grouped-card language. The previous
+ * four-floating-tiles version (each its own Card, hover shadow, 24px bold mono
+ * value) is what made a page read as "eight unrelated blocks" — and a hover
+ * elevation on a tile that does nothing when clicked is a promise the page
+ * can't keep.
+ *
+ * gap-px over a bg-border container is the divider mechanism because it draws
+ * correct hairlines on BOTH axes at any responsive wrap; divide-x/divide-y
+ * cannot follow a 4-to-2-column reflow without lying on one edge.
  */
 const StatRow = ({
   cols = 4,
@@ -80,7 +97,7 @@ const StatRow = ({
 }) => (
   <div
     className={cn(
-      "grid gap-3",
+      "grid gap-px overflow-hidden rounded-lg border border-border bg-border",
       cols === 3 ? "grid-cols-3" : "grid-cols-2 sm:grid-cols-4",
       className,
     )}
@@ -90,15 +107,64 @@ const StatRow = ({
 );
 StatRow.displayName = "StatRow";
 
+const STAT_TONE = {
+  default: "text-foreground",
+  muted: "text-muted-foreground",
+  success: "text-success",
+  warning: "text-warning",
+  danger: "text-destructive",
+  info: "text-info",
+} as const;
+
+/**
+ * One cell of the strip. The value is deliberately smaller and quieter than a
+ * dashboard hero number — these are working counts an engineer scans, and at
+ * four-across a row of 24px bold numerals competes with the page title.
+ * Tabular numerals so 9→10 does not shift the column.
+ */
+const Stat = ({
+  label,
+  value,
+  tone = "default",
+  mono = false,
+  className,
+}: {
+  label: string;
+  value: string | number;
+  tone?: keyof typeof STAT_TONE;
+  /** For machine-name values (a namespace, a path) — the value only, so the
+   *  label stays in the UI face beside its siblings. */
+  mono?: boolean;
+  className?: string;
+}) => (
+  <div className={cn("flex min-w-0 flex-col gap-1 bg-card px-3 py-2.5", className)}>
+    <span className="truncate text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+      {label}
+    </span>
+    <span
+      className={cn(
+        "truncate text-lg font-semibold leading-tight tabular-nums",
+        mono && "font-mono text-base",
+        STAT_TONE[tone],
+      )}
+      title={String(value)}
+    >
+      {value}
+    </span>
+  </div>
+);
+Stat.displayName = "Stat";
+
 /* ------------------------------------------------------------------ */
 /* Section                                                             */
 /* ------------------------------------------------------------------ */
 
 /**
- * A titled region of a page. The heading and its content share a tight gap
- * inside one <section>, while PageShell's larger gap separates sections —
- * proximity is what groups them. Without this, a page with four stats and a
- * list reads as eight unrelated blocks, which is exactly the complaint.
+ * A titled region of a page. The heading style is the panel's `.label` — small
+ * caps, wide tracking, muted — so a section reads as the same product as the
+ * approved widget. The heading and its content share a tight gap inside one
+ * <section>, while PageShell's larger gap separates sections; proximity is
+ * what groups them.
  */
 const Section = ({
   title,
@@ -133,17 +199,37 @@ const Section = ({
 Section.displayName = "Section";
 
 /* ------------------------------------------------------------------ */
-/* List rows                                                           */
+/* Grouped list                                                        */
 /* ------------------------------------------------------------------ */
 
 /**
- * The one row layout: leading mark, body, trailing actions, optional expanded
- * footer. Rows across sources, docs, vault and tokens previously each chose
- * their own padding and alignment, so the same information sat at different
- * x-positions on every page and nothing could be scanned by column.
+ * The list container: one card, hairline dividers, hover per row. This is the
+ * panel's `.rows` verbatim — the decision the operator already approved.
+ * Uniform bordered slabs (each row its own card, stacked with a gap) made
+ * every row shout at the same volume; grouping lets the name, badges and meta
+ * carry the hierarchy instead of the chrome.
+ */
+const Rows = ({ className, children }: { className?: string; children: ReactNode }) => (
+  <div
+    className={cn(
+      "divide-y divide-border overflow-hidden rounded-lg border border-border bg-card",
+      className,
+    )}
+  >
+    {children}
+  </div>
+);
+Rows.displayName = "Rows";
+
+/**
+ * One row inside `Rows`: leading mark, body, trailing actions, optional
+ * expanded footer. No border of its own — the group draws the chrome.
  *
- * `danger` moves the failure signal to the border — an operator scrolling a
- * long list finds the broken row before reading any text.
+ * `danger` is a start-edge accent bar, not a red outline: inside a grouped
+ * list an outline cannot exist, and the bar is positional — it survives
+ * colourblindness and a monochrome screenshot because the broken row is
+ * physically marked, not merely tinted. The transparent bar on healthy rows
+ * keeps every row's content at the same x-position.
  */
 const Row = ({
   leading,
@@ -162,12 +248,14 @@ const Row = ({
 }) => (
   <article
     className={cn(
-      "rounded-lg border bg-card transition-colors",
-      danger ? "border-destructive/50" : "border-border",
+      "border-s-2 transition-colors",
+      danger
+        ? "border-s-destructive bg-destructive/5"
+        : "border-s-transparent hover:bg-muted/40",
       className,
     )}
   >
-    <div className="flex items-start gap-3 p-3">
+    <div className="flex items-start gap-3 px-3 py-2.5">
       {leading && <div className="flex shrink-0 items-center pt-0.5">{leading}</div>}
       <div className="min-w-0 flex-1">{children}</div>
       {trailing && <div className="flex shrink-0 items-center gap-1">{trailing}</div>}
@@ -199,8 +287,10 @@ const RowMeta = ({ className, children }: { className?: string; children: ReactN
 );
 RowMeta.displayName = "RowMeta";
 
-/** The small mono chip (kind, area, namespace). One shape everywhere, so a
- *  chip is recognised as "a machine name" before it is read. */
+/** The small mono chip for MACHINE names (kind, area, namespace) — one shape
+ *  everywhere, so a chip is recognised as "a machine name" before it is read.
+ *  Never used to carry status colour; that job belongs to DotLabel and
+ *  StatusBadge. */
 const MonoBadge = ({ className, children }: { className?: string; children: ReactNode }) => (
   <span className={cn("rounded bg-muted px-1.5 py-0.5 font-mono text-xs", className)}>
     {children}
@@ -209,21 +299,69 @@ const MonoBadge = ({ className, children }: { className?: string; children: Reac
 MonoBadge.displayName = "MonoBadge";
 
 /* ------------------------------------------------------------------ */
+/* Dot label                                                           */
+/* ------------------------------------------------------------------ */
+
+const DOT_TONE = {
+  neutral: "text-muted-foreground",
+  success: "text-success",
+  warning: "text-warning",
+  danger: "text-destructive",
+  info: "text-info",
+} as const;
+
+/**
+ * A type as a coloured dot + word — the panel's `.chip`, and its reasoning:
+ * ten tinted pills in a list is decoration, one dot per row is information.
+ * The word does the work in monochrome; the dot is the glanceable layer on
+ * top. Semantic tones only, so every theme preset retints it.
+ */
+const DotLabel = ({
+  tone = "neutral",
+  title,
+  className,
+  children,
+}: {
+  tone?: keyof typeof DOT_TONE;
+  title?: string;
+  className?: string;
+  children: ReactNode;
+}) => (
+  <span
+    title={title}
+    className={cn(
+      "inline-flex items-center gap-1.5 text-xs font-medium",
+      DOT_TONE[tone],
+      className,
+    )}
+  >
+    <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full bg-current" />
+    {children}
+  </span>
+);
+DotLabel.displayName = "DotLabel";
+
+/* ------------------------------------------------------------------ */
 /* Loading skeletons                                                   */
 /* ------------------------------------------------------------------ */
 
 /**
- * List loading state, shaped like the rows it will become so nothing jumps
- * when data lands. Bare "Loading…" text is what made these pages feel like a
- * side project — a skeleton says the page knows what it is about to show.
+ * List loading state, shaped like the grouped list it will become — one card,
+ * hairline dividers — so nothing jumps or re-borders when data lands.
  */
 const ListSkeleton = ({ rows = 3, className }: { rows?: number; className?: string }) => (
-  <div className={cn("flex flex-col gap-2", className)} aria-hidden="true">
+  <div
+    className={cn(
+      "divide-y divide-border overflow-hidden rounded-lg border border-border bg-card",
+      className,
+    )}
+    aria-hidden="true"
+  >
     {Array.from({ length: rows }).map((_, i) => (
-      <div key={i} className="flex items-start gap-3 rounded-lg border border-border bg-card p-3">
+      <div key={i} className="flex items-start gap-3 px-3 py-3">
         <Skeleton className="size-8 shrink-0 rounded-md" />
         <div className="flex-1 space-y-2 py-0.5">
-          <Skeleton className="h-4 w-1/3" />
+          <Skeleton className="h-3.5 w-1/3" />
           <Skeleton className="h-3 w-2/3" />
         </div>
       </div>
@@ -251,6 +389,26 @@ const GridSkeleton = ({ count = 6, className }: { count?: number; className?: st
   </div>
 );
 GridSkeleton.displayName = "GridSkeleton";
+
+/** Stat-strip loading state in the strip's own shape — cells, not free
+ *  Skeleton tiles, so the hairline grid is already there when numbers land. */
+const StatSkeleton = ({ cols = 4 }: { cols?: 3 | 4 }) => (
+  <div
+    aria-hidden="true"
+    className={cn(
+      "grid gap-px overflow-hidden rounded-lg border border-border bg-border",
+      cols === 3 ? "grid-cols-3" : "grid-cols-2 sm:grid-cols-4",
+    )}
+  >
+    {Array.from({ length: cols }).map((_, i) => (
+      <div key={i} className="flex flex-col gap-1.5 bg-card px-3 py-2.5">
+        <Skeleton className="h-2.5 w-14" />
+        <Skeleton className="h-5 w-8" />
+      </div>
+    ))}
+  </div>
+);
+StatSkeleton.displayName = "StatSkeleton";
 
 /* ------------------------------------------------------------------ */
 /* Forms                                                               */
@@ -404,6 +562,7 @@ const FilterChip = ({
 FilterChip.displayName = "FilterChip";
 
 export {
+  DotLabel,
   Field,
   FilterChip,
   FormCard,
@@ -415,6 +574,9 @@ export {
   Row,
   RowMeta,
   RowTitle,
+  Rows,
   Section,
+  Stat,
   StatRow,
+  StatSkeleton,
 };

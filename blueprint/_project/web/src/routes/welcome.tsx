@@ -166,7 +166,7 @@ export function Welcome() {
         {/* footer status */}
         <footer className="mt-14 flex flex-wrap items-center justify-center gap-x-3 gap-y-2 text-xs text-muted-foreground">
           <span className="inline-flex items-center gap-1.5">
-            <span className={`h-2 w-2 rounded-full ${online ? "bg-emerald-400" : "bg-muted-foreground/40"}`} />
+            <span className={`h-2 w-2 rounded-full ${online ? "bg-success" : "bg-muted-foreground/40"}`} />
             {tx(online ? "API connected" : "API offline", online ? "الواجهة متّصلة" : "الواجهة غير متّصلة")}
           </span>
           <span aria-hidden>·</span>

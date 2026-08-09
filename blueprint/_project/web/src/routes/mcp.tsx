@@ -9,7 +9,7 @@ import {
   revokeMcpToken, type McpScope, type McpToken, type MintedToken,
 } from "../lib/mcp";
 import {
-  Field, FormCard, FormFooter, ListSkeleton, PageShell, Row, RowTitle, Section,
+  Field, FormCard, FormFooter, ListSkeleton, PageShell, Row, RowTitle, Rows, Section,
 } from "../components/page-shell";
 
 const ago = (iso: string) => {
@@ -193,7 +193,7 @@ export const Mcp = () => {
       </FormCard>
 
       {minted && (
-        <section className="rounded-lg border border-emerald-500/40 bg-emerald-500/5 p-4">
+        <section className="rounded-lg border border-success/40 bg-success/5 p-4">
           <h2 className="flex items-center gap-1.5 text-sm font-semibold">
             <KeyRound className="size-4" />
             {minted.name} — copy it now
@@ -255,7 +255,7 @@ export const Mcp = () => {
           />
         )}
         {tokens && tokens.length > 0 && (
-          <div className="flex flex-col gap-2">
+          <Rows>
             {tokens.map((t) => (
               <Row
                 key={t.id}
@@ -285,7 +285,7 @@ export const Mcp = () => {
                 </p>
               </Row>
             ))}
-          </div>
+          </Rows>
         )}
       </Section>
     </PageShell>

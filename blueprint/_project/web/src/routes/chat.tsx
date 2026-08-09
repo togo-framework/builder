@@ -3,7 +3,9 @@ import {
   Button, Callout, Input, MarkdownRenderer, PageHeader, Select, SelectContent,
   SelectItem, SelectTrigger, SelectValue,
 } from "@togo-framework/ui";
-import { LoaderCircle, MessageSquarePlus, MessagesSquare, Send, Trash2 } from "lucide-react";
+import {
+  LoaderCircle, MessageSquarePlus, MessagesSquare, Send, Trash2, TriangleAlert,
+} from "lucide-react";
 import {
   ask, deleteSession, fetchSession, listChatAgents, listSessions,
   type ChatAgent, type SessionSummary, type Turn,
@@ -176,10 +178,22 @@ export const Chat = () => {
       {err && <Callout kind="warn">{err}</Callout>}
 
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto">
+        {/* The empty thread introduces the agent rather than leaving a void:
+            who will answer, and from what. Centered because the input below is
+            the one action, and a top-left paragraph reads as a load failure. */}
         {turns.length === 0 && (
-          <p className="text-sm text-muted-foreground">
-            {current?.description || "Pick an agent and ask something about this project."}
-          </p>
+          <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
+            <span className="flex size-10 items-center justify-center rounded-full bg-muted text-muted-foreground">
+              <MessagesSquare className="size-5" />
+            </span>
+            <p className="text-sm font-medium">
+              {current ? `Ask ${current.displayName}` : "Pick an agent"}
+            </p>
+            <p className="max-w-sm text-xs text-muted-foreground">
+              {current?.description ||
+                "Answers come from the project brain, with the memories they used shown underneath."}
+            </p>
+          </div>
         )}
         {turns.map((t, i) => (
           <div key={i} className={t.role === "you" ? "flex justify-end" : ""}>
@@ -193,7 +207,8 @@ export const Chat = () => {
                 : <MarkdownRenderer content={t.text} />}
 
               {t.role === "agent" && t.grounded === false && (
-                <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">
+                <p className="mt-2 flex items-start gap-1.5 text-xs text-warning">
+                  <TriangleAlert aria-hidden="true" className="mt-px size-3.5 shrink-0" />
                   Nothing in the project brain matched — this is the model’s own knowledge.
                 </p>
               )}

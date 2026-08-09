@@ -1,21 +1,17 @@
 import { useEffect, useRef, useState } from "react";
-import { Button, Callout, EmptyState, Input, PageHeader, StatCard } from "@togo-framework/ui";
-import { Download, FileText, Library, RefreshCw, Trash2, Upload } from "lucide-react";
+import { Button, Callout, EmptyState, Input, PageHeader, StatusBadge } from "@togo-framework/ui";
+import { Download, FileText, Library, RefreshCw, Trash2, TriangleAlert, Upload } from "lucide-react";
 import {
   deleteDoc, downloadURL, humanSize, listDocs, reingestDoc, uploadDoc, type Doc,
 } from "../lib/docs";
 import {
   Field, FormCard, FormFooter, ListSkeleton, MonoBadge, PageShell, Row, RowTitle,
-  Section, StatRow,
+  Rows, Section, Stat, StatRow,
 } from "../components/page-shell";
 
-const kindColor = (k: string) =>
-  ({
-    pdf: "bg-red-500/15 text-red-600 dark:text-red-400",
-    csv: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400",
-    image: "bg-violet-500/15 text-violet-600 dark:text-violet-400",
-    text: "bg-sky-500/15 text-sky-600 dark:text-sky-400",
-  })[k] ?? "bg-muted text-muted-foreground";
+// The kind is a machine word, so it wears the machine-name chip. It used to
+// wear a different tinted pill per format — four hues that carried no meaning
+// (red did not mean danger) and, being palette literals, ignored the theme.
 
 const DocRow = ({
   d, onChanged, onError,
@@ -88,19 +84,15 @@ const DocRow = ({
       }
     >
       <RowTitle>
-        <MonoBadge className={kindColor(d.kind)}>{d.kind || "?"}</MonoBadge>
+        <MonoBadge>{d.kind || "?"}</MonoBadge>
         <span className="break-all font-medium">{d.name}</span>
-        <span className="text-xs text-muted-foreground">{humanSize(d.sizeBytes)}</span>
+        <span className="text-xs tabular-nums text-muted-foreground">{humanSize(d.sizeBytes)}</span>
         {/* Stored-but-unreadable is the state most worth surfacing: the
             file is safe, the knowledge is not there, and nothing else on
             this screen would say so. */}
-        {broken && (
-          <span className="rounded bg-destructive/15 px-1.5 py-0.5 text-xs font-medium text-destructive">
-            Not in the brain
-          </span>
-        )}
+        {broken && <StatusBadge tone="danger">Not in the brain</StatusBadge>}
         {d.ingestStatus === "ok" && (
-          <span className="text-xs text-muted-foreground">
+          <span className="text-xs tabular-nums text-muted-foreground">
             {d.chunks} chunk{d.chunks === 1 ? "" : "s"}
           </span>
         )}
@@ -122,7 +114,8 @@ const DocRow = ({
         </p>
       )}
       {!d.excerpt && d.kind === "image" && !d.caption && (
-        <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">
+        <p className="mt-2 flex items-start gap-1.5 text-xs text-warning">
+          <TriangleAlert aria-hidden="true" className="mt-px size-3.5 shrink-0" />
           An image with no caption carries no text — an agent cannot read it. Re-upload with a caption.
         </p>
       )}
@@ -192,10 +185,10 @@ export const Docs = () => {
       {note && <Callout>{note}</Callout>}
 
       <StatRow>
-        <StatCard label="Documents" value={String(docs?.length ?? 0)} />
-        <StatCard label="In the brain" value={String(inBrain)} tone={inBrain ? "success" : "muted"} />
-        <StatCard label="Unreadable" value={String(unreadable)} tone={unreadable ? "danger" : "muted"} />
-        <StatCard label="Chunks" value={String(chunks)} />
+        <Stat label="Documents" value={docs?.length ?? 0} />
+        <Stat label="In the brain" value={inBrain} tone={inBrain ? "success" : "muted"} />
+        <Stat label="Unreadable" value={unreadable} tone={unreadable ? "danger" : "muted"} />
+        <Stat label="Chunks" value={chunks} />
       </StatRow>
 
       <FormCard title="Add to the library">
@@ -239,9 +232,9 @@ export const Docs = () => {
           />
         )}
         {docs && docs.length > 0 && (
-          <div className="flex flex-col gap-2">
+          <Rows>
             {docs.map((d) => <DocRow key={d.id} d={d} onChanged={load} onError={setErr} />)}
-          </div>
+          </Rows>
         )}
       </Section>
     </PageShell>

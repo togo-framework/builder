@@ -69,16 +69,16 @@ export function AgentAlerts() {
       {muted && decisions.length > 0 && (
         <button
           onClick={() => { unlockAudio(); void chime("alert-blocked"); }}
-          className="fixed bottom-4 start-4 z-50 rounded-full border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-xs font-medium text-amber-700 dark:text-amber-400"
+          className="fixed bottom-4 start-4 z-50 rounded-full border border-warning/40 bg-warning/10 px-3 py-1.5 text-xs font-medium text-warning"
         >
           🔇 Alert sound is blocked — click to enable
         </button>
       )}
 
       {decisions.length > 0 && (
-        <div className="fixed inset-x-0 top-0 z-50 border-b border-amber-500/40 bg-amber-500/10 backdrop-blur">
+        <div className="fixed inset-x-0 top-0 z-50 border-b border-warning/40 bg-warning/10 backdrop-blur">
           <div className="mx-auto max-w-4xl p-4">
-            <p className="mb-3 text-sm font-semibold text-amber-800 dark:text-amber-300">
+            <p className="mb-3 text-sm font-semibold text-warning">
               {decisions.length === 1
                 ? "An agent is waiting on your decision"
                 : `${decisions.length} agents are waiting on your decision`}
@@ -87,7 +87,7 @@ export function AgentAlerts() {
               </span>
             </p>
 
-            {err && <p className="mb-2 text-xs text-red-600">{err}</p>}
+            {err && <p className="mb-2 text-xs text-destructive">{err}</p>}
 
             <div className="flex flex-col gap-3">
               {decisions.map((d) => (
@@ -141,7 +141,7 @@ export function AgentAlerts() {
                       onClick={() => void submit(d, "rejected")}
                       disabled={busy === d.id}
                       title="Close the issue as rejected. The work will not happen."
-                      className="ms-auto rounded-md border border-border px-3 py-1.5 text-xs text-red-600 hover:bg-red-500/10 disabled:opacity-50"
+                      className="ms-auto rounded-md border border-border px-3 py-1.5 text-xs text-destructive hover:bg-destructive/10 disabled:opacity-50"
                     >
                       Reject
                     </button>
@@ -159,7 +159,7 @@ export function AgentAlerts() {
             key={t.id}
             className={`pointer-events-auto rounded-lg border p-3 shadow-lg backdrop-blur ${
               t.severity === "action_required"
-                ? "border-amber-500/40 bg-amber-500/10"
+                ? "border-warning/40 bg-warning/10"
                 : "border-border bg-background"}`}
           >
             <p className="text-sm font-medium">{t.title}</p>

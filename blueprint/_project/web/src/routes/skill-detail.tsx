@@ -4,9 +4,10 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
   AlertDialogTrigger, Button, Callout, Checkbox, EmptyState, Input, Label,
-  MarkdownEditor, StatCard, StatusBadge,
+  MarkdownEditor, StatusBadge,
 } from "@togo-framework/ui";
 import { ArrowLeft, Trash2, Wand2 } from "lucide-react";
+import { Stat, StatRow } from "../components/page-shell";
 import {
   SOURCE_LABEL, SOURCE_TONE, assignSkill, deleteSkill, fetchSkill,
   fetchSkillActivity, regenerateSkill, saveSkill, unassignSkill,
@@ -238,11 +239,11 @@ export const SkillDetail = () => {
 
       {err && <Callout kind="warn" title="Something went wrong">{err}</Callout>}
 
-      <div className="grid gap-3 sm:grid-cols-3">
-        <StatCard label="Agents holding it" value={String(holders)} tone={holders ? "success" : "warning"} />
-        <StatCard label="Times loaded" value={String(useTotal)} tone={useTotal ? "default" : "muted"} />
-        <StatCard label="Agents that ran it" value={String(useAgents)} tone="muted" />
-      </div>
+      <StatRow cols={3}>
+        <Stat label="Agents holding it" value={holders} tone={holders ? "success" : "warning"} />
+        <Stat label="Times loaded" value={useTotal} tone={useTotal ? "default" : "muted"} />
+        <Stat label="Agents that ran it" value={useAgents} tone="muted" />
+      </StatRow>
 
       <div className="grid gap-3 sm:grid-cols-2">
         <div>
@@ -304,7 +305,7 @@ export const SkillDetail = () => {
               Discard
             </Button>
           )}
-          {saved && !dirty && <span className="text-xs text-emerald-600">{saved}</span>}
+          {saved && !dirty && <span className="text-xs text-success">{saved}</span>}
         </div>
       </div>
 
@@ -434,7 +435,7 @@ export const SkillDetail = () => {
             <Button
               variant="outline"
               size="sm"
-              className="ms-auto text-red-600 hover:bg-red-500/10 hover:text-red-600"
+              className="ms-auto text-destructive hover:bg-destructive/10 hover:text-destructive"
             >
               <Trash2 className="me-1.5 size-4" />
               Delete skill
@@ -455,7 +456,7 @@ export const SkillDetail = () => {
               <AlertDialogCancel>Keep it</AlertDialogCancel>
               <AlertDialogAction
                 onClick={() => void remove()}
-                className="bg-red-600 text-white hover:bg-red-700"
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               >
                 Delete
               </AlertDialogAction>

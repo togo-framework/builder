@@ -331,10 +331,15 @@ export const Terminal = () => {
           // dvh rather than vh so a mobile browser's collapsing toolbar does not
           // change the row count on every scroll.
           style={{ height: "min(72dvh, 760px)" }}
-          className="min-h-0 overflow-hidden rounded-lg border border-border bg-black p-2"
+          // bg-background, not bg-black: xterm paints its own background from
+          // the SAME --background variable (readTheme below), so any other
+          // frame colour shows as a 8px halo around the terminal — black in a
+          // light theme, off-tone in the coloured presets.
+          className="min-h-0 overflow-hidden rounded-lg border border-border bg-background p-2"
         />
       ) : (
         <EmptyState
+          icon={<SquareTerminal className="size-6" />}
           title={status.sessions.length ? "Pick a session" : "No sessions yet"}
           description={
             status.sessions.length

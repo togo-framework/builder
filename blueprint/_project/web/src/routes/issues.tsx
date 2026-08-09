@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
-import { LayoutGrid, List, MessageSquare, Plus, RotateCw, SquareKanban } from "lucide-react";
+import { LayoutGrid, List, LoaderCircle, MessageSquare, Plus, RotateCw, SquareKanban } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import {
-  Button, Callout, Checkbox, Dialog, DialogContent, DialogHeader, DialogTitle, EmptyState, Input, Label, MarkdownEditor, PageHeader, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Skeleton, StatCard, StatusBadge, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, ToggleGroup, ToggleGroupItem,
+  Button, Callout, Checkbox, Dialog, DialogContent, DialogHeader, DialogTitle, EmptyState, Input, Label, MarkdownEditor, PageHeader, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Skeleton, StatusBadge, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, ToggleGroup, ToggleGroupItem,
 } from "@togo-framework/ui";
-import { PageShell, StatRow } from "../components/page-shell";
+import { DotLabel, PageShell, Stat, StatRow, StatSkeleton } from "../components/page-shell";
 import {
   COLUMN_LABEL, TRANSITIONS, ago, createIssue, fetchBoard, patchIssue,
   type Board, type Card, type IssueStatus, type IssueType, type Priority,
@@ -13,8 +13,9 @@ import { listAgents, type Agent } from "../lib/agents";
 import { FADE_ONLY } from "../lib/dialog-motion";
 
 /**
- * The board is built on togo UI primitives — PageHeader, StatCard, StatusBadge,
- * EmptyState, Callout — but the kanban itself is domain-specific.
+ * The board is built on togo UI primitives — PageHeader, StatusBadge,
+ * EmptyState, Callout — plus the page-shell strip, but the kanban itself is
+ * domain-specific.
  *
  * togo ships `IssuesList`/`IssueDetail`, and they are deliberately NOT used here:
  * their `Issue` type is a crash report (level, count, userCount, stack,
@@ -24,11 +25,10 @@ import { FADE_ONLY } from "../lib/dialog-motion";
  * downgrade dressed up as reuse. The primitives are shared; the domain is not.
  */
 
-// StatCard and StatusBadge take DIFFERENT tone unions — StatCard says "muted",
-// StatusBadge says "neutral". Read from the .d.ts rather than assumed shared.
 type BadgeTone = "success" | "info" | "neutral" | "warning" | "danger";
-type CardTone = "default" | "success" | "info" | "muted" | "warning" | "danger";
 
+// The type wears a dot + word (the panel's issue-type treatment), so its tone
+// is a DotLabel tone; priority stays a status pill. Same union, two shapes.
 const TYPE_TONE: Record<string, BadgeTone> = {
   bug: "danger",
   feature: "info",
@@ -45,7 +45,20 @@ const PRIORITY_TONE: Record<string, BadgeTone> = {
   low: "neutral",
 };
 
-export function Issues() {
+/** The lease indicator: a spinner (the panel's own "agent holds a lease"
+ *  mark), so motion + shape carry it, not colour alone. */
+const WorkingMark = ({ className }: { className?: string }) => (
+  <span
+    className={`inline-flex items-center gap-1 text-[11px] font-medium text-success ${className ?? ""}`}
+    title="An agent holds a lease on this issue"
+  >
+    <LoaderCircle aria-hidden="true" className="size-3 animate-spin motion-reduce:animate-none" />
+    working
+  </span>
+);
+WorkingMark.displayName = "WorkingMark";
+
+export const Issues = () => {
   const [board, setBoard] = useState<Board | null>(null);
   const [err, setErr] = useState("");
   const [q, setQ] = useState("");
@@ -98,11 +111,7 @@ export function Issues() {
           icon={<SquareKanban className="size-5" />}
           description="Reported from the feedback widget or filed by hand."
         />
-        <StatRow>
-          {Array.from({ length: 4 }).map((_, i) => (
-            <Skeleton key={i} className="h-[74px] rounded-lg" />
-          ))}
-        </StatRow>
+        <StatSkeleton />
         <div className="flex flex-1 gap-4 overflow-hidden" aria-hidden="true">
           {Array.from({ length: 4 }).map((_, i) => (
             <div key={i} className="flex w-72 shrink-0 flex-col gap-2">
@@ -173,10 +182,10 @@ export function Issues() {
       )}
 
       <StatRow>
-        <StatCard label="Total" value={String(all.length)} />
-        <StatCard label="Ready" value={String(board.cards.ready?.length ?? 0)} tone="info" />
-        <StatCard label="Agents working" value={String(working)} tone={(working ? "success" : "muted") as CardTone} />
-        <StatCard label="Blocked" value={String(blocked)} tone={(blocked ? "warning" : "muted") as CardTone} />
+        <Stat label="Total" value={all.length} />
+        <Stat label="Ready" value={board.cards.ready?.length ?? 0} tone="info" />
+        <Stat label="Agents working" value={working} tone={working ? "success" : "muted"} />
+        <Stat label="Blocked" value={blocked} tone={blocked ? "warning" : "muted"} />
       </StatRow>
 
       {err && <Callout kind="warn" title="Something went wrong">{err}</Callout>}
@@ -233,19 +242,22 @@ export function Issues() {
                                animate-in fade-in slide-in-from-bottom-1
                                motion-reduce:animate-none motion-reduce:transition-none"
                   >
+                    {/* Number and type as quiet marks, per the panel's row
+                        anatomy. A "normal" priority pill on every card was
+                        chrome — priority earns ink only when it deviates. */}
                     <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
                       <span className="text-[11px] tabular-nums text-muted-foreground">
                         #{c.number}
                       </span>
-                      <StatusBadge tone={PRIORITY_TONE[c.priority]}>{c.priority}</StatusBadge>
+                      <DotLabel tone={TYPE_TONE[c.type]} className="capitalize">{c.type}</DotLabel>
+                      {c.priority !== "normal" && (
+                        <StatusBadge tone={PRIORITY_TONE[c.priority]}>{c.priority}</StatusBadge>
+                      )}
                       {c.humanOnly && (
-                        <span title="Agents will never claim this issue">
+                        <span className="ms-auto" title="Agents will never claim this issue">
                           <StatusBadge tone="warning">Human only</StatusBadge>
                         </span>
                       )}
-                      <span className="ms-auto">
-                        <StatusBadge tone={TYPE_TONE[c.type]}>{c.type}</StatusBadge>
-                      </span>
                     </div>
 
                     <Link
@@ -273,11 +285,7 @@ export function Issues() {
                           {c.attempts}
                         </span>
                       )}
-                      {c.busy && (
-                        <span className="text-emerald-600" title="An agent holds a lease on this issue">
-                          ● working
-                        </span>
-                      )}
+                      {c.busy && <WorkingMark />}
                       <span className="ms-auto">{ago(c.createdAt)}</span>
                     </div>
 
@@ -325,7 +333,8 @@ export function Issues() {
       )}
     </PageShell>
   );
-}
+};
+Issues.displayName = "Issues";
 
 /**
  * The same issues as a dense table.
@@ -365,18 +374,23 @@ const IssueTable = ({ rows }: { rows: Card[] }) => {
                 >
                   {c.title}
                 </Link>
-                {c.busy && (
-                  <span className="ms-2 text-[11px] text-emerald-600" title="An agent holds a lease">
-                    ● working
-                  </span>
-                )}
+                {c.busy && <WorkingMark className="ms-2" />}
                 {c.humanOnly && (
                   <span className="ms-2"><StatusBadge tone="warning">Human only</StatusBadge></span>
                 )}
               </TableCell>
               <TableCell><StatusBadge tone="neutral">{COLUMN_LABEL[c.status]}</StatusBadge></TableCell>
-              <TableCell><StatusBadge tone={PRIORITY_TONE[c.priority]}>{c.priority}</StatusBadge></TableCell>
-              <TableCell><StatusBadge tone={TYPE_TONE[c.type]}>{c.type}</StatusBadge></TableCell>
+              {/* The column header gives the word its meaning, so the baseline
+                  values sit as plain text; only a deviation wears the pill —
+                  which is what makes a critical row findable in a scan. */}
+              <TableCell>
+                {c.priority === "critical" || c.priority === "high" ? (
+                  <StatusBadge tone={PRIORITY_TONE[c.priority]}>{c.priority}</StatusBadge>
+                ) : (
+                  <span className="text-xs capitalize text-muted-foreground">{c.priority}</span>
+                )}
+              </TableCell>
+              <TableCell><DotLabel tone={TYPE_TONE[c.type]} className="capitalize">{c.type}</DotLabel></TableCell>
               <TableCell className="text-xs text-muted-foreground">{c.area || "—"}</TableCell>
               <TableCell className="text-end text-xs text-muted-foreground">{ago(c.createdAt)}</TableCell>
             </TableRow>

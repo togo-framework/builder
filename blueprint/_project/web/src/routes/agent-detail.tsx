@@ -196,7 +196,7 @@ export const AgentDetail = () => {
                 Discard
               </button>
             )}
-            {saved && <span className="text-xs text-emerald-600">{saved}</span>}
+            {saved && <span className="text-xs text-success">{saved}</span>}
           </div>
         </section>
 
@@ -227,8 +227,8 @@ export const AgentDetail = () => {
               />
 
               {(brain.openGaps?.length ?? 0) > 0 && (
-                <div className="mt-3 rounded-md border border-amber-500/30 bg-amber-500/5 p-3">
-                  <p className="text-[11px] font-semibold uppercase tracking-wider text-amber-600">
+                <div className="mt-3 rounded-md border border-warning/30 bg-warning/5 p-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-warning">
                     What it looked for and did not find
                   </p>
                   <ul className="mt-1.5 flex flex-col gap-0.5">

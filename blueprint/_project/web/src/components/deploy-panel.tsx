@@ -39,7 +39,7 @@ export const DeployPanel = ({ number, onDeployed }: { number: number; onDeployed
     if (p.merged) {
       return (
         <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/30 p-3 text-xs text-muted-foreground">
-          <Check className="size-4 text-emerald-600" />
+          <Check className="size-4 text-success" />
           Already merged into the working tree.
         </div>
       );
@@ -57,9 +57,9 @@ export const DeployPanel = ({ number, onDeployed }: { number: number; onDeployed
   }
 
   return (
-    <section className="rounded-lg border border-emerald-600/30 bg-emerald-500/5 p-4">
+    <section className="rounded-lg border border-success/30 bg-success/5 p-4">
       <div className="flex flex-wrap items-center gap-2">
-        <GitMerge className="size-4 text-emerald-600" />
+        <GitMerge className="size-4 text-success" />
         <h2 className="text-sm font-semibold">Ready to deploy</h2>
         <StatusBadge tone="neutral">{p.branch}</StatusBadge>
         {p.agent && <StatusBadge tone="info">{p.agent}</StatusBadge>}
@@ -109,7 +109,11 @@ export const DeployPanel = ({ number, onDeployed }: { number: number; onDeployed
         <button
           onClick={() => void deploy()}
           disabled={busy}
-          className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
+          // The section's border and icon already carry the success identity;
+          // the button itself is the page's primary action, so it wears the
+          // primary token — a hardcoded emerald ignored the theme presets and
+          // white-on-light-green failed contrast in dark mode.
+          className="inline-flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
         >
           {busy ? <Loader2 className="size-4 animate-spin" /> : <GitMerge className="size-4" />}
           {busy ? "Deploying…" : "Deploy"}

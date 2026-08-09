@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import {
   Button, Callout, EmptyState, Input, PageHeader, Select, SelectContent,
-  SelectItem, SelectTrigger, SelectValue, StatCard, StatusBadge, Textarea,
+  SelectItem, SelectTrigger, SelectValue, StatusBadge, Textarea,
 } from "@togo-framework/ui";
 import {
-  ChevronDown, ChevronRight, History, Play, Plus, RefreshCw, Rss, Trash2, X,
+  ChevronDown, ChevronRight, CircleCheck, CircleX, History, LoaderCircle, Play,
+  Plus, RefreshCw, Rss, Trash2, X,
 } from "lucide-react";
 import {
   configTemplate, createSource, deleteSource, listKinds, listSources, patchSource,
@@ -12,7 +13,7 @@ import {
 } from "../lib/sources";
 import {
   Field, FormCard, FormFooter, ListSkeleton, MonoBadge, PageShell, Row, RowMeta,
-  RowTitle, Section, StatRow,
+  RowTitle, Rows, Section, Stat, StatRow,
 } from "../components/page-shell";
 
 const ago = (iso: string | null) => {
@@ -56,34 +57,40 @@ const RunHistory = ({ id, reloadKey }: { id: string; reloadKey: number }) => {
     return () => { stale = true; };
   }, [id, reloadKey]);
 
-  if (err) return <p className="px-3 py-2 text-xs text-destructive">{err}</p>;
+  // The tray sits on a muted wash so an expanded row reads as "opened", the
+  // way the panel's detail surfaces sit on --surface rather than --bg.
+  const tray = "border-t border-border/60 bg-muted/30";
+
+  if (err) return <p className={`${tray} px-4 py-2.5 text-xs text-destructive`}>{err}</p>;
   if (!runs) {
     return (
-      <p className="flex items-center gap-1.5 px-3 py-2 text-xs text-muted-foreground">
+      <p className={`${tray} flex items-center gap-1.5 px-4 py-2.5 text-xs text-muted-foreground`}>
         <RefreshCw className="size-3.5 animate-spin motion-reduce:animate-none" />
         Loading runs…
       </p>
     );
   }
   if (runs.length === 0) {
-    return <p className="px-3 py-2 text-xs text-muted-foreground">No runs yet.</p>;
+    return <p className={`${tray} px-4 py-2.5 text-xs text-muted-foreground`}>No runs yet.</p>;
   }
 
   return (
-    <div className="space-y-1 border-t border-border/60 px-3 py-2">
+    <div className={`${tray} divide-y divide-border/40 py-0.5`}>
       {runs.map((r) => (
-        <div key={r.id} className="flex items-start gap-2 rounded-md bg-muted/40 px-2 py-1.5 text-xs">
-          <span
-            aria-label={r.status}
-            className={
-              r.status === "ok" ? "text-emerald-500"
-                : r.status === "error" ? "text-destructive"
-                  : "text-muted-foreground"
-            }
-          >
-            ●
-          </span>
-          <span className="w-24 shrink-0 text-muted-foreground">{ago(r.startedAt)}</span>
+        <div key={r.id} className="flex items-start gap-2.5 px-4 py-1.5 text-xs">
+          {/* Icon, not a coloured dot: the outcome must survive a monochrome
+              screenshot, and a check and a cross differ in shape, not just hue. */}
+          {r.status === "ok" ? (
+            <CircleCheck aria-label="succeeded" className="mt-px size-3.5 shrink-0 text-success" />
+          ) : r.status === "error" ? (
+            <CircleX aria-label="failed" className="mt-px size-3.5 shrink-0 text-destructive" />
+          ) : (
+            <LoaderCircle
+              aria-label="running"
+              className="mt-px size-3.5 shrink-0 animate-spin text-muted-foreground motion-reduce:animate-none"
+            />
+          )}
+          <span className="w-20 shrink-0 tabular-nums text-muted-foreground">{ago(r.startedAt)}</span>
           <span className="w-16 shrink-0 text-muted-foreground">{r.trigger}</span>
           <span className="w-20 shrink-0 tabular-nums text-muted-foreground">
             {r.rowsRead} item{r.rowsRead === 1 ? "" : "s"}
@@ -405,10 +412,10 @@ export const Sources = () => {
       />
 
       <StatRow>
-        <StatCard label="Sources" value={String(sources?.length ?? 0)} />
-        <StatCard label="Collecting" value={String(enabled)} tone={enabled ? "success" : "muted"} />
-        <StatCard label="Failing" value={String(failing)} tone={failing ? "danger" : "muted"} />
-        <StatCard label="Runs" value={String(collected)} />
+        <Stat label="Sources" value={sources?.length ?? 0} />
+        <Stat label="Collecting" value={enabled} tone={enabled ? "success" : "muted"} />
+        <Stat label="Failing" value={failing} tone={failing ? "danger" : "muted"} />
+        <Stat label="Runs" value={collected} />
       </StatRow>
 
       {err && <Callout kind="warn" title="Something went wrong">{err}</Callout>}
@@ -444,11 +451,11 @@ export const Sources = () => {
           />
         )}
         {sources && sources.length > 0 && (
-          <div className="flex flex-col gap-2">
+          <Rows>
             {sources.map((s) => (
               <SourceRow key={s.id} s={s} onChanged={load} onError={setErr} />
             ))}
-          </div>
+          </Rows>
         )}
       </Section>
     </PageShell>

@@ -142,12 +142,12 @@ export function IssueDetail() {
                   <dd>
                     {p.verified.length ? (
                       p.verified.map((v) => (
-                        <span key={v} className="me-1 rounded bg-emerald-500/12 px-1.5 py-0.5 font-mono text-emerald-600 dark:text-emerald-400">
+                        <span key={v} className="me-1 rounded bg-success/10 px-1.5 py-0.5 font-mono text-success">
                           {v}
                         </span>
                       ))
                     ) : (
-                      <span className="text-amber-600">
+                      <span className="text-warning">
                         none — no strategy was unique when this was captured
                       </span>
                     )}
@@ -238,7 +238,7 @@ export function IssueDetail() {
       </main>
 
       <aside className="flex flex-col gap-4 text-sm">
-        {err && <p className="text-xs text-red-600">{err}</p>}
+        {err && <p className="text-xs text-destructive">{err}</p>}
 
         <Field label="Status">
           <Select
@@ -329,7 +329,7 @@ export function IssueDetail() {
         <AlertDialog>
           <AlertDialogTrigger asChild>
             <Button variant="outline" size="sm" disabled={deleting}
-              className="w-full text-red-600 hover:bg-red-500/10 hover:text-red-600">
+              className="w-full text-destructive hover:bg-destructive/10 hover:text-destructive">
               <Trash2 className="me-1.5 size-4" />
               {deleting ? "Deleting…" : "Delete issue"}
             </Button>
@@ -347,7 +347,7 @@ export function IssueDetail() {
               <AlertDialogCancel>Keep it</AlertDialogCancel>
               <AlertDialogAction
                 onClick={() => void removeIssue()}
-                className="bg-red-600 text-white hover:bg-red-700"
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               >
                 Delete
               </AlertDialogAction>

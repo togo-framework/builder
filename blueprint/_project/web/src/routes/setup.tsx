@@ -133,7 +133,7 @@ export function Setup() {
       </ol>
 
       {err && (
-        <p className="mb-5 rounded-md border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-600">
+        <p className="mb-5 rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
           {err}
         </p>
       )}
@@ -159,9 +159,9 @@ export function Setup() {
               {state.preflight.checks.map((c: Check) => (
                 <li key={c.id} className="flex items-start gap-2.5 rounded-md border border-border p-2.5 text-sm">
                   <span className={
-                    c.status === "pass" ? "text-emerald-600"
-                    : c.status === "fail" ? "text-red-600"
-                    : c.status === "warn" ? "text-amber-600" : "text-muted-foreground"}>
+                    c.status === "pass" ? "text-success"
+                    : c.status === "fail" ? "text-destructive"
+                    : c.status === "warn" ? "text-warning" : "text-muted-foreground"}>
                     {c.status === "pass" ? "✓" : c.status === "fail" ? "✕" : c.status === "warn" ? "!" : "–"}
                   </span>
                   <span className="min-w-0 flex-1">
@@ -272,7 +272,7 @@ export function Setup() {
                       <span className="rounded bg-muted px-1.5 py-0.5 text-[10px]">{a.model}</span>
                       {!a.enabled && (
                         <span
-                          className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] text-amber-600"
+                          className="rounded bg-warning/15 px-1.5 py-0.5 text-[10px] text-warning"
                           title="Generated agents land disabled — a human turns them on"
                         >
                           disabled

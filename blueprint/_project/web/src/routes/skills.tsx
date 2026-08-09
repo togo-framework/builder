@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import {
-  Button, Callout, EmptyState, Input, MarkdownEditor, PageHeader, StatCard,
+  Button, Callout, EmptyState, Input, MarkdownEditor, PageHeader,
 } from "@togo-framework/ui";
 import { BookOpen, Download, FolderSync, Github, Plus, X } from "lucide-react";
 import {
@@ -9,7 +9,7 @@ import {
   type ImportResult, type Skill, type Skipped, type SyncResult,
 } from "../lib/skills";
 import { SkillCard } from "../components/skill-card";
-import { Field, FormCard, FormFooter, GridSkeleton, PageShell, StatRow } from "../components/page-shell";
+import { Field, FormCard, FormFooter, GridSkeleton, PageShell, Stat, StatRow } from "../components/page-shell";
 
 const ago = (iso: string) => {
   const ms = Date.now() - new Date(iso).getTime();
@@ -198,10 +198,10 @@ export const Skills = () => {
       />
 
       <StatRow>
-        <StatCard label="Skills" value={String(shown.length)} />
-        <StatCard label="In use" value={String(inUse)} tone={inUse ? "success" : "muted"} />
-        <StatCard label="Nobody uses" value={String(unused)} tone={unused ? "warning" : "muted"} />
-        <StatCard label="Disabled" value={String(off)} tone="muted" />
+        <Stat label="Skills" value={shown.length} />
+        <Stat label="In use" value={inUse} tone={inUse ? "success" : "muted"} />
+        <Stat label="Nobody uses" value={unused} tone={unused ? "warning" : "muted"} />
+        <Stat label="Disabled" value={off} tone="muted" />
       </StatRow>
 
       {err && <Callout kind="warn" title="Something went wrong">{err}</Callout>}
