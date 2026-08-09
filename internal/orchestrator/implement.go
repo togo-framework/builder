@@ -57,8 +57,46 @@ Reply with ONLY this JSON object:
   "reproduced": true,
   "what_changed": "what you changed and why",
   "verification": "the exact command you ran and what it printed",
-  "question": "only if outcome is needs_human — the decision you need"
-}`
+  "question": "only if outcome is needs_human — the decision you need",
+
+  "ask_expert": "a question for the domain expert, when the answer is not in this repository",
+  "handoff": { "agent": "slug", "why": "one sentence" },
+  "spinoff": [
+    { "title": "…", "body": "…", "agent": "slug or empty", "area": "slug or empty" }
+  ]
+}
+
+## You are on a team — use it
+
+You are not the only agent here, and you do not have to choose between doing
+work you should not do and stopping to ask a person.
+
+**handoff** — reassign THIS issue to a colleague, when the work is real and
+well-specified but lands mostly on a surface that is theirs, or in a repository
+you are not standing in. Prefer this over "needs_human": a human asked to pick
+an agent is doing the routing you are better placed to do. Omit it when the
+issue is yours.
+
+**ask_expert** — ask the team's researcher something you cannot settle by reading
+this repository: how a protocol defines a field, what a library does in an edge
+case, whether an approach was deprecated, what an error actually means. It
+searches the internet and answers with citations, and the issue comes straight
+back to YOU with the answer in the thread — no human is involved and nothing is
+blocked. Use it instead of guessing, and instead of "needs_human" when the
+question has a factual answer somebody has written down. Do NOT use it for
+questions about this codebase: you are standing in it and the expert is not.
+
+**spinoff** — file NEW issues for work this one uncovered but must not contain.
+The other half of a change that belongs in another repository, a migration that
+has to land before your code can, a follow-up that is genuinely separate. Write
+each one as you would want to receive it: a title someone can act on, a body
+saying what done looks like. Leave "agent" empty and the lead will route it.
+
+Both are proposals. The orchestrator applies them and records what it did, so
+be specific about WHY — that sentence is what the next agent reads first.
+
+Do not use spinoff to avoid work that is plainly yours, and do not hand off an
+issue you have already changed files for — finish it or say why you cannot.`
 
 type implementVerdict struct {
 	Outcome      string `json:"outcome"`
@@ -67,6 +105,40 @@ type implementVerdict struct {
 	WhatChanged  string `json:"what_changed"`
 	Verification string `json:"verification"`
 	Question     string `json:"question"`
+
+	// Delegation. An agent that hits another agent's surface used to have two
+	// options: do the work anyway in a repository it does not own, or stop and
+	// ask a human to re-route it. Both are bad — the first is how the blast
+	// radius guard ends up reverting somebody's files, and the second turns
+	// every cross-surface issue into a manual hop. A fleet whose members cannot
+	// hand work to each other is a set of soloists.
+	//
+	// Declared in the verdict rather than exposed as a tool: the session already
+	// returns structured JSON, and the orchestrator is the only thing allowed to
+	// write to the issue plane. An agent proposes; the orchestrator decides.
+	Handoff *handoff  `json:"handoff,omitempty"`
+	Spinoff []spinoff `json:"spinoff,omitempty"`
+
+	// AskExpert is a question for the domain expert — something that cannot be
+	// settled by reading this repository. Answering it does NOT block the issue
+	// on a human: the answer is posted and the issue returns to this same agent.
+	AskExpert string `json:"ask_expert,omitempty"`
+}
+
+// handoff reassigns THIS issue to a colleague better placed to finish it.
+type handoff struct {
+	Agent string `json:"agent"`
+	Why   string `json:"why"`
+}
+
+// spinoff is new work this run discovered but must not do itself — the other
+// half of a change that lands in another repository, or a follow-up that is
+// genuinely a separate issue.
+type spinoff struct {
+	Title string `json:"title"`
+	Body  string `json:"body"`
+	Agent string `json:"agent"` // optional; the lead routes it when empty
+	Area  string `json:"area"`
 }
 
 // Implement runs one claimed issue end to end.
@@ -266,6 +338,63 @@ func (o *Orchestrator) Implement(
 			o.log.Info("preserved partial work", "issue", c.Number, "branch", branch,
 				"files", len(diff.Files), "sha", sha[:8])
 		}
+	}
+
+	// Follow-up work the run discovered, filed before any outcome branch —
+	// including the ones that return early. A spinoff describes work that exists
+	// regardless of how THIS issue ended, and losing it because the run then
+	// blocked would mean the discovery has to be made again.
+	o.applySpinoffs(ctx, c, v.Spinoff)
+
+	// A question for the expert ends the run WITHOUT blocking on a human.
+	//
+	// Checked before the outcome switch, and before handoff, because it is the
+	// cheapest way out of being stuck: the answer arrives in the thread and the
+	// same agent picks the issue up again on the next tick. Only when nothing
+	// was changed — an agent that has already edited files should finish or say
+	// why it cannot, not go and read the internet.
+	if strings.TrimSpace(v.AskExpert) != "" && !diff.HasChanges {
+		if o.askExpert(ctx, c, v.AskExpert) {
+			o.resumeAfterExpert(ctx, c)
+			d.RunStatus, d.Err = "failed", "asked the domain expert"
+			_, _ = o.db.ExecContext(ctx,
+				`UPDATE builder_runs SET status='failed', terminal_reason='completed',
+				        error='asked the domain expert', ended_at=now(), branch=$2
+				  WHERE id=$1 AND status='running'`, c.RunID, branch)
+			return
+		}
+		// No expert, or it had nothing to say. Fall through: the outcome the
+		// agent actually reported still applies, and a missing researcher must
+		// not swallow a real verdict.
+		o.comment(ctx, c, "_Wanted to ask the domain expert but could not reach one. "+
+			"Hire an agent with the slug `domain-expert`, or answer this directly._")
+	}
+
+	// A handoff ends the run here.
+	//
+	// Only when nothing was changed: an agent that has already edited files and
+	// then reassigns leaves a half-finished branch for somebody who did not
+	// write it. The prompt says so; this enforces it.
+	if v.Handoff != nil && !diff.HasChanges {
+		if o.applyHandoff(ctx, c, v.Handoff) {
+			d.RunStatus, d.Err = "failed", "handed off"
+			// The RUN is closed, the ISSUE is not — applyHandoff already put it
+			// back in the queue owned by someone else, so finish() must not also
+			// move it. Only the run row is written here.
+			_, _ = o.db.ExecContext(ctx,
+				`UPDATE builder_runs SET status='failed', terminal_reason='completed',
+				        error='handed off', ended_at=now(), branch=$2
+				  WHERE id=$1 AND status='running'`, c.RunID, branch)
+			return
+		}
+		// Refused — fall through and finish the issue normally rather than
+		// leaving it in limbo because a handoff named the wrong colleague.
+	} else if v.Handoff != nil && diff.HasChanges {
+		o.comment(ctx, c, fmt.Sprintf(
+			"**Not handing this to `%s` — I have already changed %d file(s).**\n\n"+
+				"Passing a half-finished branch to somebody who did not write it is worse "+
+				"than finishing or saying why I cannot.",
+			v.Handoff.Agent, len(diff.Files)))
 	}
 
 	// Caps are checked against the DERIVED diff, not the agent's claim.

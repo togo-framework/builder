@@ -421,6 +421,29 @@ func (s *AgentsService) handlePatch(w http.ResponseWriter, r *http.Request) {
 		httpErr(w, http.StatusNotFound, "no such agent")
 		return
 	}
+
+	// Mirror an edited persona back to .claude/agents/<slug>.md.
+	//
+	// writeSpec was called on create and nowhere else, so every persona edited
+	// through the UI left the file on disk saying something the agent no longer
+	// believed. The database is what an orchestrator run reads, so the agent
+	// behaved correctly — but Claude Code reads the FILE for its own subagents,
+	// and an operator reading the repo to understand the fleet was reading a
+	// stale copy.
+	//
+	// Re-read from the row rather than trusting the patch: workdir and spec_path
+	// may have changed in this same request, and the file has to land where the
+	// agent now lives.
+	if in.Persona != nil {
+		var persona, spec, workdir string
+		if err := s.db.QueryRowContext(r.Context(),
+			`SELECT coalesce(persona_md,''), coalesce(spec_path,''), coalesce(workdir,'')
+			   FROM builder_agents WHERE slug = $1`, slug).
+			Scan(&persona, &spec, &workdir); err == nil && spec != "" {
+			s.writeSpec(newAgent{Slug: slug, Persona: persona, Workdir: workdir}, spec)
+		}
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
@@ -537,6 +560,11 @@ type newAgent struct {
 	Workdir     string   `json:"workdir"`
 	Color       string   `json:"color"`
 	Enabled     bool     `json:"enabled"`
+	// builder | advisor | reviewer | orchestrator. Defaults to builder — every
+	// agent hired before this field existed was one. An advisor is asked rather
+	// than dispatched, which is why it is exempt from the areas requirement and
+	// is never handed an implement run.
+	Role string `json:"role"`
 }
 
 // handleCreate hires a new agent into the fleet.
@@ -572,10 +600,22 @@ func (s *AgentsService) handleCreate(w http.ResponseWriter, r *http.Request) {
 	if strings.TrimSpace(in.DisplayName) == "" {
 		in.DisplayName = in.Slug
 	}
+	// Default to builder: every agent hired before this field existed was one,
+	// and an unrecognised value must not reach the enum.
+	switch in.Role {
+	case "builder", "advisor", "reviewer", "orchestrator":
+	default:
+		in.Role = "builder"
+	}
+
 	areas := cleanList(in.Areas, 40)
-	if len(areas) == 0 {
+	// Areas are required of a BUILDER, which claims work by matching them. An
+	// advisor is asked, never dispatched — it has no queue to match against, and
+	// demanding an area from one means inventing a fake surface it does not own
+	// just to satisfy a check written for a different role.
+	if len(areas) == 0 && in.Role == "builder" {
 		httpErr(w, http.StatusUnprocessableEntity,
-			"give the agent at least one area — an agent that owns nothing can never claim work")
+			"give the agent at least one area — a builder that owns nothing can never claim work")
 		return
 	}
 	// Enabling requires a persona: the dispatcher skips agents whose persona is
@@ -618,11 +658,11 @@ func (s *AgentsService) handleCreate(w http.ResponseWriter, r *http.Request) {
 		`INSERT INTO builder_agents
 		   (slug, display_name, title, description, role, model, spec_path,
 		    persona_md, areas, skills, workdir, color, enabled, generated_by)
-		 VALUES ($1,$2,$3,$4,'builder',$5,$6,$7,$8,$9,$10,$11,false,'operator')`,
+		 VALUES ($1,$2,$3,$4,$12::builder_agent_role,$5,$6,$7,$8,$9,$10,$11,false,'operator')`,
 		in.Slug, truncate(in.DisplayName, 120), truncate(in.Title, 120),
 		truncate(in.Description, 2000), in.Model, spec, in.Persona,
 		encodePGArray(areas), encodePGArray(cleanList(in.Skills, 60)),
-		truncate(in.Workdir, 500), in.Color); err != nil {
+		truncate(in.Workdir, 500), in.Color, in.Role); err != nil {
 		s.log.Error("hire agent", "slug", in.Slug, "err", err)
 		httpErr(w, http.StatusInternalServerError, "could not hire the agent")
 		return

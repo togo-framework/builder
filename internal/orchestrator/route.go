@@ -61,6 +61,10 @@ How to choose:
 - Prefer the member whose surface the work would MOSTLY land in. Work that
   spans two surfaces goes to whoever owns the larger share; they can ask for
   help.
+- Check "Works in" before you choose. An agent can only change files in that
+  directory. Work that lands in a repository nobody is standing in cannot be
+  done by anyone — say so with "" rather than handing it to someone who will
+  discover it mid-run and stop.
 - "" is a last resort, not a tie-breaker. Someone on this team can almost
   always start. If you return "" the work stops dead and a person has to route
   it by hand, so only do that when the work genuinely belongs to no listed
@@ -204,7 +208,8 @@ SELECT i.id, i.number, i.title, i.body_md, i.area
 func (o *Orchestrator) fleetRoster(ctx context.Context) string {
 	rows, err := o.db.QueryContext(ctx,
 		`SELECT slug, coalesce(display_name,''), coalesce(description,''),
-		        coalesce(areas,'{}')::text, coalesce(skills,'{}')::text
+		        coalesce(areas,'{}')::text, coalesce(skills,'{}')::text,
+		        coalesce(workdir,'')
 		   FROM builder_agents
 		  WHERE enabled
 		  ORDER BY slug`)
@@ -216,8 +221,8 @@ func (o *Orchestrator) fleetRoster(ctx context.Context) string {
 
 	var b strings.Builder
 	for rows.Next() {
-		var slug, name, desc, areas, skills string
-		if rows.Scan(&slug, &name, &desc, &areas, &skills) != nil {
+		var slug, name, desc, areas, skills, workdir string
+		if rows.Scan(&slug, &name, &desc, &areas, &skills, &workdir) != nil {
 			continue
 		}
 		fmt.Fprintf(&b, "### %s\n", slug)
@@ -234,6 +239,14 @@ func (o *Orchestrator) fleetRoster(ctx context.Context) string {
 		}
 		if s := parsePGArray(skills); len(s) > 0 {
 			fmt.Fprintf(&b, "Knows: %s\n", strings.Join(s, ", "))
+		}
+		// The REPOSITORY. Routing on area alone sent a schema issue to the one
+		// database agent, which stood in the generated app while every
+		// builder_* migration lived in the plugin — so it correctly refused,
+		// three times, and each refusal cost a full run. An agent can only do
+		// work that exists where it is standing.
+		if workdir != "" {
+			fmt.Fprintf(&b, "Works in: %s\n", workdir)
 		}
 		b.WriteString("\n")
 	}
