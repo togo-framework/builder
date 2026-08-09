@@ -75,15 +75,29 @@ func provideBrain(k *togo.Kernel) error {
 		k.Set(ProviderBrain, nil)
 		return nil // no database: the loop still runs, just without memory
 	}
-	store, err := brain.New(db, k.Log, brain.HashEmbedder{})
+	// A real model when one is configured, the hash embedder otherwise.
+	//
+	// HashEmbedder has no semantic content: "the login button is broken" and
+	// "authentication fails" share no tokens and embed orthogonally, so recall
+	// over it is keyword overlap wearing relevance's clothes. Which one is in
+	// use is logged at boot, because "is this real recall?" must be answerable
+	// without reading the source.
+	var emb brain.Embedder = brain.HashEmbedder{}
+	if real := brain.EmbedderFromEnv(); real != nil {
+		emb = real
+	}
+	store, err := brain.New(db, k.Log, emb)
 	if err != nil {
 		k.Log.Warn("builder.brain unavailable — agents will run without memory", "err", err)
 		k.Set(ProviderBrain, nil)
 		return nil
 	}
 	k.Set(ProviderBrain, store)
-	k.Log.Info("builder.brain ready", "embedder", brain.HashEmbedder{}.Name(),
-		"dim", brain.HashEmbedder{}.Dimensions())
+	k.Log.Info("builder.brain ready", "embedder", emb.Name(), "dim", emb.Dimensions())
+	if _, hashed := emb.(brain.HashEmbedder); hashed {
+		k.Log.Info("builder.brain recall is KEYWORD-ONLY — " +
+			"set BUILDER_EMBED_URL to a /v1/embeddings endpoint for semantic recall")
+	}
 	return nil
 }
 
