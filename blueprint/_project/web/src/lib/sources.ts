@@ -103,6 +103,7 @@ export const configTemplate = (kind: string): string => {
     github: { owner: "golang", repo: "example", branch: "master", include: ["README*", "docs/**"] },
     rss: { feedURL: "https://go.dev/blog/feed.atom", maxEntries: 25 },
     slack: { channelID: "C0123456789", tokenSecret: "slack-bot-token", maxMessages: 200 },
+    crawl: { startURL: "https://go.dev/ref/mod", maxDepth: 2, maxPages: 25, sameOriginOnly: true },
     sql: {
       dsnSecret: "analytics-dsn",
       sql: "SELECT count(*) AS users FROM users",
