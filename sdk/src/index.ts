@@ -1,4 +1,5 @@
 import { OWN_MARKER } from "./anchor";
+import { BRIDGE_MSG, installBridge } from "./bridge";
 import { ACCEPT, humanSize, kindOf, limitFor, normalizeRoute, screenshot } from "./capture";
 import { dict } from "./i18n";
 import { highlight, startPicker } from "./picker";
@@ -55,6 +56,9 @@ export function mount(opts: MountOptions = {}): Handle {
   let busy = false;
   let cancelPick: (() => void) | null = null;
   let detail: DetailView | null = null;
+  // True once a builder shell's hello has been accepted (see bridge.ts). The
+  // shell renders the UI from the outer page; ours goes away entirely.
+  let bridged = false;
 
   // ---- markup ------------------------------------------------------------
   const wrap = document.createElement("div");
@@ -180,17 +184,65 @@ export function mount(opts: MountOptions = {}): Handle {
   const pinBtn = $<HTMLButtonElement>(".pin");
   // See MountOptions.framedHost. Both of these read the DOM, and the DOM of a
   // framed product is not ours to read.
+  // The shell panel asks the FRAME to pin and capture.
+  //
+  // Both read the DOM, and on a shell page the product's DOM belongs to a
+  // different origin. Rather than disable the controls — which is what this
+  // did first, and which left the operator with a feature that visibly could
+  // not work — the panel now posts a request to its own window. The shell
+  // relays it into the frame, the SDK loaded inside the product does the work
+  // where the DOM actually is, and the answer comes back the same way.
+  //
+  // Same-window postMessage rather than a direct call: the shell is the only
+  // thing that knows the frame's origin, and it must stay the only thing that
+  // talks to it. A panel reaching for contentWindow itself would be a second
+  // place to get targetOrigin wrong.
   if (opts.framedHost) {
-    const why =
-      "Not available here: this page frames your product on another origin, " +
-      "and the browser will not let one origin read another's pixels or elements. " +
-      "Load the widget inside the product for pinning and screenshots.";
-    for (const sel of [".pin", ".shot"]) {
-      const b = $<HTMLButtonElement>(sel);
+    const askFrame = (type: string) =>
+      window.postMessage({ v: 1, type }, location.origin);
+
+    // Until the framed product answers a hello there is no SDK in there to do
+    // the work. The controls say so rather than failing silently.
+    let frameReady = false;
+    const noSdk =
+      "The product has not loaded the builder script, so there is nothing " +
+      "inside the frame to read the page with. Add the script tag to enable " +
+      "pinning and screenshots.";
+
+    const pinB = $<HTMLButtonElement>(".pin");
+    const shotB = $<HTMLButtonElement>(".shot");
+    for (const b of [pinB, shotB]) {
       b.disabled = true;
-      b.title = why;
+      b.title = noSdk;
       b.setAttribute("aria-disabled", "true");
     }
+
+    window.addEventListener("message", (e: MessageEvent) => {
+      // Only our own window, only our own origin. The shell has already
+      // checked the frame; this is the second half of the same rule, and
+      // without it any page could post a forged pin result into the panel.
+      if (e.source !== window || e.origin !== location.origin) return;
+      const d = e.data as { v?: number; type?: string; anchor?: unknown; dataUrl?: string | null };
+      if (!d || d.v !== 1 || typeof d.type !== "string") return;
+
+      if (d.type === BRIDGE_MSG.ready) {
+        frameReady = true;
+        for (const b of [pinB, shotB]) {
+          b.disabled = false;
+          b.removeAttribute("aria-disabled");
+          b.title = "";
+        }
+      }
+    });
+
+    pinB.addEventListener("click", () => {
+      if (!frameReady) return;
+      askFrame(BRIDGE_MSG.pinStart);
+    });
+    shotB.addEventListener("click", () => {
+      if (!frameReady) return;
+      askFrame(BRIDGE_MSG.shot);
+    });
   }
   const clearPinBtn = $<HTMLButtonElement>(".clearpin");
   const pinPreview = $<HTMLElement>(".pin-preview");
@@ -333,6 +385,7 @@ export function mount(opts: MountOptions = {}): Handle {
     panel.dataset.open === "true" ? close() : open();
   }
   function open() {
+    if (bridged) return; // the shell owns the UI; this panel no longer exists
     panel.dataset.open = "true";
     fab.setAttribute("aria-expanded", "true");
     urlIn.value = location.href;
@@ -874,11 +927,37 @@ export function mount(opts: MountOptions = {}): Handle {
     await detail.load(number);
   }
 
+  // ---- bridge mode (framed by a builder shell) ---------------------------
+  //
+  // The frame side of the shell protocol — see bridge.ts. Installed unless
+  // this page IS the shell (framedHost — the two roles are separate options
+  // by design) or the host opted out. Until a hello actually arrives this is
+  // one dormant message listener and nothing else; a product that is not in
+  // a shell is unaffected.
+  let uninstallBridge: (() => void) | null = null;
+  if (!opts.framedHost && opts.bridge !== false) {
+    uninstallBridge = installBridge({
+      locale,
+      shellOrigins: opts.shellOrigins,
+      onActivate: () => {
+        // The shell owns the UI. Two widgets on screen — the shell's panel
+        // AND this FAB inside the frame — is the bug this mode replaces, so
+        // ours is suppressed entirely, not just closed.
+        bridged = true;
+        cancelPick?.();
+        cancelPick = null;
+        close();
+        host.style.display = "none";
+      },
+    });
+  }
+
   const handle: Handle = {
     open,
     close,
     refresh: () => void refresh(),
     destroy() {
+      uninstallBridge?.();
       cancelPick?.();
       files.forEach(revokeThumb);
       document.removeEventListener("click", onOutsideClick, true);
@@ -924,4 +1003,16 @@ function sanitizeColor(c: string): string {
   return /^#[0-9a-f]{3,8}$|^[a-z]+$|^(rgb|hsl)a?\([\d\s.,%/]+\)$/i.test(c.trim()) ? c.trim() : "";
 }
 
-export type { MountOptions, Handle, IssueSummary, NewIssue, PinAnchor } from "./types";
+/** The shell↔frame message types — exported so the shell side can be checked against them. */
+export { BRIDGE_MSG } from "./bridge";
+
+export type {
+  MountOptions,
+  Handle,
+  IssueSummary,
+  NewIssue,
+  PinAnchor,
+  ConsoleEntry,
+  NetworkEntry,
+  BridgeContext,
+} from "./types";

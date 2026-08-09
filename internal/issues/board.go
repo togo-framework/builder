@@ -180,6 +180,12 @@ type issueDetail struct {
 	Pins     []pinOut      `json:"pins"`
 	Comments []commentOut  `json:"comments"`
 	Activity []activityOut `json:"activity"`
+	// Context is the sanitized browser snapshot stored at report time, passed
+	// through verbatim — sanitizeContext already shaped it on the way in, so
+	// re-parsing it here would only be a chance to get the shape wrong twice.
+	// Omitted (not null) when the report carried none, so the issue page can
+	// skip the section without a presence check on every field.
+	Context json.RawMessage `json:"context,omitempty"`
 }
 
 func (s *Service) handleDetail(w http.ResponseWriter, r *http.Request) {
@@ -190,19 +196,19 @@ func (s *Service) handleDetail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var d issueDetail
-	var labels sql.NullString
+	var labels, browserCtx sql.NullString
 	err = s.db.QueryRowContext(r.Context(),
 		`SELECT i.id, i.number, i.title, i.body_md, i.type::text, i.status::text,
 		        i.priority::text, i.area, i.human_only,
 		        (i.status = 'in_progress' AND i.lease_expires_at IS NOT NULL AND i.lease_expires_at > now()) AS busy,
 		        i.source, i.route, i.page_url, i.locale, i.branch, i.pr_url,
 		        i.comment_count, i.vote_count, coalesce(i.assignee_agent_id,''),
-		        i.attempt_count, i.labels, i.created_at
+		        i.attempt_count, i.labels, i.created_at, i.browser_context::text
 		   FROM builder_issues i WHERE i.number = $1`, num,
 	).Scan(&d.ID, &d.Number, &d.Title, &d.Body, &d.Type, &d.Status, &d.Priority,
 		&d.Area, &d.HumanOnly, &d.Busy, &d.Source, &d.Route, &d.PageURL, &d.Locale,
 		&d.Branch, &d.PRURL, &d.CommentCount, &d.VoteCount, &d.Assignee,
-		&d.Attempts, &labels, &d.CreatedAt)
+		&d.Attempts, &labels, &d.CreatedAt, &browserCtx)
 	if errors.Is(err, sql.ErrNoRows) {
 		httpErr(w, http.StatusNotFound, "no such issue")
 		return
@@ -213,6 +219,9 @@ func (s *Service) handleDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d.Labels = parsePGArray(labels.String)
+	if browserCtx.Valid && browserCtx.String != "" {
+		d.Context = json.RawMessage(browserCtx.String)
+	}
 	d.Pins = s.loadPins(r, d.ID)
 	d.Comments = s.loadComments(r, d.ID)
 	d.Activity = s.loadActivity(r, d.ID)

@@ -32,9 +32,44 @@ export interface Activity {
   action: string; actorKind: string; detail: string; createdAt: string;
 }
 
+/** One captured console line. `ts` is epoch milliseconds, absent on old captures. */
+export interface ConsoleEntry {
+  level: "log" | "info" | "warn" | "error" | "debug";
+  text: string;
+  ts?: number;
+}
+
+/**
+ * One captured request. Method, URL, status and duration ONLY — bodies and
+ * headers are never captured, and the server strips them if a client sends
+ * them anyway. `status` 0 means the request never completed (network error,
+ * CORS block, aborted).
+ */
+export interface NetworkEntry {
+  method: string;
+  url: string;
+  status: number;
+  durationMs: number;
+  ts?: number;
+}
+
+/**
+ * The browser snapshot a bridge-mode SDK ships with a report. Absent on most
+ * issues: hand-filed, agent-filed, pre-bridge SDKs, and reporters who chose
+ * to send without it.
+ */
+export interface BrowserContext {
+  console?: ConsoleEntry[];
+  network?: NetworkEntry[];
+  viewport?: { w: number; h: number; dpr: number };
+  userAgent?: string;
+  locale?: string;
+}
+
 export interface Detail extends Card {
   body: string; pageUrl: string; locale: string; branch: string; prUrl: string;
   pins: Pin[]; comments: Comment[]; activity: Activity[];
+  context?: BrowserContext;
 }
 
 export interface Board { columns: IssueStatus[]; cards: Record<IssueStatus, Card[]> }

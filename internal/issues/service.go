@@ -109,6 +109,12 @@ type newIssue struct {
 	Locale        string `json:"locale"`
 	Pins          []pin  `json:"pins"`
 	ReporterEmail string `json:"reporter_email"`
+	// Context is the browser snapshot a bridge-mode SDK volunteers — console,
+	// network, viewport, userAgent, locale. Kept raw here; sanitizeContext
+	// (context.go) bounds and re-shapes it before anything reaches the row.
+	// The SDK's report form discloses that this is attached and offers sending
+	// without it, in which case the field is simply absent.
+	Context json.RawMessage `json:"context"`
 }
 
 var validType = map[string]bool{
@@ -197,16 +203,25 @@ func (s *Service) create(ctx context.Context, in newIssue, ipHash string, form *
 		return "", 0, fmt.Errorf("allocate number: %w", err)
 	}
 
+	// The context is garnish on the report, never a gate: an oversized or
+	// malformed snapshot is dropped (and logged, so a broken SDK is visible)
+	// while the issue itself still lands — the same policy saveAttachments
+	// applies to a screenshot that fails its checks.
+	browserCtx, ctxProblem := sanitizeContext(in.Context)
+	if ctxProblem != "" {
+		s.log.Warn("browser context dropped", "reason", ctxProblem, "route", in.Route)
+	}
+
 	var id string
 	if err := tx.QueryRowContext(ctx,
 		`INSERT INTO builder_issues
 		   (number, title, body_md, status, type, board_rank, source,
-		    route, page_url, locale, reporter_kind, reporter_email)
-		 VALUES ($1,$2,$3,'triage',$4::builder_issue_type,$5,'feedback',$6,$7,$8,'anon',$9)
+		    route, page_url, locale, reporter_kind, reporter_email, browser_context)
+		 VALUES ($1,$2,$3,'triage',$4::builder_issue_type,$5,'feedback',$6,$7,$8,'anon',$9,$10::jsonb)
 		 RETURNING id`,
 		number, in.Title, in.Body, in.Type, rankFor(number),
 		in.Route, truncate(in.PageURL, 2048), localeOr(in.Locale),
-		truncate(in.ReporterEmail, 320),
+		truncate(in.ReporterEmail, 320), nullIfEmpty(string(browserCtx)),
 	).Scan(&id); err != nil {
 		return "", 0, fmt.Errorf("insert issue: %w", err)
 	}
@@ -246,8 +261,8 @@ func (s *Service) create(ctx context.Context, in newIssue, ipHash string, form *
 	if _, err := tx.ExecContext(ctx,
 		`INSERT INTO builder_issue_activity (issue_id, action, actor_kind, detail)
 		 VALUES ($1,'created','anon',$2::jsonb)`,
-		id, fmt.Sprintf(`{"source":"feedback","route":%q,"pins":%d,"attachments":%d}`,
-			in.Route, len(in.Pins), len(stored)),
+		id, fmt.Sprintf(`{"source":"feedback","route":%q,"pins":%d,"attachments":%d,"context":%t}`,
+			in.Route, len(in.Pins), len(stored), len(browserCtx) > 0),
 	); err != nil {
 		return "", 0, fmt.Errorf("insert activity: %w", err)
 	}

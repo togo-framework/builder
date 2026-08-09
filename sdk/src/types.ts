@@ -76,6 +76,38 @@ export interface IssueSummary {
   commentCount: number;
 }
 
+/** One captured console line. Text is redacted BEFORE it enters the buffer. */
+export interface ConsoleEntry {
+  level: "log" | "info" | "warn" | "error" | "debug";
+  text: string;
+  ts: number;
+}
+
+/**
+ * One captured request. Method, URL, status and duration ONLY — bodies are
+ * never read and headers (Authorization above all) are never touched. The URL
+ * is redacted because tokens live in query strings too.
+ */
+export interface NetworkEntry {
+  method: string;
+  url: string;
+  status: number;
+  ok: boolean;
+  durationMs: number;
+  ts: number;
+}
+
+/** The payload of `builder:context:done` — what the frame volunteers to the shell. */
+export interface BridgeContext {
+  console: ConsoleEntry[];
+  network: NetworkEntry[];
+  viewport: { w: number; h: number; dpr: number };
+  userAgent: string;
+  locale: string;
+  url: string;
+  title: string;
+}
+
 export interface Transport {
   /** Issues attached to the current page. */
   listByRoute(route: string): Promise<IssueSummary[]>;
@@ -108,6 +140,26 @@ export interface MountOptions {
    * costs the operator the time to find out otherwise.
    */
   framedHost?: boolean;
+  /**
+   * The FRAME role — the counterpart of `framedHost`, kept as a separate
+   * option because they are separate pages: `framedHost` marks the OUTER
+   * shell page, `bridge` governs the INNER framed product.
+   *
+   * When this page is framed by a builder shell, the SDK answers the shell's
+   * `builder:hello`, suppresses its own panel and FAB (two widgets on screen
+   * is the bug this replaces), and serves pin / screenshot / context / URL
+   * requests over postMessage — see bridge.ts for the protocol. Defaults to
+   * true; until a hello actually arrives the SDK behaves exactly as it does
+   * unframed. Set false to never answer a shell.
+   */
+  bridge?: boolean;
+  /**
+   * Origins allowed to act as the shell. When set, a `builder:hello` from any
+   * other origin is ignored. Unset, any direct parent that completes the
+   * handshake is accepted — reasonable for a dev tool; tighten it when the
+   * product runs anywhere an unknown page could frame it.
+   */
+  shellOrigins?: string[];
   /** Called after an issue is created. */
   onCreated?: (r: { id: string; number: number }) => void;
 }

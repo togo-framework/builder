@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Trash2 } from "lucide-react";
+import { ChevronRight, CircleAlert, Clock, Globe, Terminal, Trash2, TriangleAlert } from "lucide-react";
 import { listAgents, type Agent } from "../lib/agents";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import {
@@ -7,7 +7,8 @@ import {
 } from "@togo-framework/ui";
 import {
   COLUMN_LABEL, TRANSITIONS, ago, addComment, fetchIssue, patchIssue,
-  type Detail, type IssueStatus, type Priority, deleteIssue } from "../lib/issues";
+  type BrowserContext, type ConsoleEntry, type Detail, type IssueStatus,
+  type NetworkEntry, type Priority, deleteIssue } from "../lib/issues";
 import { DeployPanel } from "../components/deploy-panel";
 
 export function IssueDetail() {
@@ -167,6 +168,8 @@ export function IssueDetail() {
             ))}
           </section>
         )}
+
+        <BrowserContextSection context={issue.context} />
 
         <div className="mt-6">
           <DeployPanel number={Number(number)} onDeployed={() => void load()} />
@@ -378,3 +381,187 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
     </div>
   );
 }
+
+// --- Browser context ---------------------------------------------------------
+//
+// The console/network snapshot a bridge-mode SDK volunteers with a report.
+// Collapsed by default: it is reference material, not the report itself, and
+// an open 200-line log would push the discussion off the screen. The header
+// still surfaces the error counts while collapsed — the one fact a reader
+// wants before deciding whether to expand.
+//
+// Most issues have no context at all (hand-filed, agent-filed, opted out), and
+// those render exactly as before: the section returns null rather than showing
+// an empty shell on every issue.
+
+/** Wall-clock time of a captured entry; ring-buffer timestamps are epoch ms. */
+const tsTime = (ts?: number): string =>
+  ts ? new Date(ts).toLocaleTimeString(undefined, { hour12: false }) : "";
+
+const CONSOLE_TONE: Record<string, string> = {
+  error: "text-destructive",
+  warn: "text-warning",
+  info: "text-muted-foreground",
+  debug: "text-muted-foreground",
+  log: "text-muted-foreground",
+};
+
+const ConsoleLine = ({ entry }: { entry: ConsoleEntry }) => (
+  <li
+    className={`flex items-start gap-2 px-3 py-1 font-mono text-xs leading-relaxed ${
+      entry.level === "error" ? "bg-destructive/10" : ""
+    }`}
+  >
+    {entry.level === "error" && (
+      <CircleAlert className="mt-0.5 size-3.5 shrink-0 text-destructive" />
+    )}
+    {entry.level === "warn" && (
+      <TriangleAlert className="mt-0.5 size-3.5 shrink-0 text-warning" />
+    )}
+    <span className={`min-w-0 break-all ${CONSOLE_TONE[entry.level] ?? "text-muted-foreground"}`}>
+      <span className="me-2 select-none uppercase opacity-60">{entry.level}</span>
+      {entry.text}
+    </span>
+    {entry.ts ? (
+      <span className="ms-auto shrink-0 tabular-nums text-muted-foreground/60">{tsTime(entry.ts)}</span>
+    ) : null}
+  </li>
+);
+ConsoleLine.displayName = "ConsoleLine";
+
+/** Requests slower than this get flagged — a second of waiting is user-visible. */
+const SLOW_MS = 1000;
+
+const isFailed = (r: NetworkEntry): boolean => r.status === 0 || r.status >= 400;
+
+const NetworkLine = ({ entry }: { entry: NetworkEntry }) => {
+  const failed = isFailed(entry);
+  const slow = !failed && entry.durationMs >= SLOW_MS;
+  return (
+    <li
+      className={`flex items-start gap-2 px-3 py-1 font-mono text-xs leading-relaxed ${
+        failed ? "bg-destructive/10" : ""
+      }`}
+    >
+      {failed && <CircleAlert className="mt-0.5 size-3.5 shrink-0 text-destructive" />}
+      {slow && <Clock className="mt-0.5 size-3.5 shrink-0 text-warning" />}
+      <span className={`shrink-0 font-semibold ${failed ? "text-destructive" : "text-muted-foreground"}`}>
+        {/* Status 0 is "never completed" — a network error, CORS block or
+            abort. Rendering "0" would read as an HTTP code that doesn't exist. */}
+        {entry.status === 0 ? "ERR" : entry.status}
+      </span>
+      <span className="shrink-0 text-muted-foreground">{entry.method}</span>
+      <span className={`min-w-0 break-all ${failed ? "text-destructive" : "text-foreground"}`}>
+        {entry.url}
+      </span>
+      <span className={`ms-auto shrink-0 tabular-nums ${slow ? "text-warning" : "text-muted-foreground/60"}`}>
+        {entry.durationMs}ms
+      </span>
+    </li>
+  );
+};
+NetworkLine.displayName = "NetworkLine";
+
+const BrowserContextSection = ({ context }: { context?: BrowserContext }) => {
+  const [open, setOpen] = useState(false);
+  const handleToggle = () => setOpen((o) => !o);
+
+  const consoleEntries = context?.console ?? [];
+  const network = context?.network ?? [];
+  const hasEnv = Boolean(context?.viewport || context?.userAgent || context?.locale);
+  // No context captured → no section at all. Rendering an empty "Browser
+  // context" on the many issues that have none would be pure noise.
+  if (!context || (consoleEntries.length === 0 && network.length === 0 && !hasEnv)) return null;
+
+  // Errors first, each group in captured order. The person opening a bug
+  // report is looking for the failure, not for the page-load chatter above it.
+  const consoleErrors = consoleEntries.filter((e) => e.level === "error");
+  const consoleRest = consoleEntries.filter((e) => e.level !== "error");
+  const failedReqs = network.filter(isFailed);
+  const okReqs = network.filter((r) => !isFailed(r));
+
+  return (
+    <section className="mt-6">
+      <button
+        onClick={handleToggle}
+        aria-expanded={open}
+        className="flex w-full items-center gap-2 text-start text-xs font-semibold uppercase tracking-wider text-muted-foreground hover:text-foreground"
+      >
+        <ChevronRight className={`size-3.5 transition-transform ${open ? "rotate-90" : ""}`} />
+        Browser context
+        <span className="font-normal normal-case tracking-normal">
+          — {consoleEntries.length} console · {network.length} network
+        </span>
+        {/* The error counts stay visible while collapsed: they are the reason
+            anyone would bother to expand. */}
+        {consoleErrors.length > 0 && (
+          <span className="inline-flex items-center gap-1 rounded bg-destructive/10 px-1.5 py-0.5 font-medium normal-case tracking-normal text-destructive">
+            <CircleAlert className="size-3" />
+            {consoleErrors.length} {consoleErrors.length === 1 ? "error" : "errors"}
+          </span>
+        )}
+        {failedReqs.length > 0 && (
+          <span className="inline-flex items-center gap-1 rounded bg-destructive/10 px-1.5 py-0.5 font-medium normal-case tracking-normal text-destructive">
+            <Globe className="size-3" />
+            {failedReqs.length} failed
+          </span>
+        )}
+      </button>
+
+      {open && (
+        <div className="mt-2 flex flex-col gap-3">
+          {consoleEntries.length > 0 && (
+            <div className="overflow-hidden rounded-lg border border-border">
+              <p className="flex items-center gap-1.5 border-b border-border bg-muted/30 px-3 py-1.5 text-xs font-medium text-muted-foreground">
+                <Terminal className="size-3.5" /> Console
+              </p>
+              <ul className="max-h-64 divide-y divide-border/50 overflow-y-auto py-1">
+                {consoleErrors.map((e, i) => <ConsoleLine key={`err-${i}`} entry={e} />)}
+                {consoleRest.map((e, i) => <ConsoleLine key={`log-${i}`} entry={e} />)}
+              </ul>
+            </div>
+          )}
+
+          {network.length > 0 && (
+            <div className="overflow-hidden rounded-lg border border-border">
+              <p className="flex items-center gap-1.5 border-b border-border bg-muted/30 px-3 py-1.5 text-xs font-medium text-muted-foreground">
+                <Globe className="size-3.5" /> Network
+              </p>
+              <ul className="max-h-64 divide-y divide-border/50 overflow-y-auto py-1">
+                {failedReqs.map((r, i) => <NetworkLine key={`bad-${i}`} entry={r} />)}
+                {okReqs.map((r, i) => <NetworkLine key={`ok-${i}`} entry={r} />)}
+              </ul>
+            </div>
+          )}
+
+          {hasEnv && (
+            <dl className="grid grid-cols-[90px_1fr] gap-x-3 gap-y-1 rounded-lg border border-border p-3 text-xs">
+              {context.viewport && (
+                <>
+                  <dt className="text-muted-foreground">Viewport</dt>
+                  <dd className="tabular-nums">
+                    {context.viewport.w}×{context.viewport.h}
+                    {context.viewport.dpr ? ` @${context.viewport.dpr}x` : ""}
+                  </dd>
+                </>
+              )}
+              {context.locale && (
+                <>
+                  <dt className="text-muted-foreground">Locale</dt>
+                  <dd className="font-mono">{context.locale}</dd>
+                </>
+              )}
+              {context.userAgent && (
+                <>
+                  <dt className="text-muted-foreground">User agent</dt>
+                  <dd className="break-all font-mono text-muted-foreground">{context.userAgent}</dd>
+                </>
+              )}
+            </dl>
+          )}
+        </div>
+      )}
+    </section>
+  );
+};
+BrowserContextSection.displayName = "BrowserContextSection";
