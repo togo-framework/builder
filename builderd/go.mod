@@ -45,8 +45,16 @@ require (
 	golang.org/x/time v0.15.0 // indirect
 )
 
-// Until these are tagged. The go.work beside this file is what resolves them
-// during development; these keep `go build` honest outside a workspace.
+// NOT BUILDABLE FROM A CLONE YET, and saying so here rather than letting
+// someone discover it.
+//
+// These point at sibling checkouts on the machine this was developed on. Until
+// the togo plugins they name are tagged and published, `go build ./builderd`
+// works only inside a workspace that has all six repositories side by side.
+//
+// The PLUGIN itself — the parent module — has no replace directives and builds
+// from a clone normally. Only this daemon is affected, and only until the
+// dependencies it needs exist as published versions.
 replace (
 	github.com/togo-framework/auth => ../../auth
 	github.com/togo-framework/auth-dev => ../../auth-dev

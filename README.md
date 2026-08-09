@@ -102,3 +102,19 @@ checks — the hook is defence in depth.
 ## License
 
 MIT
+
+## Building from a clone
+
+The plugin module builds normally:
+
+```
+go build ./...
+```
+
+`builderd/` — the standalone daemon — does **not** yet. Its `go.mod` carries
+`replace` directives pointing at sibling checkouts, because the togo plugins it
+depends on (`auth`, `auth-dev`, `db-postgres`, `realtime`) are not published
+yet. It builds inside a workspace that has those repositories side by side, and
+will build from a clone once they are tagged.
+
+The in-process plugin build has no such dependency and is unaffected.
