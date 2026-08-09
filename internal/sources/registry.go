@@ -216,10 +216,31 @@ func Refresh(ctx context.Context, src Source, cur CursorStore, brain Retainer, n
 		if d.Title != "" {
 			body = Redact(d.Title) + "\n\n" + body
 		}
-		if _, err := brain.Retain(ctx, ns, body, kind, MemoryRef(kind, name, d.Ref), imp); err != nil {
-			return rep, fmt.Errorf("retain %s: %s", d.Ref, Scrub(err.Error()))
+		// Split before retaining. Retain stores what it is given as ONE memory
+		// with ONE vector, and a 188 KB reference page — go.dev/ref/mod, in the
+		// run that prompted this — embeds as a single point that means nothing
+		// and matches everything. Most embedders would silently truncate it at
+		// their token limit anyway, so the tail would simply not exist.
+		//
+		// Documents already chunk on their way in (brain.IngestDocument);
+		// sources went straight to Retain and did not. Doing it here rather
+		// than in each connector fixes every kind at once, and keeps the
+		// per-chunk ref derived from the doc's own ref so a re-fetch still
+		// updates in place.
+		parts := splitForEmbedding(body)
+		for i, part := range parts {
+			// A single-part doc keeps its plain ref, so the common case reads
+			// as it always has and nothing that was already retained under it
+			// is orphaned. Only a split doc gains indexed refs.
+			ref := d.Ref
+			if len(parts) > 1 {
+				ref = fmt.Sprintf("%s#%03d", d.Ref, i)
+			}
+			if _, err := brain.Retain(ctx, ns, part, kind, MemoryRef(kind, name, ref), imp); err != nil {
+				return rep, fmt.Errorf("retain %s: %s", ref, Scrub(err.Error()))
+			}
+			rep.Retained++
 		}
-		rep.Retained++
 	}
 
 	if cur != nil && batch.Cursor != "" && batch.Cursor != prev {
@@ -228,6 +249,65 @@ func Refresh(ctx context.Context, src Source, cur CursorStore, brain Retainer, n
 		}
 	}
 	return rep, nil
+}
+
+// maxRetainRunes is the ceiling for one memory.
+//
+// Matched to what an embedding model can actually read: most take 512 to 8192
+// tokens, and a chunk near 2000 characters sits inside every one of them with
+// room for the title prefix. Larger is not "more context" — it is content the
+// model never sees.
+const maxRetainRunes = 2000
+
+// splitForEmbedding cuts text into embeddable pieces on paragraph boundaries.
+//
+// Paragraphs first, then lines, then a hard cut: splitting mid-sentence
+// produces a chunk whose vector is about half an idea. The hard cut exists
+// anyway because a single 200 KB line is legal input.
+func splitForEmbedding(s string) []string {
+	if len([]rune(s)) <= maxRetainRunes {
+		return []string{s}
+	}
+	var out []string
+	var cur strings.Builder
+
+	flush := func() {
+		if strings.TrimSpace(cur.String()) != "" {
+			out = append(out, strings.TrimSpace(cur.String()))
+		}
+		cur.Reset()
+	}
+	add := func(piece string) {
+		if len([]rune(cur.String()))+len([]rune(piece)) > maxRetainRunes {
+			flush()
+		}
+		if len([]rune(piece)) > maxRetainRunes {
+			// A paragraph too big to be a chunk on its own. Cut it by runes so
+			// a multi-byte character cannot be sliced in half.
+			r := []rune(piece)
+			for len(r) > maxRetainRunes {
+				out = append(out, strings.TrimSpace(string(r[:maxRetainRunes])))
+				r = r[maxRetainRunes:]
+			}
+			piece = string(r)
+		}
+		if cur.Len() > 0 {
+			cur.WriteString("\n\n")
+		}
+		cur.WriteString(piece)
+	}
+
+	for _, para := range strings.Split(s, "\n\n") {
+		if strings.TrimSpace(para) == "" {
+			continue
+		}
+		add(para)
+	}
+	flush()
+	if len(out) == 0 {
+		return []string{s}
+	}
+	return out
 }
 
 // MemCursors is an in-process CursorStore. It is what the tests use, and what a
