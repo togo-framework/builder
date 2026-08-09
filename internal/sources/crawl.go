@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"sort"
@@ -47,6 +48,15 @@ const (
 	maxCrawlRedirects    = 5
 	crawlRequestTimeout  = 20 * time.Second
 	crawlWallClockBudget = 5 * time.Minute
+
+	// A page with more anchors than this is a sitemap or a link directory, not
+	// prose with a few references in it — capped so one such page cannot
+	// single-handedly blow the crawl queue up.
+	maxCrawlLinksPerPage = 500
+	// Independent of maxCrawlPages: with maxCrawlLinksPerPage(500) links queued
+	// per page actually fetched, the queue could otherwise grow into the tens
+	// of thousands of entries long before maxCrawlPages ever stops the loop.
+	maxCrawlQueue = 5000
 )
 
 // defaultCrawlAgent identifies us honestly.
@@ -61,7 +71,15 @@ type crawlConfig struct {
 	MaxDepth       int    `json:"maxDepth"`
 	MaxPages       int    `json:"maxPages"`
 	SameOriginOnly *bool  `json:"sameOriginOnly"`
-	UserAgent      string `json:"userAgent"`
+	// Selector is a light hint, not a CSS engine: a bare tag name ("main"), an
+	// id ("#content"), or a single class (".post-body"). When it names an
+	// element present on a given page, only that element's inner HTML is
+	// extracted; when it does not match anything on that page, the page falls
+	// back to the whole document rather than producing an empty Doc — a hint
+	// that silently drops the page it was meant to narrow would defeat the
+	// point of it being optional.
+	Selector  string `json:"selector"`
+	UserAgent string `json:"userAgent"`
 }
 
 type crawlSource struct {
@@ -94,13 +112,27 @@ func newCrawl(raw json.RawMessage, _ Secrets) (Source, error) {
 	if u.Scheme != "http" && u.Scheme != "https" {
 		return nil, fmt.Errorf("crawl source config: %q must be http or https", c.StartURL)
 	}
+	if u.User != nil {
+		return nil, fmt.Errorf(`crawl source config: "startURL" must not carry userinfo — a username or password in a URL ends up in logs and in the crawled memory`)
+	}
+	// allowPrivateCrawlHosts is false in every build that ships. It exists so
+	// the tests can point at an httptest server on 127.0.0.1, which the guard
+	// below is otherwise right to refuse. An env var would be a production
+	// hole; an unexported package var cannot be set from outside this package.
+	if !allowPrivateCrawlHosts && disallowedCrawlHost(u.Hostname()) {
+		return nil, fmt.Errorf("crawl source config: %q resolves to a loopback, private, or link-local address, which this connector refuses to fetch", u.Host)
+	}
+	u.Fragment = ""
 
 	c.MaxDepth = clampInt(c.MaxDepth, defaultCrawlDepth, 0, maxCrawlDepth)
 	c.MaxPages = clampInt(c.MaxPages, defaultCrawlPages, 1, maxCrawlPages)
-	if strings.TrimSpace(c.UserAgent) == "" {
+	c.Selector = strings.TrimSpace(c.Selector)
+	c.UserAgent = strings.TrimSpace(c.UserAgent)
+	if c.UserAgent == "" {
 		c.UserAgent = defaultCrawlAgent
 	}
 
+	sameOriginOnly := c.SameOriginOnly == nil || *c.SameOriginOnly
 	return &crawlSource{
 		cfg:   c,
 		start: u,
@@ -112,11 +144,41 @@ func newCrawl(raw json.RawMessage, _ Secrets) (Source, error) {
 				if len(via) >= maxCrawlRedirects {
 					return fmt.Errorf("stopped after %d redirects", maxCrawlRedirects)
 				}
+				if sameOriginOnly && r.URL.Host != u.Host {
+					// Hand back the 3xx as-is rather than follow it off-origin.
+					// get() then treats it like any other non-200 response, so a
+					// page that tries to leave the origin is recorded as not
+					// fetched — never silently mislabeled as on-origin content
+					// under the path it redirected FROM.
+					return http.ErrUseLastResponse
+				}
 				return nil
 			},
 		},
 	}, nil
 }
+
+// disallowedCrawlHost blocks the obvious loopback/private/link-local literals
+// in a configured startURL. This is a config-time string check only — a
+// hostname that only resolves to a private address at REQUEST time (DNS
+// rebinding) is not caught here and would need a dialer that re-validates
+// every resolved IP to close. Flagged rather than silently left unhandled: a
+// crawl fetches whatever URL an operator types, server-side, which makes it
+// the one connector in this package where that omission matters.
+func disallowedCrawlHost(host string) bool {
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false // a real hostname; DNS could still resolve it privately, see above
+	}
+	return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
+		ip.IsLinkLocalMulticast() || ip.IsUnspecified()
+}
+
+// allowPrivateCrawlHosts is set only by this package's tests.
+var allowPrivateCrawlHosts = false
 
 func clampInt(v, def, lo, hi int) int {
 	if v == 0 {
@@ -156,7 +218,12 @@ func (c *crawlSource) Fetch(ctx context.Context, cursor string) (Batch, error) {
 		u     *url.URL
 		depth int
 	}
-	seen := map[string]bool{c.start.String(): true}
+	// Keyed by host+path, deliberately WITHOUT the query string: two query
+	// variants of the same path (a session id, a "?utm_source=" tracking
+	// param) are treated as one visit, because Doc.Ref below is the path
+	// alone — crawling both would just produce two Docs racing to overwrite
+	// the same ref.
+	seen := map[string]bool{c.start.Host + c.start.Path: true}
 	queue := []queued{{c.start, 0}}
 
 	var batch Batch
@@ -211,14 +278,11 @@ func (c *crawlSource) Fetch(ctx context.Context, cursor string) (Batch, error) {
 			continue
 		}
 
-		title, text := extractReadable(string(body))
+		title, text := c.extract(string(body))
 		if strings.TrimSpace(text) != "" {
 			ref := item.u.Path
 			if ref == "" {
 				ref = "/"
-			}
-			if item.u.RawQuery != "" {
-				ref += "?" + item.u.RawQuery
 			}
 			batch.Docs = append(batch.Docs, Doc{
 				Ref:   ref,
@@ -233,6 +297,9 @@ func (c *crawlSource) Fetch(ctx context.Context, cursor string) (Batch, error) {
 			continue
 		}
 		for _, href := range extractLinks(string(body)) {
+			if len(queue) >= maxCrawlQueue {
+				break
+			}
 			next, err := item.u.Parse(href)
 			if err != nil {
 				continue
@@ -241,10 +308,17 @@ func (c *crawlSource) Fetch(ctx context.Context, cursor string) (Batch, error) {
 			if next.Scheme != "http" && next.Scheme != "https" {
 				continue
 			}
+			if next.User != nil {
+				// A link a page author embedded with basic-auth credentials in
+				// it. Following it would put those credentials on the wire from
+				// this process, and a fetch error on it would need scrubbing
+				// same as everything else — simplest to never queue it.
+				continue
+			}
 			if c.sameOrigin() && next.Host != c.start.Host {
 				continue
 			}
-			key := next.String()
+			key := next.Host + next.Path
 			if seen[key] {
 				continue
 			}
@@ -487,6 +561,133 @@ var blockTags = map[string]bool{
 	"p": true, "div": true, "section": true, "article": true, "li": true,
 	"tr": true, "br": true, "h1": true, "h2": true, "h3": true, "h4": true,
 	"h5": true, "h6": true, "blockquote": true, "pre": true, "hr": true,
+}
+
+// headingLevel keeps h1..h6 distinguishable from an ordinary paragraph — a
+// blank-line break alone (what blockTags gives every element) says "this text
+// is set apart" but not "this is the heading a reader would look for", which
+// is what "keeps headings" has to mean for a page an agent will later scan
+// for structure.
+var headingLevel = map[string]int{"h1": 1, "h2": 2, "h3": 3, "h4": 4, "h5": 5, "h6": 6}
+
+// extract applies the optional selector, then reads the page.
+//
+// A hint, not a CSS engine: a bare tag ("main"), an id ("#content") or one
+// class (".post-body"). When the hint does not match on a given page the whole
+// document is read instead — a narrowing hint that silently produced an empty
+// page would be worse than no hint, because the page would look collected and
+// contain nothing.
+func (c *crawlSource) extract(html string) (title, text string) {
+	sel := strings.TrimSpace(c.cfg.Selector)
+	if sel == "" {
+		return extractReadable(html)
+	}
+	// The title lives in <head>, outside any container, so it is read from the
+	// whole document regardless of where the selector points.
+	fullTitle, _ := extractReadable(html)
+	if inner, ok := selectElement(html, sel); ok {
+		_, t := extractReadable(inner)
+		if strings.TrimSpace(t) != "" {
+			return fullTitle, t
+		}
+	}
+	return extractReadable(html)
+}
+
+// selectElement returns the inner HTML of the first element matching a simple
+// selector, and whether one was found.
+//
+// Depth-counted rather than regex-matched: nested <div>s inside the container
+// would otherwise end it at the first </div>, truncating the page at its first
+// paragraph.
+func selectElement(html, sel string) (string, bool) {
+	var tag, attr, want string
+	switch {
+	case strings.HasPrefix(sel, "#"):
+		attr, want = "id", sel[1:]
+	case strings.HasPrefix(sel, "."):
+		attr, want = "class", sel[1:]
+	default:
+		tag = strings.ToLower(sel)
+	}
+
+	lower := strings.ToLower(html)
+	for i := 0; i < len(html); {
+		lt := strings.IndexByte(lower[i:], '<')
+		if lt < 0 {
+			return "", false
+		}
+		i += lt
+		gt := strings.IndexByte(html[i:], '>')
+		if gt < 0 {
+			return "", false
+		}
+		openTag := html[i : i+gt+1]
+		name := tagName(openTag)
+		if name == "" || strings.HasPrefix(openTag, "</") || strings.HasSuffix(openTag, "/>") {
+			i += gt + 1
+			continue
+		}
+
+		match := false
+		if tag != "" {
+			match = name == tag
+		} else if v, ok := attrValue(openTag, attr); ok {
+			if attr == "id" {
+				match = v == want
+			} else {
+				for _, cls := range strings.Fields(v) {
+					if cls == want {
+						match = true
+					}
+				}
+			}
+		}
+		if !match {
+			i += gt + 1
+			continue
+		}
+
+		// Walk forward counting this tag's own nesting.
+		start := i + gt + 1
+		depth, j := 1, start
+		for j < len(html) && depth > 0 {
+			k := strings.IndexByte(lower[j:], '<')
+			if k < 0 {
+				break
+			}
+			j += k
+			e := strings.IndexByte(html[j:], '>')
+			if e < 0 {
+				break
+			}
+			t := html[j : j+e+1]
+			if tagName(t) == name && !strings.HasSuffix(t, "/>") {
+				if strings.HasPrefix(t, "</") {
+					depth--
+				} else {
+					depth++
+				}
+			}
+			j += e + 1
+			if depth == 0 {
+				return html[start : j-e-1], true
+			}
+		}
+		// Unclosed: everything after the open tag is the best available answer.
+		return html[start:], true
+	}
+	return "", false
+}
+
+func tagName(tag string) string {
+	t := strings.TrimPrefix(strings.TrimPrefix(tag, "<"), "/")
+	if k := strings.IndexFunc(t, func(r rune) bool {
+		return unicode.IsSpace(r) || r == '/' || r == '>'
+	}); k >= 0 {
+		t = t[:k]
+	}
+	return strings.ToLower(t)
 }
 
 // extractReadable pulls the title and the body text out of an HTML document.

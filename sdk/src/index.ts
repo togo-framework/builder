@@ -333,6 +333,8 @@ export function mount(opts: MountOptions = {}): Handle {
     { key: "vault", path: "/vault", color: "#10b981", label: t.appVault },
     { key: "sources", path: "/sources", color: "#3b82f6", label: t.appSources },
     { key: "docs", path: "/library", color: "#f43f5e", label: t.appDocs },
+    { key: "brain", path: "/brain", color: "#a855f7", label: t.appBrain },
+    { key: "chat", path: "/chat", color: "#14b8a6", label: t.appChat },
     { key: "mcp", path: "/mcp", color: "#ec4899", label: t.appMcp },
     { key: "terminal", path: "/terminal", color: "#64748b", label: t.appTerminal },
   ] as const;

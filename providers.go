@@ -14,6 +14,7 @@ import (
 	"github.com/togo-framework/togo"
 
 	"github.com/togo-framework/builder/internal/brain"
+	"github.com/togo-framework/builder/internal/chat"
 	"github.com/togo-framework/builder/internal/deploy"
 	"github.com/togo-framework/builder/internal/docs"
 	"github.com/togo-framework/builder/internal/fleet"
@@ -245,6 +246,16 @@ func provideFleet(k *togo.Kernel) error {
 	if b, ok := k.Get(ProviderBrain); ok && b != nil {
 		if bs, ok := b.(*brain.Store); ok {
 			k.Router.Route("/api/builder/docs", docs.New(db, k.Log, bs).Routes)
+		}
+	}
+
+	// The project brain's own surface. Every agent brain had a page; the one
+	// every agent reads and every source writes into had none.
+	if b, ok := k.Get(ProviderBrain); ok && b != nil {
+		if bs, ok := b.(*brain.Store); ok {
+			k.Router.Route("/api/builder/brain", bs.Routes)
+			// The advisory surface. Same brain, no tools, no lease.
+			k.Router.Route("/api/builder/chat", chat.New(db, k.Log, bs).Routes)
 		}
 	}
 

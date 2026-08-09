@@ -50,6 +50,8 @@ const PATHS: Record<string, string[]> = {
   // square-terminal
   sources: ["M4 11a9 9 0 0 1 9 9", "M4 4a16 16 0 0 1 16 16", "M5 19a1 1 0 1 0 2 0 1 1 0 1 0-2 0"],
   docs: ["M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z", "M14 2v5h5", "M9 13h6", "M9 17h6"],
+  brain: ["M12 5a3 3 0 1 0-5.997.125", "M12 5a3 3 0 1 1 5.997.125", "M15 13a4.5 4.5 0 0 1-3 4", "M9 13a4.5 4.5 0 0 0 3 4", "M6 18a4 4 0 0 1-1.967-.516", "M18 18a4 4 0 0 0 1.967-.516", "M12 5v14"],
+  chat: ["M7.9 20A9 9 0 1 0 4 16.1L2 22z"],
   terminal: ["m7 11 2-2-2-2", "M11 13h4", "M3 5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"],
 
   // external-link, for the launcher's "open in a tab" affordance.

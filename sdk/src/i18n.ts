@@ -53,6 +53,8 @@ const en = {
   appMcp: "MCP",
   appSources: "Sources",
   appDocs: "Library",
+  appBrain: "Brain",
+  appChat: "Chat",
   appTerminal: "Terminal",
   dir: "ltr" as "ltr" | "rtl",
 };
@@ -107,6 +109,8 @@ const ar: Dict = {
   appMcp: "MCP",
   appSources: "المصادر",
   appDocs: "المكتبة",
+  appBrain: "الدماغ",
+  appChat: "المحادثة",
   appTerminal: "الطرفية",
   dir: "rtl",
 };

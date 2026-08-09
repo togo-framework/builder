@@ -10,6 +10,10 @@ import (
 	"testing"
 )
 
+// httptest serves on 127.0.0.1, which the SSRF guard is right to refuse in
+// production. Lifted here and nowhere else.
+func init() { allowPrivateCrawlHosts = true }
+
 func crawlFrom(t *testing.T, srv *httptest.Server, cfg map[string]any) *crawlSource {
 	t.Helper()
 	if cfg == nil {

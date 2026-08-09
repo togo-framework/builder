@@ -25,6 +25,8 @@ const AgentDetail = lazyRouteComponent(() => import("./routes/agent-detail"), "A
 const Skills = lazyRouteComponent(() => import("./routes/skills"), "Skills");
 const Sources = lazyRouteComponent(() => import("./routes/sources"), "Sources");
 const Docs = lazyRouteComponent(() => import("./routes/docs"), "Docs");
+const Brain = lazyRouteComponent(() => import("./routes/brain"), "Brain");
+const Chat = lazyRouteComponent(() => import("./routes/chat"), "Chat");
 const SkillDetail = lazyRouteComponent(() => import("./routes/skill-detail"), "SkillDetail");
 const Mcp = lazyRouteComponent(() => import("./routes/mcp"), "Mcp");
 const Terminal = lazyRouteComponent(() => import("./routes/terminal"), "Terminal");
@@ -81,6 +83,8 @@ const sourcesRoute = createRoute({ getParentRoute: () => appRoute, path: "/sourc
 // backend), so the reference library lives at /library. Discovered by opening
 // it: the route resolved to the API docs and this page never rendered.
 const docsRoute = createRoute({ getParentRoute: () => appRoute, path: "/library", component: Docs });
+const brainRoute = createRoute({ getParentRoute: () => appRoute, path: "/brain", component: Brain });
+const chatRoute = createRoute({ getParentRoute: () => appRoute, path: "/chat", component: Chat });
 const skillDetailRoute = createRoute({ getParentRoute: () => appRoute, path: "/skills/$name", component: SkillDetail });
 const mcpRoute = createRoute({ getParentRoute: () => appRoute, path: "/mcp", component: Mcp });
 const terminalRoute = createRoute({ getParentRoute: () => appRoute, path: "/terminal", component: Terminal });
@@ -88,7 +92,7 @@ const issueDetailRoute = createRoute({ getParentRoute: () => appRoute, path: "/i
 
 const routeTree = rootRoute.addChildren([
   indexRoute, loginRoute, registerRoute, resetRoute, setupRoute,
-  appRoute.addChildren([dashboardRoute, resourceRoute, profileRoute, issuesRoute, issueDetailRoute, vaultRoute, agentsRoute, agentDetailRoute, skillsRoute, skillDetailRoute, sourcesRoute, docsRoute, mcpRoute, terminalRoute]),
+  appRoute.addChildren([dashboardRoute, resourceRoute, profileRoute, issuesRoute, issueDetailRoute, vaultRoute, agentsRoute, agentDetailRoute, skillsRoute, skillDetailRoute, sourcesRoute, docsRoute, brainRoute, chatRoute, mcpRoute, terminalRoute]),
 ]);
 
 export const router = createRouter({
