@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{{.Name}} — built with togo</title>
+    <!-- No-flash theme: apply the persisted choice (default dark) before first paint -->
+    <script>
+      (function () {
+        try {
+          var k = "togo-theme", t = localStorage.getItem(k);
+          if (!t) { t = "dark"; localStorage.setItem(k, t); }
+          var d = document.documentElement;
+          d.setAttribute("data-theme", t);
+          d.classList.toggle("dark", t !== "light");
+        } catch (e) {}
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+    <!-- builder feedback widget: one script tag, no build step. Served by the
+       plugin from an embedded bundle, so it works in any generated project.
+
+       async is REQUIRED, not a nicety. As a plain blocking <script> this stalls
+       the parser until the bundle arrives — and because /sdk is proxied to the
+       API, an API that is slow, restarting, or hung takes the whole page with
+       it. main.tsx is a module (deferred), so it cannot run until every
+       blocking script ahead of it completes: React never mounts and the user
+       sees a blank page or an endless loader. The widget is an optional
+       add-on; it must never be able to stop the app from starting. -->
+  <script>
+    // Defined before the async script so its onload can always find it, and
+    // idempotent because onload and DOMContentLoaded can both fire.
+    window.__mountBuilderWidget = function () {
+      if (!window.BuilderIssues || window.__builderWidgetMounted) return;
+      // Not inside the widget's own overlay.
+      //
+      // The launcher opens a builder screen in an iframe on this same origin,
+      // and that page runs this file too — so it mounted a second widget inside
+      // the first one, with its own floating button sitting in the corner of the
+      // overlay and its own panel able to open a third. One layer is the point.
+      if (new URLSearchParams(location.search).get("embed") === "1") return;
+      window.__builderWidgetMounted = true;
+      window.BuilderIssues.mount({
+        locale: new URLSearchParams(location.search).get("lang")
+                || document.documentElement.lang || "en",
+      });
+    };
+  </script>
+  <script async src="/sdk/builder-sdk.js" onload="window.__mountBuilderWidget()"></script>
+  <script>
+    // Covers the other order: the bundle was cached and executed before the
+    // onload handler was wired.
+    document.addEventListener("DOMContentLoaded", window.__mountBuilderWidget);
+  </script>
+</body>
+</html>
