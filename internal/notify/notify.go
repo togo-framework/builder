@@ -234,12 +234,18 @@ func (s *Service) handleAnswer(w http.ResponseWriter, r *http.Request) {
 		httpErr(w, http.StatusBadRequest, "malformed body")
 		return
 	}
-	if strings.TrimSpace(in.Answer) == "" {
+	// Parking needs no words — "not now" IS the answer, and demanding a
+	// sentence for it is friction on the one action taken when the operator has
+	// nothing to add.
+	if strings.TrimSpace(in.Answer) == "" && in.State != "cancelled" {
 		httpErr(w, http.StatusUnprocessableEntity, "an answer is required")
 		return
 	}
+	if strings.TrimSpace(in.Answer) == "" {
+		in.Answer = "Parked for now."
+	}
 	switch in.State {
-	case "approved", "rejected", "answered":
+	case "approved", "rejected", "answered", "cancelled":
 	default:
 		in.State = "answered"
 	}
@@ -276,7 +282,32 @@ func (s *Service) handleAnswer(w http.ResponseWriter, r *http.Request) {
 	//
 	// 'rejected' is a real board status, not 'done': an issue closed as
 	// unwanted must never be swept into a release as though it shipped.
-	if in.State == "rejected" {
+	if in.State == "cancelled" {
+		// Not now.
+		//
+		// The third answer, and the one the panel was missing. An agent that
+		// says "do not re-dispatch me until the dependency exists" is asking for
+		// neither approval nor rejection: approving sends it straight back to
+		// find the same nothing and spend another run doing it, and rejecting
+		// closes work that is wanted. Both were wrong answers to a reasonable
+		// request, so the operator had no correct move.
+		//
+		// The issue is parked, not closed: it stays on the board as blocked,
+		// human_only keeps every agent off it, and untangling it later is one
+		// checkbox. attempt_count resets because the next attempt will happen in
+		// a world where whatever it was waiting for exists.
+		if _, err := tx.ExecContext(r.Context(),
+			`UPDATE builder_issues
+			    SET blocked_on_decision_id = NULL,
+			        status = 'blocked'::builder_issue_status,
+			        human_only = true,
+			        attempt_count = 0,
+			        status_entered_at = now(), updated_at = now()
+			  WHERE id = $1`, issueID); err != nil {
+			httpErr(w, http.StatusInternalServerError, "could not park the issue")
+			return
+		}
+	} else if in.State == "rejected" {
 		if _, err := tx.ExecContext(r.Context(),
 			`UPDATE builder_issues
 			    SET blocked_on_decision_id = NULL,
@@ -373,6 +404,10 @@ func answerHeading(state string) string {
 	switch state {
 	case "rejected":
 		return "**Rejected — this issue is closed and no agent will pick it up.**\n\n"
+	case "cancelled":
+		return "**Parked — no agent will pick this up until you say so.**\n\n" +
+			"_The issue stays on the board as human-only. Untick that when what it " +
+			"was waiting for exists._\n\n"
 	case "approved":
 		return "**Approved — back in the queue.**\n\n"
 	default:
