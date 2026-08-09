@@ -140,7 +140,9 @@ func (s *Store) Retain(ctx context.Context, ns, content, sourceKind, sourceRef s
 	return id, nil
 }
 
-// Recall searches the agent's own namespace plus anything it has been granted.
+// Recall searches the agent's own namespace plus anything it has been granted —
+// which now includes the shared project brain, so a run sees what the team knows
+// alongside what it worked out itself.
 //
 // Hybrid: vector similarity when an embedder is configured, full-text always,
 // fused with reciprocal rank. Keyword-only recall misses paraphrase; vector-only
@@ -150,7 +152,7 @@ func (s *Store) Recall(ctx context.Context, agentSlug, query string, limit int) 
 	if limit <= 0 || limit > 50 {
 		limit = 10
 	}
-	namespaces, err := s.readable(ctx, agentSlug)
+	own, namespaces, err := s.readable(ctx, agentSlug)
 	if err != nil {
 		return nil, err
 	}
@@ -197,10 +199,22 @@ fused AS (
 SELECT m.id, m.namespace, m.content, m.source_kind, m.source_ref,
        m.importance, f.score, m.created_at
   FROM fused f JOIN builder_memories m ON m.id = f.id
- ORDER BY f.score DESC, m.importance DESC
+ -- Agent-scoped results first, then everything granted (the project brain, and
+ -- any other namespace this agent may read), each group by relevance.
+ --
+ -- The two scopes are not comparable on score alone: RRF ranks within a result
+ -- set, so a project memory's score says how it fared against other project
+ -- memories, not whether it beats something the agent concluded itself. Ordering
+ -- by scope first says what the fleet actually believes — an agent's own finding
+ -- outranks shared background on the same question.
+ --
+ -- The cost is real and deliberate: an agent with a full page of strong hits of
+ -- its own sees no project memory on that query. Raise the limit to widen it.
+ -- Postgres sorts false before true, so the own-namespace group leads.
+ ORDER BY (m.namespace <> $6), f.score DESC, m.importance DESC
  LIMIT $4`
 
-	rows, err := s.db.QueryContext(ctx, rrf, pgArray(namespaces), vec, query, limit, MaxDistance)
+	rows, err := s.db.QueryContext(ctx, rrf, pgArray(namespaces), vec, query, limit, MaxDistance, own)
 	if err != nil {
 		return nil, fmt.Errorf("recall: %w", err)
 	}
@@ -241,15 +255,33 @@ SELECT m.id, m.namespace, m.content, m.source_kind, m.source_ref,
 	return out, nil
 }
 
-// readable is the agent's own namespace plus every read grant.
-func (s *Store) readable(ctx context.Context, agentSlug string) ([]string, error) {
+// readable is the agent's own namespace plus every read grant. It returns the
+// own namespace separately as well as inside the list.
+//
+// Callers need to know WHICH of these is the agent's own, and the list cannot
+// tell them: it comes from a UNION with no ORDER BY, so its order is whatever
+// Postgres happened to produce. Recall ranks by scope and recordGap picks a
+// namespace to write to — both were one arbitrary row order away from treating
+// the shared project brain as the agent's own.
+//
+// The own namespace is resolved WITHOUT can_write, unlike Writable: an agent
+// whose brain is read-only still reads its own memories, it just cannot add to
+// them.
+func (s *Store) readable(ctx context.Context, agentSlug string) (string, []string, error) {
+	var own string
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT namespace FROM builder_brains WHERE agent_slug = $1`,
+		agentSlug).Scan(&own); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return "", nil, fmt.Errorf("resolve own namespace: %w", err)
+	}
+
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT namespace FROM builder_brains WHERE agent_slug = $1
 		 UNION
 		 SELECT namespace FROM builder_brain_grants WHERE agent_slug = $1 AND can_read`,
 		agentSlug)
 	if err != nil {
-		return nil, fmt.Errorf("resolve namespaces: %w", err)
+		return "", nil, fmt.Errorf("resolve namespaces: %w", err)
 	}
 	defer rows.Close()
 	var out []string
@@ -259,7 +291,14 @@ func (s *Store) readable(ctx context.Context, agentSlug string) ([]string, error
 			out = append(out, ns)
 		}
 	}
-	return out, nil
+	return own, out, nil
+}
+
+// ReadableNamespaces is what an agent may recall from: its own brain first, then
+// every namespace it has been granted. Exposed so a screen can show an agent
+// which brains it reads without duplicating the grant logic.
+func (s *Store) ReadableNamespaces(ctx context.Context, agentSlug string) (string, []string, error) {
+	return s.readable(ctx, agentSlug)
 }
 
 // Writable is the agent's own namespace only. A read grant never implies write:

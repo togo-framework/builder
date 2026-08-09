@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/togo-framework/builder/internal/brain"
 	"github.com/togo-framework/builder/internal/runner"
 )
 
@@ -467,6 +468,21 @@ func (g *Generator) persist(ctx context.Context, name, plan string, m *Manifest,
 		return fmt.Errorf("upsert fleet: %w", err)
 	}
 
+	// The project brain: one namespace holding what is true about THIS project,
+	// which every agent reads and no agent writes. It belongs to no agent, so its
+	// agent_slug is NULL — see migration 0010, which is what makes that legal.
+	//
+	// Created before the loop because every agent below is granted read on it.
+	// The grants used to be written against a namespace that had no brain row at
+	// all: readable, but invisible to anything that joins through builder_brains.
+	projectNS := brain.ProjectNamespace(name)
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO builder_brains (agent_slug, namespace, driver, can_read, can_write, embedding_dim)
+		 VALUES (NULL, $1, 'pgvector', true, true, $2)
+		 ON CONFLICT (namespace) DO NOTHING`, projectNS, brain.Dim); err != nil {
+		return fmt.Errorf("create the project brain %s: %w", projectNS, err)
+	}
+
 	for i, a := range m.Agents {
 		specPath := ".claude/agents/" + a.Slug + ".md"
 		if _, err := tx.ExecContext(ctx,
@@ -503,7 +519,7 @@ func (g *Generator) persist(ctx context.Context, name, plan string, m *Manifest,
 			 VALUES ($1,'pgvector',$2,$3,1024)
 			 ON CONFLICT (agent_slug) DO UPDATE SET namespace = EXCLUDED.namespace, updated_at = now()
 			 RETURNING id`,
-			a.Slug, ns, pgArray([]string{name + ":project"})).Scan(&brainID); err != nil {
+			a.Slug, ns, pgArray([]string{projectNS})).Scan(&brainID); err != nil {
 			return fmt.Errorf("create brain for %s: %w", a.Slug, err)
 		}
 		if _, err := tx.ExecContext(ctx,
@@ -515,7 +531,7 @@ func (g *Generator) persist(ctx context.Context, name, plan string, m *Manifest,
 		if _, err := tx.ExecContext(ctx,
 			`INSERT INTO builder_brain_grants (namespace, agent_slug, can_read, can_write)
 			 VALUES ($1,$2,true,false) ON CONFLICT DO NOTHING`,
-			name+":project", a.Slug); err != nil {
+			projectNS, a.Slug); err != nil {
 			return fmt.Errorf("grant shared brain to %s: %w", a.Slug, err)
 		}
 	}
