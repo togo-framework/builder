@@ -14,13 +14,18 @@ import { AppLayout } from "./routes/app-layout";
 // so it splits into its own chunk and the public/auth first paint stays small.
 // The router's pending component (SentraLoading) shows while the chunk loads.
 const Dashboard = lazyRouteComponent(() => import("./routes/dashboard"), "Dashboard");
-const AdminHome = lazyRouteComponent(() => import("./routes/admin"), "AdminHome");
 const AdminResource = lazyRouteComponent(() => import("./routes/admin-resource"), "AdminResource");
 const Profile = lazyRouteComponent(() => import("./routes/profile"), "Profile");
 const Issues = lazyRouteComponent(() => import("./routes/issues"), "Issues");
 const IssueDetail = lazyRouteComponent(() => import("./routes/issue-detail"), "IssueDetail");
 const Setup = lazyRouteComponent(() => import("./routes/setup"), "Setup");
 const Vault = lazyRouteComponent(() => import("./routes/vault"), "Vault");
+const Agents = lazyRouteComponent(() => import("./routes/agents"), "Agents");
+const AgentDetail = lazyRouteComponent(() => import("./routes/agent-detail"), "AgentDetail");
+const Skills = lazyRouteComponent(() => import("./routes/skills"), "Skills");
+const SkillDetail = lazyRouteComponent(() => import("./routes/skill-detail"), "SkillDetail");
+const Mcp = lazyRouteComponent(() => import("./routes/mcp"), "Mcp");
+const Terminal = lazyRouteComponent(() => import("./routes/terminal"), "Terminal");
 
 const rootRoute = createRootRoute({ component: () => (<Providers><Outlet /></Providers>) });
 
@@ -62,16 +67,21 @@ const appRoute = createRoute({
   },
 });
 const dashboardRoute = createRoute({ getParentRoute: () => appRoute, path: "/dashboard", component: Dashboard });
-const adminRoute = createRoute({ getParentRoute: () => appRoute, path: "/admin", component: AdminHome });
 const resourceRoute = createRoute({ getParentRoute: () => appRoute, path: "/admin/$resource", component: AdminResource });
 const profileRoute = createRoute({ getParentRoute: () => appRoute, path: "/profile", component: Profile });
 const issuesRoute = createRoute({ getParentRoute: () => appRoute, path: "/issues", component: Issues });
 const vaultRoute = createRoute({ getParentRoute: () => appRoute, path: "/vault", component: Vault });
+const agentsRoute = createRoute({ getParentRoute: () => appRoute, path: "/agents", component: Agents });
+const agentDetailRoute = createRoute({ getParentRoute: () => appRoute, path: "/agents/$slug", component: AgentDetail });
+const skillsRoute = createRoute({ getParentRoute: () => appRoute, path: "/skills", component: Skills });
+const skillDetailRoute = createRoute({ getParentRoute: () => appRoute, path: "/skills/$name", component: SkillDetail });
+const mcpRoute = createRoute({ getParentRoute: () => appRoute, path: "/mcp", component: Mcp });
+const terminalRoute = createRoute({ getParentRoute: () => appRoute, path: "/terminal", component: Terminal });
 const issueDetailRoute = createRoute({ getParentRoute: () => appRoute, path: "/issues/$number", component: IssueDetail });
 
 const routeTree = rootRoute.addChildren([
   indexRoute, loginRoute, registerRoute, resetRoute, setupRoute,
-  appRoute.addChildren([dashboardRoute, adminRoute, resourceRoute, profileRoute, issuesRoute, issueDetailRoute, vaultRoute]),
+  appRoute.addChildren([dashboardRoute, resourceRoute, profileRoute, issuesRoute, issueDetailRoute, vaultRoute, agentsRoute, agentDetailRoute, skillsRoute, skillDetailRoute, mcpRoute, terminalRoute]),
 ]);
 
 export const router = createRouter({

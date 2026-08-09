@@ -50,6 +50,33 @@ async function json<T>(res: Response): Promise<T> {
 export const fetchBoard = () =>
   fetch(`${base}/board`, { credentials: "include" }).then(json<Board>);
 
+export interface NewIssue {
+  type: IssueType;
+  title: string;
+  body?: string;
+  priority?: Priority;
+  area?: string;
+  humanOnly?: boolean;
+  /** Agent slug, or "" to let the lead route it. */
+  assignee?: string;
+}
+
+/**
+ * File an issue by hand.
+ *
+ * Everything on the board used to arrive through the widget's public ingress,
+ * which is shaped around a reporter standing on a page with elements pinned —
+ * right for a bug report, wrong for writing down a piece of work you already
+ * know you want. This takes the fields the board sorts by instead.
+ */
+export const createIssue = (issue: NewIssue) =>
+  fetch(`${base}/issues`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(issue),
+  }).then(json<{ id: string; number: number }>);
+
 export const fetchIssue = (n: number | string) =>
   fetch(`${base}/issues/${n}`, { credentials: "include" }).then(json<Detail>);
 

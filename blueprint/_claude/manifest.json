@@ -1,10 +1,5 @@
 {
   "$schema": "https://togo-framework.dev/schemas/claude-manifest-1.json",
-  "manifestVersion": 1,
-  "blueprintVersion": "{{blueprint_version}}",
-  "generatedAt": "{{generated_at}}",
-  "generator": "togo builder new",
-
   "README": [
     "THE WRITE CONTRACT FOR .claude/ — read this before any tool, agent, or human edits this tree.",
     "",
@@ -16,13 +11,13 @@
     "2. THE UPGRADE RULE (the one that matters). On `togo builder upgrade`, for each `baseline`",
     "   entry the tool recomputes the sha256 of the file on disk and compares it to the `sha256`",
     "   recorded here:",
-    "     - MATCH    -> the operator never touched it. Replace it with the new baseline. Silent.",
-    "     - MISMATCH -> THE FILE IS USER-EDITED AND MUST NEVER BE OVERWRITTEN SILENTLY. Write the",
-    "                   incoming version alongside as `<file>.new`, set `conflict: true` on the",
+    "     - MATCH    -\u003e the operator never touched it. Replace it with the new baseline. Silent.",
+    "     - MISMATCH -\u003e THE FILE IS USER-EDITED AND MUST NEVER BE OVERWRITTEN SILENTLY. Write the",
+    "                   incoming version alongside as `\u003cfile\u003e.new`, set `conflict: true` on the",
     "                   entry, print the path, and move on. The operator resolves it. An upgrade",
     "                   that discards a hand-edited rule is how a fleet quietly loses its guard",
     "                   rails; it is the single failure this manifest exists to prevent.",
-    "     - MISSING  -> the operator deleted it deliberately. Do not restore it. Record",
+    "     - MISSING  -\u003e the operator deleted it deliberately. Do not restore it. Record",
     "                   `deleted: true` and warn once.",
     "",
     "3. GENERATED FILES. Each `generated` entry carries `owner` (the only writer permitted to",
@@ -54,23 +49,679 @@
     "   every hook named in `settings.json` exists and is executable; `CLAUDE.md` markers are",
     "   intact and balanced. SETUP IS NOT COMPLETE UNTIL DOCTOR IS GREEN.",
     "",
-    "NOTE ON THIS CHECKED-IN COPY: the `sha256` fields ship as `{{sha256:<path>}}` placeholders.",
+    "NOTE ON THIS CHECKED-IN COPY: the `sha256` fields ship as `{{sha256:\u003cpath\u003e}}` placeholders.",
     "`togo builder new` re-emits this file from what it actually rendered — real hashes, entries",
     "pruned for conditional files that were not written. The list below is therefore also the",
     "blueprint's completeness assertion: if a baseline path here was not rendered and is not",
     "conditional, the scaffold is broken."
   ],
-
+  "_contract": "Files under `generated` are written by fleet-builder. On regeneration a file whose on-disk content no longer carries the generated marker is treated as user-owned and left alone.",
+  "baseline": [
+    {
+      "markerFile": true,
+      "path": "CLAUDE.md",
+      "sha256": "{{sha256:CLAUDE.md}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "path": ".mcp.json",
+      "sha256": "{{sha256:.mcp.json}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "path": ".claude/settings.json",
+      "sha256": "{{sha256:.claude/settings.json}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "path": ".claude/manifest.json",
+      "sha256": "self",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "path": ".claude/rules/00-what-this-repo-is.md",
+      "sha256": "{{sha256:.claude/rules/00-what-this-repo-is.md}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "path": ".claude/rules/01-plan-first.md",
+      "sha256": "{{sha256:.claude/rules/01-plan-first.md}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "path": ".claude/rules/02-clarify-unknowns.md",
+      "sha256": "{{sha256:.claude/rules/02-clarify-unknowns.md}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "path": ".claude/rules/03-interrupt-handling.md",
+      "sha256": "{{sha256:.claude/rules/03-interrupt-handling.md}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "path": ".claude/rules/04-small-wins.md",
+      "sha256": "{{sha256:.claude/rules/04-small-wins.md}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "path": ".claude/rules/05-definition-of-done.md",
+      "sha256": "{{sha256:.claude/rules/05-definition-of-done.md}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "path": ".claude/rules/06-plan-progress-tracking.md",
+      "sha256": "{{sha256:.claude/rules/06-plan-progress-tracking.md}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "path": ".claude/rules/07-client-first.md",
+      "sha256": "{{sha256:.claude/rules/07-client-first.md}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "path": ".claude/rules/08-parallel-execution.md",
+      "sha256": "{{sha256:.claude/rules/08-parallel-execution.md}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "path": ".claude/rules/09-project-team-only.md",
+      "sha256": "{{sha256:.claude/rules/09-project-team-only.md}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "path": ".claude/rules/10-generator-first-sequence.md",
+      "sha256": "{{sha256:.claude/rules/10-generator-first-sequence.md}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "path": ".claude/rules/11-service-boundaries.md",
+      "sha256": "{{sha256:.claude/rules/11-service-boundaries.md}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "path": ".claude/rules/12-no-db-client-in-web.md",
+      "sha256": "{{sha256:.claude/rules/12-no-db-client-in-web.md}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "path": ".claude/rules/13-go-conventions.md",
+      "sha256": "{{sha256:.claude/rules/13-go-conventions.md}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "conditional": "surfaces includes a web UI",
+      "path": ".claude/rules/14-component-ui-design.md",
+      "sha256": "{{sha256:.claude/rules/14-component-ui-design.md}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "conditional": "locales.length \u003e 1",
+      "path": ".claude/rules/15-bilingual-content.md",
+      "sha256": "{{sha256:.claude/rules/15-bilingual-content.md}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "path": ".claude/rules/16-security-checklist.md",
+      "sha256": "{{sha256:.claude/rules/16-security-checklist.md}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "path": ".claude/rules/20-no-direct-ddl.md",
+      "sha256": "{{sha256:.claude/rules/20-no-direct-ddl.md}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "path": ".claude/rules/21-no-direct-db-writes.md",
+      "sha256": "{{sha256:.claude/rules/21-no-direct-db-writes.md}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "path": ".claude/rules/22-never-wipe-database.md",
+      "sha256": "{{sha256:.claude/rules/22-never-wipe-database.md}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "path": ".claude/rules/23-migration-mirrors-live-db.md",
+      "sha256": "{{sha256:.claude/rules/23-migration-mirrors-live-db.md}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "conditional": "iac != null",
+      "path": ".claude/rules/24-iac-mirrors-infra.md",
+      "sha256": "{{sha256:.claude/rules/24-iac-mirrors-infra.md}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "conditional": "iac != null",
+      "path": ".claude/rules/25-fix-in-iac-not-on-deploy.md",
+      "sha256": "{{sha256:.claude/rules/25-fix-in-iac-not-on-deploy.md}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "path": ".claude/rules/26-deploy-never-sets-env-vars.md",
+      "sha256": "{{sha256:.claude/rules/26-deploy-never-sets-env-vars.md}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "path": ".claude/rules/27-promotion-path.md",
+      "sha256": "{{sha256:.claude/rules/27-promotion-path.md}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "path": ".claude/rules/28-verify-live-before-closing.md",
+      "sha256": "{{sha256:.claude/rules/28-verify-live-before-closing.md}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "path": ".claude/rules/30-autonomy-grant.md",
+      "sha256": "{{sha256:.claude/rules/30-autonomy-grant.md}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "path": ".claude/rules/31-never-merge-your-own-work.md",
+      "sha256": "{{sha256:.claude/rules/31-never-merge-your-own-work.md}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "path": ".claude/rules/32-cost-ceilings.md",
+      "sha256": "{{sha256:.claude/rules/32-cost-ceilings.md}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "path": ".claude/rules/33-human-only-work-classes.md",
+      "sha256": "{{sha256:.claude/rules/33-human-only-work-classes.md}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "path": ".claude/rules/34-secret-handling.md",
+      "sha256": "{{sha256:.claude/rules/34-secret-handling.md}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "path": ".claude/rules/35-blast-radius.md",
+      "sha256": "{{sha256:.claude/rules/35-blast-radius.md}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "path": ".claude/rules/36-ship-dark.md",
+      "sha256": "{{sha256:.claude/rules/36-ship-dark.md}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "path": ".claude/rules/37-run-journal.md",
+      "sha256": "{{sha256:.claude/rules/37-run-journal.md}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "path": ".claude/rules/38-no-self-modification.md",
+      "sha256": "{{sha256:.claude/rules/38-no-self-modification.md}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "path": ".claude/rules/39-idempotency-and-stop-conditions.md",
+      "sha256": "{{sha256:.claude/rules/39-idempotency-and-stop-conditions.md}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "conditional": "a memory/brain provider is declared",
+      "path": ".claude/rules/40-memory-discipline.md",
+      "sha256": "{{sha256:.claude/rules/40-memory-discipline.md}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "path": ".claude/rules/41-external-communication-human-only.md",
+      "sha256": "{{sha256:.claude/rules/41-external-communication-human-only.md}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "path": ".claude/rules/42-provenance-and-scoped-commits.md",
+      "sha256": "{{sha256:.claude/rules/42-provenance-and-scoped-commits.md}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "markerFile": true,
+      "path": ".claude/hooks/README.md",
+      "sha256": "{{sha256:.claude/hooks/README.md}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "mode": "0755",
+      "path": ".claude/hooks/session-init.sh",
+      "sha256": "{{sha256:.claude/hooks/session-init.sh}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "mode": "0755",
+      "path": ".claude/hooks/guard-secrets.sh",
+      "sha256": "{{sha256:.claude/hooks/guard-secrets.sh}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "mode": "0755",
+      "path": ".claude/hooks/guard-db-wipe.sh",
+      "sha256": "{{sha256:.claude/hooks/guard-db-wipe.sh}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "mode": "0755",
+      "path": ".claude/hooks/guard-direct-ddl.sh",
+      "sha256": "{{sha256:.claude/hooks/guard-direct-ddl.sh}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "mode": "0755",
+      "path": ".claude/hooks/guard-db-dml.sh",
+      "sha256": "{{sha256:.claude/hooks/guard-db-dml.sh}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "mode": "0755",
+      "path": ".claude/hooks/guard-scoped-add.sh",
+      "sha256": "{{sha256:.claude/hooks/guard-scoped-add.sh}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "mode": "0755",
+      "path": ".claude/hooks/guard-autonomy.sh",
+      "sha256": "{{sha256:.claude/hooks/guard-autonomy.sh}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "mode": "0755",
+      "path": ".claude/hooks/guard-merge-gate.sh",
+      "sha256": "{{sha256:.claude/hooks/guard-merge-gate.sh}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "mode": "0755",
+      "path": ".claude/hooks/guard-generated-files.sh",
+      "sha256": "{{sha256:.claude/hooks/guard-generated-files.sh}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "mode": "0755",
+      "path": ".claude/hooks/guard-blast-radius.sh",
+      "sha256": "{{sha256:.claude/hooks/guard-blast-radius.sh}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "mode": "0755",
+      "path": ".claude/hooks/post-commit-check.sh",
+      "sha256": "{{sha256:.claude/hooks/post-commit-check.sh}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "mode": "0755",
+      "path": ".claude/hooks/budget-meter.sh",
+      "sha256": "{{sha256:.claude/hooks/budget-meter.sh}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "mode": "0755",
+      "path": ".claude/hooks/run-journal.sh",
+      "sha256": "{{sha256:.claude/hooks/run-journal.sh}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "conditional": "opt-in — not wired in settings.json by default",
+      "mode": "0755",
+      "path": ".claude/hooks/format-on-write.sh",
+      "sha256": "{{sha256:.claude/hooks/format-on-write.sh}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "conditional": "opt-in — not wired in settings.json by default",
+      "mode": "0755",
+      "path": ".claude/hooks/capture-learning.sh",
+      "sha256": "{{sha256:.claude/hooks/capture-learning.sh}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "path": ".claude/agents/orchestrator.md",
+      "sha256": "{{sha256:.claude/agents/orchestrator.md}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "path": ".claude/agents/product-manager.md",
+      "sha256": "{{sha256:.claude/agents/product-manager.md}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "path": ".claude/agents/delivery-manager.md",
+      "sha256": "{{sha256:.claude/agents/delivery-manager.md}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "path": ".claude/agents/backend-developer.md",
+      "sha256": "{{sha256:.claude/agents/backend-developer.md}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "path": ".claude/agents/db-engineer.md",
+      "sha256": "{{sha256:.claude/agents/db-engineer.md}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "path": ".claude/agents/web-developer.md",
+      "sha256": "{{sha256:.claude/agents/web-developer.md}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "path": ".claude/agents/ui-designer.md",
+      "sha256": "{{sha256:.claude/agents/ui-designer.md}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "path": ".claude/agents/qa-engineer.md",
+      "sha256": "{{sha256:.claude/agents/qa-engineer.md}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "path": ".claude/agents/e2e-verifier.md",
+      "sha256": "{{sha256:.claude/agents/e2e-verifier.md}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "path": ".claude/agents/code-reviewer.md",
+      "sha256": "{{sha256:.claude/agents/code-reviewer.md}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "path": ".claude/agents/security-engineer.md",
+      "sha256": "{{sha256:.claude/agents/security-engineer.md}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "path": ".claude/agents/platform-engineer.md",
+      "sha256": "{{sha256:.claude/agents/platform-engineer.md}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "path": ".claude/agents/release-manager.md",
+      "sha256": "{{sha256:.claude/agents/release-manager.md}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "path": ".claude/agents/issue-triage.md",
+      "sha256": "{{sha256:.claude/agents/issue-triage.md}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "path": ".claude/agents/issue-repro-checker.md",
+      "sha256": "{{sha256:.claude/agents/issue-repro-checker.md}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "path": ".claude/agents/technical-writer.md",
+      "sha256": "{{sha256:.claude/agents/technical-writer.md}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "path": ".claude/agents/fleet-builder.md",
+      "sha256": "{{sha256:.claude/agents/fleet-builder.md}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "conditional": "observability != null",
+      "path": ".claude/agents/sre-oncall.md",
+      "sha256": "{{sha256:.claude/agents/sre-oncall.md}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "conditional": "autonomy.level \u003e= supervised",
+      "path": ".claude/agents/run-auditor.md",
+      "sha256": "{{sha256:.claude/agents/run-auditor.md}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "path": ".claude/skills/plan/SKILL.md",
+      "sha256": "{{sha256:.claude/skills/plan/SKILL.md}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "path": ".claude/skills/push/SKILL.md",
+      "sha256": "{{sha256:.claude/skills/push/SKILL.md}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "path": ".claude/skills/promote/SKILL.md",
+      "sha256": "{{sha256:.claude/skills/promote/SKILL.md}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "path": ".claude/skills/verify/SKILL.md",
+      "sha256": "{{sha256:.claude/skills/verify/SKILL.md}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "path": ".claude/skills/todo-scan/SKILL.md",
+      "sha256": "{{sha256:.claude/skills/todo-scan/SKILL.md}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "path": ".claude/skills/decompose/SKILL.md",
+      "sha256": "{{sha256:.claude/skills/decompose/SKILL.md}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "path": ".claude/skills/issue-fix/SKILL.md",
+      "sha256": "{{sha256:.claude/skills/issue-fix/SKILL.md}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "path": ".claude/skills/togo-resource/SKILL.md",
+      "sha256": "{{sha256:.claude/skills/togo-resource/SKILL.md}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "path": ".claude/skills/togo-generate/SKILL.md",
+      "sha256": "{{sha256:.claude/skills/togo-generate/SKILL.md}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "path": ".claude/skills/togo-migrate/SKILL.md",
+      "sha256": "{{sha256:.claude/skills/togo-migrate/SKILL.md}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "path": ".claude/skills/togo-plugin/SKILL.md",
+      "sha256": "{{sha256:.claude/skills/togo-plugin/SKILL.md}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "path": ".claude/skills/togo-deploy/SKILL.md",
+      "sha256": "{{sha256:.claude/skills/togo-deploy/SKILL.md}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "path": ".claude/skills/web-best-practices/SKILL.md",
+      "sha256": "{{sha256:.claude/skills/web-best-practices/SKILL.md}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "path": ".claude/skills/data-fetching/SKILL.md",
+      "sha256": "{{sha256:.claude/skills/data-fetching/SKILL.md}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "path": ".claude/skills/testing-strategy/SKILL.md",
+      "sha256": "{{sha256:.claude/skills/testing-strategy/SKILL.md}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "path": ".claude/skills/e2e-tests/SKILL.md",
+      "sha256": "{{sha256:.claude/skills/e2e-tests/SKILL.md}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "path": ".claude/skills/error-handling/SKILL.md",
+      "sha256": "{{sha256:.claude/skills/error-handling/SKILL.md}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "path": ".claude/skills/telemetry/SKILL.md",
+      "sha256": "{{sha256:.claude/skills/telemetry/SKILL.md}}",
+      "sinceVersion": "1.0.0"
+    },
+    {
+      "conditional": "the builder issue plane is installed",
+      "path": ".claude/skills/find-pinned-component/SKILL.md",
+      "sha256": "{{sha256:.claude/skills/find-pinned-component/SKILL.md}}",
+      "sinceVersion": "1.0.0"
+    }
+  ],
+  "blueprintVersion": "{{blueprint_version}}",
+  "generated": [
+    {
+      "path": "/Users/fadymondy/Sites/togo/builder-dev/.claude/agents/agent-loop-engineer.md",
+      "sha256": "428ee4f9f05869995a950de790f0d4f590c605d12877485b218bf350e3de27b5",
+      "owner": "fleet-builder"
+    },
+    {
+      "path": "/Users/fadymondy/Sites/togo/builder-dev/.claude/agents/blueprint-packager.md",
+      "sha256": "265093ec3b3fc3fcdbe7b91278f60726e79f55c16857805134de02000382a7c4",
+      "owner": "fleet-builder"
+    },
+    {
+      "path": "/Users/fadymondy/Sites/togo/builder-dev/.claude/agents/brain-vault-engineer.md",
+      "sha256": "fda58ce848681a62394c589a73653ad3cd2ea5b38b91d7be14196055b082e084",
+      "owner": "fleet-builder"
+    },
+    {
+      "path": "/Users/fadymondy/Sites/togo/builder-dev/.claude/agents/feedback-widget-engineer.md",
+      "sha256": "bdec911325ac4c7ee9f19a7572f0f3e03b09ff0467f68273f88e575c2485eae4",
+      "owner": "fleet-builder"
+    },
+    {
+      "path": "/Users/fadymondy/Sites/togo/builder-dev/.claude/agents/issue-plane-engineer.md",
+      "sha256": "6ca97803e7e092fc91a3757fd4d276012d7fd530b0131c461606396cc8614098",
+      "owner": "fleet-builder"
+    },
+    {
+      "path": "/Users/fadymondy/Sites/togo/builder-dev/.claude/agents/realtime-notify-engineer.md",
+      "sha256": "d8bee8e72ed9138d69ff5a53f83697e153cfbc412c7a38c07d91f1f175502a23",
+      "owner": "fleet-builder"
+    },
+    {
+      "path": "/Users/fadymondy/Sites/togo/builder-dev/.claude/skills/agent-run-lifecycle/SKILL.md",
+      "sha256": "508c15d40ed59b2cb376f1edd5a330584ad61d13a8d96b0f6daf4f4693d64d00",
+      "owner": "fleet-builder"
+    },
+    {
+      "path": "/Users/fadymondy/Sites/togo/builder-dev/.claude/skills/blueprint-scaffold/SKILL.md",
+      "sha256": "daadb2d07f62bf455ec84cd716b6fc61eb3379855aef3194fa71d1fc3a611d28",
+      "owner": "fleet-builder"
+    },
+    {
+      "path": "/Users/fadymondy/Sites/togo/builder-dev/.claude/skills/brain-memory/SKILL.md",
+      "sha256": "11e06c1039cd44c9241e0d9bff6bde9f4aedd8e7825769824f7fed2a65e83850",
+      "owner": "fleet-builder"
+    },
+    {
+      "path": "/Users/fadymondy/Sites/togo/builder-dev/.claude/skills/feedback-sdk/SKILL.md",
+      "sha256": "81701fe0374824ff4ce52542c59d7c8217f13929abd3a5b60e83a99289027e09",
+      "owner": "fleet-builder"
+    },
+    {
+      "path": "/Users/fadymondy/Sites/togo/builder-dev/.claude/skills/human-in-the-loop/SKILL.md",
+      "sha256": "cf4a5a2c58273d3f33b603207f4d93f5dff79e21049b9d8ff288cabdd49a6022",
+      "owner": "fleet-builder"
+    },
+    {
+      "path": "/Users/fadymondy/Sites/togo/builder-dev/.claude/skills/issue-plane/SKILL.md",
+      "sha256": "f696768a0ddd3a41e638d4a4e24c0ad0f852df22355b738acc75b88a9e94f35f",
+      "owner": "fleet-builder"
+    },
+    {
+      "path": "/Users/fadymondy/Sites/togo/builder-dev/.claude/skills/pin-anchor-resolution/SKILL.md",
+      "sha256": "2eb939c368ec3fb9abb08e827f495b26df55cf5c7c936e288eae5e502258cb0c",
+      "owner": "fleet-builder"
+    },
+    {
+      "path": "/Users/fadymondy/Sites/togo/builder-dev/.claude/skills/realtime-sse/SKILL.md",
+      "sha256": "6a9cade505be37a422062f0cd60e242d128701723bb6d53599e95401cf9e3206",
+      "owner": "fleet-builder"
+    },
+    {
+      "path": "/Users/fadymondy/Sites/togo/builder-dev/.claude/skills/setup-preflight/SKILL.md",
+      "sha256": "da9fb1d8f0be2fcab7b32c924c98d959e2cf34427c14161ed79ffde65b954b2d",
+      "owner": "fleet-builder"
+    },
+    {
+      "path": "/Users/fadymondy/Sites/togo/builder-dev/.claude/skills/vault-secrets/SKILL.md",
+      "sha256": "fdb529077aee6a373d1d988dfc0528eb86a1d01fef66a4525c1b29d6e20e2d97",
+      "owner": "fleet-builder"
+    }
+  ],
+  "generatedAt": "{{generated_at}}",
+  "generator": "togo builder new",
+  "manifestVersion": 1,
+  "markerFiles": [
+    {
+      "blocks": [
+        {
+          "marker": "builder:baseline",
+          "owner": "blueprint",
+          "regenerate": true
+        },
+        {
+          "marker": "builder:generated",
+          "owner": "fleet-builder",
+          "regenerate": true
+        },
+        {
+          "marker": "builder:operator",
+          "owner": "operator",
+          "regenerate": false
+        }
+      ],
+      "path": "CLAUDE.md"
+    },
+    {
+      "blocks": [
+        {
+          "marker": "builder:baseline",
+          "owner": "blueprint",
+          "regenerate": true
+        },
+        {
+          "marker": "builder:operator",
+          "owner": "operator",
+          "regenerate": false
+        }
+      ],
+      "path": ".claude/hooks/README.md"
+    }
+  ],
+  "registries": [
+    {
+      "contains": "project identity — the {{tokens}} every rule substitutes",
+      "owner": "wizard",
+      "path": ".claude/project.json"
+    },
+    {
+      "contains": "the agent roster; rules point here instead of embedding a table",
+      "owner": "fleet-builder",
+      "path": ".claude/team.yaml"
+    },
+    {
+      "contains": "the autonomy grant, budgets, human-only labels",
+      "owner": "operator",
+      "path": ".claude/autonomy.yaml",
+      "seededBy": "wizard"
+    },
+    {
+      "contains": "binaries, migration runner, deploy commands, protected DBs, IaC paths",
+      "owner": "wizard",
+      "path": ".claude/hook-config.json"
+    },
+    {
+      "contains": "the import boundary table driving Rules 11/12 and post-commit-check",
+      "owner": "wizard",
+      "path": ".claude/forbidden-imports.json"
+    }
+  ],
   "reservedNamespaces": {
-    "wizard": [
-      ".claude/project.json",
-      ".claude/hook-config.json",
-      ".claude/forbidden-imports.json",
-      ".claude/autonomy.yaml",
-      ".claude/rules/4[3-9]-*.md",
-      ".claude/rules/local/*.md",
-      "CLAUDE.md#builder:generated"
-    ],
     "fleet-builder": [
       ".claude/team.yaml",
       ".claude/agents/*.md",
@@ -83,194 +734,22 @@
       ".claude/settings.local.json",
       "CLAUDE.md#builder:operator",
       "everything not listed in this manifest"
+    ],
+    "wizard": [
+      ".claude/project.json",
+      ".claude/hook-config.json",
+      ".claude/forbidden-imports.json",
+      ".claude/autonomy.yaml",
+      ".claude/rules/4[3-9]-*.md",
+      ".claude/rules/local/*.md",
+      "CLAUDE.md#builder:generated"
     ]
   },
-
-  "registries": [
-    { "path": ".claude/project.json", "owner": "wizard", "contains": "project identity — the {{tokens}} every rule substitutes" },
-    { "path": ".claude/team.yaml", "owner": "fleet-builder", "contains": "the agent roster; rules point here instead of embedding a table" },
-    { "path": ".claude/autonomy.yaml", "owner": "operator", "seededBy": "wizard", "contains": "the autonomy grant, budgets, human-only labels" },
-    { "path": ".claude/hook-config.json", "owner": "wizard", "contains": "binaries, migration runner, deploy commands, protected DBs, IaC paths" },
-    { "path": ".claude/forbidden-imports.json", "owner": "wizard", "contains": "the import boundary table driving Rules 11/12 and post-commit-check" }
-  ],
-
-  "markerFiles": [
-    {
-      "path": "CLAUDE.md",
-      "blocks": [
-        { "marker": "builder:baseline", "owner": "blueprint", "regenerate": true },
-        { "marker": "builder:generated", "owner": "fleet-builder", "regenerate": true },
-        { "marker": "builder:operator", "owner": "operator", "regenerate": false }
-      ]
-    },
-    {
-      "path": ".claude/hooks/README.md",
-      "blocks": [
-        { "marker": "builder:baseline", "owner": "blueprint", "regenerate": true },
-        { "marker": "builder:operator", "owner": "operator", "regenerate": false }
-      ]
-    }
-  ],
-
   "reservedRuleNumbers": {
     "17-19": "reserved — baseline expansion",
     "29": "reserved — band boundary",
     "43-49": "wizard-generated project rules",
-    "local/*": "operator overlays; may only TIGHTEN a baseline rule (extends: <n>, mode: tighten|narrow). A mode: relax overlay requires an operator-signed `override:` key and is printed at every session start."
+    "local/*": "operator overlays; may only TIGHTEN a baseline rule (extends: \u003cn\u003e, mode: tighten|narrow). A mode: relax overlay requires an operator-signed `override:` key and is printed at every session start."
   },
-
-  "baseline": [
-    { "path": "CLAUDE.md", "sha256": "{{sha256:CLAUDE.md}}", "sinceVersion": "1.0.0", "markerFile": true },
-    { "path": ".mcp.json", "sha256": "{{sha256:.mcp.json}}", "sinceVersion": "1.0.0" },
-    { "path": ".claude/settings.json", "sha256": "{{sha256:.claude/settings.json}}", "sinceVersion": "1.0.0" },
-    { "path": ".claude/manifest.json", "sha256": "self", "sinceVersion": "1.0.0" },
-
-    { "path": ".claude/rules/00-what-this-repo-is.md", "sha256": "{{sha256:.claude/rules/00-what-this-repo-is.md}}", "sinceVersion": "1.0.0" },
-    { "path": ".claude/rules/01-plan-first.md", "sha256": "{{sha256:.claude/rules/01-plan-first.md}}", "sinceVersion": "1.0.0" },
-    { "path": ".claude/rules/02-clarify-unknowns.md", "sha256": "{{sha256:.claude/rules/02-clarify-unknowns.md}}", "sinceVersion": "1.0.0" },
-    { "path": ".claude/rules/03-interrupt-handling.md", "sha256": "{{sha256:.claude/rules/03-interrupt-handling.md}}", "sinceVersion": "1.0.0" },
-    { "path": ".claude/rules/04-small-wins.md", "sha256": "{{sha256:.claude/rules/04-small-wins.md}}", "sinceVersion": "1.0.0" },
-    { "path": ".claude/rules/05-definition-of-done.md", "sha256": "{{sha256:.claude/rules/05-definition-of-done.md}}", "sinceVersion": "1.0.0" },
-    { "path": ".claude/rules/06-plan-progress-tracking.md", "sha256": "{{sha256:.claude/rules/06-plan-progress-tracking.md}}", "sinceVersion": "1.0.0" },
-    { "path": ".claude/rules/07-client-first.md", "sha256": "{{sha256:.claude/rules/07-client-first.md}}", "sinceVersion": "1.0.0" },
-    { "path": ".claude/rules/08-parallel-execution.md", "sha256": "{{sha256:.claude/rules/08-parallel-execution.md}}", "sinceVersion": "1.0.0" },
-    { "path": ".claude/rules/09-project-team-only.md", "sha256": "{{sha256:.claude/rules/09-project-team-only.md}}", "sinceVersion": "1.0.0" },
-    { "path": ".claude/rules/10-generator-first-sequence.md", "sha256": "{{sha256:.claude/rules/10-generator-first-sequence.md}}", "sinceVersion": "1.0.0" },
-    { "path": ".claude/rules/11-service-boundaries.md", "sha256": "{{sha256:.claude/rules/11-service-boundaries.md}}", "sinceVersion": "1.0.0" },
-    { "path": ".claude/rules/12-no-db-client-in-web.md", "sha256": "{{sha256:.claude/rules/12-no-db-client-in-web.md}}", "sinceVersion": "1.0.0" },
-    { "path": ".claude/rules/13-go-conventions.md", "sha256": "{{sha256:.claude/rules/13-go-conventions.md}}", "sinceVersion": "1.0.0" },
-    { "path": ".claude/rules/14-component-ui-design.md", "sha256": "{{sha256:.claude/rules/14-component-ui-design.md}}", "sinceVersion": "1.0.0", "conditional": "surfaces includes a web UI" },
-    { "path": ".claude/rules/15-bilingual-content.md", "sha256": "{{sha256:.claude/rules/15-bilingual-content.md}}", "sinceVersion": "1.0.0", "conditional": "locales.length > 1" },
-    { "path": ".claude/rules/16-security-checklist.md", "sha256": "{{sha256:.claude/rules/16-security-checklist.md}}", "sinceVersion": "1.0.0" },
-
-    { "path": ".claude/rules/20-no-direct-ddl.md", "sha256": "{{sha256:.claude/rules/20-no-direct-ddl.md}}", "sinceVersion": "1.0.0" },
-    { "path": ".claude/rules/21-no-direct-db-writes.md", "sha256": "{{sha256:.claude/rules/21-no-direct-db-writes.md}}", "sinceVersion": "1.0.0" },
-    { "path": ".claude/rules/22-never-wipe-database.md", "sha256": "{{sha256:.claude/rules/22-never-wipe-database.md}}", "sinceVersion": "1.0.0" },
-    { "path": ".claude/rules/23-migration-mirrors-live-db.md", "sha256": "{{sha256:.claude/rules/23-migration-mirrors-live-db.md}}", "sinceVersion": "1.0.0" },
-    { "path": ".claude/rules/24-iac-mirrors-infra.md", "sha256": "{{sha256:.claude/rules/24-iac-mirrors-infra.md}}", "sinceVersion": "1.0.0", "conditional": "iac != null" },
-    { "path": ".claude/rules/25-fix-in-iac-not-on-deploy.md", "sha256": "{{sha256:.claude/rules/25-fix-in-iac-not-on-deploy.md}}", "sinceVersion": "1.0.0", "conditional": "iac != null" },
-    { "path": ".claude/rules/26-deploy-never-sets-env-vars.md", "sha256": "{{sha256:.claude/rules/26-deploy-never-sets-env-vars.md}}", "sinceVersion": "1.0.0" },
-    { "path": ".claude/rules/27-promotion-path.md", "sha256": "{{sha256:.claude/rules/27-promotion-path.md}}", "sinceVersion": "1.0.0" },
-    { "path": ".claude/rules/28-verify-live-before-closing.md", "sha256": "{{sha256:.claude/rules/28-verify-live-before-closing.md}}", "sinceVersion": "1.0.0" },
-
-    { "path": ".claude/rules/30-autonomy-grant.md", "sha256": "{{sha256:.claude/rules/30-autonomy-grant.md}}", "sinceVersion": "1.0.0" },
-    { "path": ".claude/rules/31-never-merge-your-own-work.md", "sha256": "{{sha256:.claude/rules/31-never-merge-your-own-work.md}}", "sinceVersion": "1.0.0" },
-    { "path": ".claude/rules/32-cost-ceilings.md", "sha256": "{{sha256:.claude/rules/32-cost-ceilings.md}}", "sinceVersion": "1.0.0" },
-    { "path": ".claude/rules/33-human-only-work-classes.md", "sha256": "{{sha256:.claude/rules/33-human-only-work-classes.md}}", "sinceVersion": "1.0.0" },
-    { "path": ".claude/rules/34-secret-handling.md", "sha256": "{{sha256:.claude/rules/34-secret-handling.md}}", "sinceVersion": "1.0.0" },
-    { "path": ".claude/rules/35-blast-radius.md", "sha256": "{{sha256:.claude/rules/35-blast-radius.md}}", "sinceVersion": "1.0.0" },
-    { "path": ".claude/rules/36-ship-dark.md", "sha256": "{{sha256:.claude/rules/36-ship-dark.md}}", "sinceVersion": "1.0.0" },
-    { "path": ".claude/rules/37-run-journal.md", "sha256": "{{sha256:.claude/rules/37-run-journal.md}}", "sinceVersion": "1.0.0" },
-    { "path": ".claude/rules/38-no-self-modification.md", "sha256": "{{sha256:.claude/rules/38-no-self-modification.md}}", "sinceVersion": "1.0.0" },
-    { "path": ".claude/rules/39-idempotency-and-stop-conditions.md", "sha256": "{{sha256:.claude/rules/39-idempotency-and-stop-conditions.md}}", "sinceVersion": "1.0.0" },
-    { "path": ".claude/rules/40-memory-discipline.md", "sha256": "{{sha256:.claude/rules/40-memory-discipline.md}}", "sinceVersion": "1.0.0", "conditional": "a memory/brain provider is declared" },
-    { "path": ".claude/rules/41-external-communication-human-only.md", "sha256": "{{sha256:.claude/rules/41-external-communication-human-only.md}}", "sinceVersion": "1.0.0" },
-    { "path": ".claude/rules/42-provenance-and-scoped-commits.md", "sha256": "{{sha256:.claude/rules/42-provenance-and-scoped-commits.md}}", "sinceVersion": "1.0.0" },
-
-    { "path": ".claude/hooks/README.md", "sha256": "{{sha256:.claude/hooks/README.md}}", "sinceVersion": "1.0.0", "markerFile": true },
-    { "path": ".claude/hooks/session-init.sh", "sha256": "{{sha256:.claude/hooks/session-init.sh}}", "sinceVersion": "1.0.0", "mode": "0755" },
-    { "path": ".claude/hooks/guard-secrets.sh", "sha256": "{{sha256:.claude/hooks/guard-secrets.sh}}", "sinceVersion": "1.0.0", "mode": "0755" },
-    { "path": ".claude/hooks/guard-db-wipe.sh", "sha256": "{{sha256:.claude/hooks/guard-db-wipe.sh}}", "sinceVersion": "1.0.0", "mode": "0755" },
-    { "path": ".claude/hooks/guard-direct-ddl.sh", "sha256": "{{sha256:.claude/hooks/guard-direct-ddl.sh}}", "sinceVersion": "1.0.0", "mode": "0755" },
-    { "path": ".claude/hooks/guard-db-dml.sh", "sha256": "{{sha256:.claude/hooks/guard-db-dml.sh}}", "sinceVersion": "1.0.0", "mode": "0755" },
-    { "path": ".claude/hooks/guard-scoped-add.sh", "sha256": "{{sha256:.claude/hooks/guard-scoped-add.sh}}", "sinceVersion": "1.0.0", "mode": "0755" },
-    { "path": ".claude/hooks/guard-autonomy.sh", "sha256": "{{sha256:.claude/hooks/guard-autonomy.sh}}", "sinceVersion": "1.0.0", "mode": "0755" },
-    { "path": ".claude/hooks/guard-merge-gate.sh", "sha256": "{{sha256:.claude/hooks/guard-merge-gate.sh}}", "sinceVersion": "1.0.0", "mode": "0755" },
-    { "path": ".claude/hooks/guard-generated-files.sh", "sha256": "{{sha256:.claude/hooks/guard-generated-files.sh}}", "sinceVersion": "1.0.0", "mode": "0755" },
-    { "path": ".claude/hooks/guard-blast-radius.sh", "sha256": "{{sha256:.claude/hooks/guard-blast-radius.sh}}", "sinceVersion": "1.0.0", "mode": "0755" },
-    { "path": ".claude/hooks/post-commit-check.sh", "sha256": "{{sha256:.claude/hooks/post-commit-check.sh}}", "sinceVersion": "1.0.0", "mode": "0755" },
-    { "path": ".claude/hooks/budget-meter.sh", "sha256": "{{sha256:.claude/hooks/budget-meter.sh}}", "sinceVersion": "1.0.0", "mode": "0755" },
-    { "path": ".claude/hooks/run-journal.sh", "sha256": "{{sha256:.claude/hooks/run-journal.sh}}", "sinceVersion": "1.0.0", "mode": "0755" },
-    { "path": ".claude/hooks/format-on-write.sh", "sha256": "{{sha256:.claude/hooks/format-on-write.sh}}", "sinceVersion": "1.0.0", "mode": "0755", "conditional": "opt-in — not wired in settings.json by default" },
-    { "path": ".claude/hooks/capture-learning.sh", "sha256": "{{sha256:.claude/hooks/capture-learning.sh}}", "sinceVersion": "1.0.0", "mode": "0755", "conditional": "opt-in — not wired in settings.json by default" },
-
-    { "path": ".claude/agents/orchestrator.md", "sha256": "{{sha256:.claude/agents/orchestrator.md}}", "sinceVersion": "1.0.0" },
-    { "path": ".claude/agents/product-manager.md", "sha256": "{{sha256:.claude/agents/product-manager.md}}", "sinceVersion": "1.0.0" },
-    { "path": ".claude/agents/delivery-manager.md", "sha256": "{{sha256:.claude/agents/delivery-manager.md}}", "sinceVersion": "1.0.0" },
-    { "path": ".claude/agents/backend-developer.md", "sha256": "{{sha256:.claude/agents/backend-developer.md}}", "sinceVersion": "1.0.0" },
-    { "path": ".claude/agents/db-engineer.md", "sha256": "{{sha256:.claude/agents/db-engineer.md}}", "sinceVersion": "1.0.0" },
-    { "path": ".claude/agents/web-developer.md", "sha256": "{{sha256:.claude/agents/web-developer.md}}", "sinceVersion": "1.0.0" },
-    { "path": ".claude/agents/ui-designer.md", "sha256": "{{sha256:.claude/agents/ui-designer.md}}", "sinceVersion": "1.0.0" },
-    { "path": ".claude/agents/qa-engineer.md", "sha256": "{{sha256:.claude/agents/qa-engineer.md}}", "sinceVersion": "1.0.0" },
-    { "path": ".claude/agents/e2e-verifier.md", "sha256": "{{sha256:.claude/agents/e2e-verifier.md}}", "sinceVersion": "1.0.0" },
-    { "path": ".claude/agents/code-reviewer.md", "sha256": "{{sha256:.claude/agents/code-reviewer.md}}", "sinceVersion": "1.0.0" },
-    { "path": ".claude/agents/security-engineer.md", "sha256": "{{sha256:.claude/agents/security-engineer.md}}", "sinceVersion": "1.0.0" },
-    { "path": ".claude/agents/platform-engineer.md", "sha256": "{{sha256:.claude/agents/platform-engineer.md}}", "sinceVersion": "1.0.0" },
-    { "path": ".claude/agents/release-manager.md", "sha256": "{{sha256:.claude/agents/release-manager.md}}", "sinceVersion": "1.0.0" },
-    { "path": ".claude/agents/issue-triage.md", "sha256": "{{sha256:.claude/agents/issue-triage.md}}", "sinceVersion": "1.0.0" },
-    { "path": ".claude/agents/issue-repro-checker.md", "sha256": "{{sha256:.claude/agents/issue-repro-checker.md}}", "sinceVersion": "1.0.0" },
-    { "path": ".claude/agents/technical-writer.md", "sha256": "{{sha256:.claude/agents/technical-writer.md}}", "sinceVersion": "1.0.0" },
-    { "path": ".claude/agents/fleet-builder.md", "sha256": "{{sha256:.claude/agents/fleet-builder.md}}", "sinceVersion": "1.0.0" },
-    { "path": ".claude/agents/sre-oncall.md", "sha256": "{{sha256:.claude/agents/sre-oncall.md}}", "sinceVersion": "1.0.0", "conditional": "observability != null" },
-    { "path": ".claude/agents/run-auditor.md", "sha256": "{{sha256:.claude/agents/run-auditor.md}}", "sinceVersion": "1.0.0", "conditional": "autonomy.level >= supervised" },
-
-    { "path": ".claude/skills/plan/SKILL.md", "sha256": "{{sha256:.claude/skills/plan/SKILL.md}}", "sinceVersion": "1.0.0" },
-    { "path": ".claude/skills/push/SKILL.md", "sha256": "{{sha256:.claude/skills/push/SKILL.md}}", "sinceVersion": "1.0.0" },
-    { "path": ".claude/skills/promote/SKILL.md", "sha256": "{{sha256:.claude/skills/promote/SKILL.md}}", "sinceVersion": "1.0.0" },
-    { "path": ".claude/skills/verify/SKILL.md", "sha256": "{{sha256:.claude/skills/verify/SKILL.md}}", "sinceVersion": "1.0.0" },
-    { "path": ".claude/skills/todo-scan/SKILL.md", "sha256": "{{sha256:.claude/skills/todo-scan/SKILL.md}}", "sinceVersion": "1.0.0" },
-    { "path": ".claude/skills/decompose/SKILL.md", "sha256": "{{sha256:.claude/skills/decompose/SKILL.md}}", "sinceVersion": "1.0.0" },
-    { "path": ".claude/skills/issue-fix/SKILL.md", "sha256": "{{sha256:.claude/skills/issue-fix/SKILL.md}}", "sinceVersion": "1.0.0" },
-    { "path": ".claude/skills/togo-resource/SKILL.md", "sha256": "{{sha256:.claude/skills/togo-resource/SKILL.md}}", "sinceVersion": "1.0.0" },
-    { "path": ".claude/skills/togo-generate/SKILL.md", "sha256": "{{sha256:.claude/skills/togo-generate/SKILL.md}}", "sinceVersion": "1.0.0" },
-    { "path": ".claude/skills/togo-migrate/SKILL.md", "sha256": "{{sha256:.claude/skills/togo-migrate/SKILL.md}}", "sinceVersion": "1.0.0" },
-    { "path": ".claude/skills/togo-plugin/SKILL.md", "sha256": "{{sha256:.claude/skills/togo-plugin/SKILL.md}}", "sinceVersion": "1.0.0" },
-    { "path": ".claude/skills/togo-deploy/SKILL.md", "sha256": "{{sha256:.claude/skills/togo-deploy/SKILL.md}}", "sinceVersion": "1.0.0" },
-    { "path": ".claude/skills/web-best-practices/SKILL.md", "sha256": "{{sha256:.claude/skills/web-best-practices/SKILL.md}}", "sinceVersion": "1.0.0" },
-    { "path": ".claude/skills/data-fetching/SKILL.md", "sha256": "{{sha256:.claude/skills/data-fetching/SKILL.md}}", "sinceVersion": "1.0.0" },
-    { "path": ".claude/skills/testing-strategy/SKILL.md", "sha256": "{{sha256:.claude/skills/testing-strategy/SKILL.md}}", "sinceVersion": "1.0.0" },
-    { "path": ".claude/skills/e2e-tests/SKILL.md", "sha256": "{{sha256:.claude/skills/e2e-tests/SKILL.md}}", "sinceVersion": "1.0.0" },
-    { "path": ".claude/skills/error-handling/SKILL.md", "sha256": "{{sha256:.claude/skills/error-handling/SKILL.md}}", "sinceVersion": "1.0.0" },
-    { "path": ".claude/skills/telemetry/SKILL.md", "sha256": "{{sha256:.claude/skills/telemetry/SKILL.md}}", "sinceVersion": "1.0.0" },
-    { "path": ".claude/skills/find-pinned-component/SKILL.md", "sha256": "{{sha256:.claude/skills/find-pinned-component/SKILL.md}}", "sinceVersion": "1.0.0", "conditional": "the builder issue plane is installed" }
-  ],
-
-  "generated": [
-    {
-      "path": ".claude/project.json",
-      "owner": "wizard",
-      "generator": "togo builder new — setup wizard",
-      "generatedAt": "{{generated_at}}",
-      "sha256": "{{sha256:.claude/project.json}}",
-      "regenerate": true,
-      "userEdited": false
-    },
-    {
-      "path": ".claude/hook-config.json",
-      "owner": "wizard",
-      "generator": "togo builder new — setup wizard",
-      "generatedAt": "{{generated_at}}",
-      "sha256": "{{sha256:.claude/hook-config.json}}",
-      "regenerate": true,
-      "userEdited": false
-    },
-    {
-      "path": ".claude/forbidden-imports.json",
-      "owner": "wizard",
-      "generator": "togo builder new — setup wizard",
-      "generatedAt": "{{generated_at}}",
-      "sha256": "{{sha256:.claude/forbidden-imports.json}}",
-      "regenerate": true,
-      "userEdited": false
-    },
-    {
-      "path": ".claude/autonomy.yaml",
-      "owner": "operator",
-      "generator": "togo builder new — setup wizard (seed only)",
-      "generatedAt": "{{generated_at}}",
-      "sha256": "{{sha256:.claude/autonomy.yaml}}",
-      "regenerate": false,
-      "userEdited": false,
-      "note": "Seeded once. NEVER regenerated — this file is the operator's grant, and silently rewriting it would silently re-authorize the fleet."
-    },
-    {
-      "path": ".claude/team.yaml",
-      "owner": "fleet-builder",
-      "generator": "togo builder new — fleet generation",
-      "generatedAt": "{{generated_at}}",
-      "sha256": "{{sha256:.claude/team.yaml}}",
-      "regenerate": true,
-      "userEdited": false
-    }
-  ]
+  "summary": "Six vertical owners for the parts of this blueprint that generic backend/web/db agents would get wrong: the Claude Code SDK run loop, the issue plane, the embeddable feedback widget, the brain+vault state stores, the realtime human-in-the-loop alert channel, and blueprint packaging. Boundaries are file-disjoint so they can run in parallel — no two agents own the same path on either side of the Go/web split. Review, triage, repro, security and run-audit stay with the baseline fleet; every agent here is reviewed by them, never by itself."
 }

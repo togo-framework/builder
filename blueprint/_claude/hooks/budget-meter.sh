@@ -107,8 +107,34 @@ def num(*candidates):
 
 
 # autonomy.yaml is authoritative; hook-config is the mirror.
-run_ceiling = num((aut, "budget.per_run_usd", 0.0), (cfg, "budget.per_run_usd", 0.0))
-day_ceiling = num((aut, "budget.per_day_usd", 0.0), (cfg, "budget.per_day_usd", 0.0))
+# The control plane wins when it says something.
+#
+# autonomy.yaml is the operator's static grant, but the operator now edits these
+# numbers per agent in the settings UI, and the orchestrator passes the resolved
+# values in as BUILDER_RUN_BUDGET_USD / BUILDER_DAY_BUDGET_USD. Reading only the
+# file meant a run aborted on the file's $5/day while the settings said $16 —
+# two sources of truth, and the invisible one won.
+def envnum(name):
+    """Resolve a ceiling from the control plane.
+
+    Returns a float for a real ceiling, 0.0 for UNLIMITED (the operator opted
+    out for this agent), and None when unset so the file's value applies.
+    Treating 0 as "unset" is what made an agent configured as unlimited fall
+    back to the file's $2 and stop.
+    """
+    v = os.environ.get(name, "").strip()
+    if v == "":
+        return None
+    try:
+        f = float(v)
+    except ValueError:
+        return None
+    return f if f >= 0 else None
+
+_env_run = envnum("BUILDER_RUN_BUDGET_USD")
+run_ceiling = _env_run if _env_run is not None else num((aut, "budget.per_run_usd", 0.0), (cfg, "budget.per_run_usd", 0.0))
+_env_day = envnum("BUILDER_DAY_BUDGET_USD")
+day_ceiling = _env_day if _env_day is not None else num((aut, "budget.per_day_usd", 0.0), (cfg, "budget.per_day_usd", 0.0))
 warn_pct = num((cfg, "budget.warn_at_pct", 75.0))
 every = num((cfg, "budget.recompute_every_seconds", 60.0))
 on_exhaustion = str(get(aut, "budget.on_exhaustion",

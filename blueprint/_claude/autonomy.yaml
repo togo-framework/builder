@@ -103,21 +103,21 @@ paths:
     - "**/*.pem"
     - "**/*.key"
     - "{{iac_dir}}/**"              # Rule 24 — IaC is human-reviewed (empty when no IaC)
-    # db/migrations/** is deliberately NOT denied. Writing one is allowed;
-    # APPLYING it is not.
+    # db/migrations/** is NOT denied. Writing one is allowed; APPLYING it is not.
     #
     # This entry used to deny writes, on the grounds that "the generator writes
-    # these". In a fresh project that is false in a dangerous way: the generator
-    # is Atlas reading db/atlas/schema/schema.hcl, which starts out declaring an
-    # empty schema. An agent told to use the generator instead of writing a
-    # migration would run a declarative diff against that empty file and produce
-    # a migration that drops every table in the database.
+    # these". It does not. The generator is Atlas reading db/atlas/schema/schema.hcl,
+    # and that file described an empty schema while the database held 45 tables —
+    # so an agent following the instruction would have generated a migration that
+    # dropped everything. Meanwhile every one of the nine migrations in this
+    # project was hand-authored, so the rule described a workflow that had never
+    # been used and forbade the only one that had.
     #
     # The distinction that matters is not who writes the file. A .sql file in the
     # working tree is reversible with `git checkout`; running it against a
     # database is not. So writing stays allowed and
-    # `migration_apply_to_shared_env` stays in must_ask above — which is where
-    # the irreversibility actually lives, and what Rule 27 is really protecting.
+    # `migration_apply_to_shared_env` stays in must_ask above — which is where the
+    # irreversibility actually lives.
 
 # ---------------------------------------------------------------------------
 # BLAST RADIUS — per-run ceilings (Rule 35). Exceeding a cap is NOT a failure:
@@ -150,12 +150,18 @@ deps:
 # The authoritative meter is budget-meter.sh + the orchestrator, which refuse to
 # START the next run once the daily figure is reached.
 # ---------------------------------------------------------------------------
+# NOTE: these are the STATIC BACKSTOP. The live ceilings come from the agent
+# settings (builder_agents.max_budget_usd) and the fleet setting
+# (BUILDER_DAILY_BUDGET_USD), which the orchestrator passes into every run as
+# BUILDER_RUN_BUDGET_USD / BUILDER_DAY_BUDGET_USD. budget-meter.sh prefers those.
+# Edit the agent in the UI; these numbers only apply when the run was started
+# outside the control plane.
 budget:
-  per_run_usd: 2.00                 # one agent session
-  per_issue_usd: 5.00               # across all attempts on one issue
-  per_day_usd: 5.00                 # whole fleet, rolling 24h
+  per_run_usd: 100.00                 # one agent session
+  per_issue_usd: 200.00               # across all attempts on one issue
+  per_day_usd: 200.00                 # whole fleet, rolling 24h
   max_attempts_per_issue: 3         # then the issue is parked as mis-specified
-  max_turns_per_run: 60
+  max_turns_per_run: 600
   on_exhaustion: abort_and_report   # abort_and_report | open_budget_raise_decision
   # NEVER set this to anything that silently continues.
 

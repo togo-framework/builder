@@ -35,6 +35,13 @@
     // idempotent because onload and DOMContentLoaded can both fire.
     window.__mountBuilderWidget = function () {
       if (!window.BuilderIssues || window.__builderWidgetMounted) return;
+      // Not inside the widget's own overlay.
+      //
+      // The launcher opens a builder screen in an iframe on this same origin,
+      // and that page runs this file too — so it mounted a second widget inside
+      // the first one, with its own floating button sitting in the corner of the
+      // overlay and its own panel able to open a third. One layer is the point.
+      if (new URLSearchParams(location.search).get("embed") === "1") return;
       window.__builderWidgetMounted = true;
       window.BuilderIssues.mount({
         locale: new URLSearchParams(location.search).get("lang")

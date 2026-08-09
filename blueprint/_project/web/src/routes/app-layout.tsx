@@ -57,6 +57,37 @@ export function AppLayout() {
   const go = (to: string) => nav({ to });
   const grouped = groupResources(resources);
 
+  // Embedded mode: the page, without the product's chrome.
+  //
+  // The builder's screens are opened from the feedback overlay in an iframe on
+  // this same origin. Rendering the full layout in there would put a second
+  // sidebar and a second account menu inside a panel floating over the first
+  // ones — two apps stacked on screen, both claiming to be the navigation.
+  //
+  // BOTH conditions, deliberately. The `?embed=1` param is what the launcher
+  // sets and what makes the mode visible in the address bar while debugging it,
+  // but it does not survive in-app navigation: a <Link> to /skills/$name inside
+  // the overlay drops the query string, and the chrome would reappear one click
+  // in. The frame check is what actually holds, and it is the honest question —
+  // "am I rendering inside someone else's page?" — so it is not scoped to this
+  // one launcher either.
+  const embedded =
+    typeof window !== "undefined" &&
+    (new URLSearchParams(window.location.search).get("embed") === "1" ||
+      window.self !== window.top);
+
+  if (embedded) {
+    return (
+      <ToastProvider dir={ar ? "rtl" : "ltr"}>
+        {/* No AgentAlerts here: the host page behind this overlay is already
+            running its own, and two copies would announce every alert twice. */}
+        <main className="min-h-dvh min-w-0 overflow-auto bg-background">
+          <Outlet />
+        </main>
+      </ToastProvider>
+    );
+  }
+
   return (
     <ToastProvider dir={ar ? "rtl" : "ltr"}>
     <AgentAlerts />
@@ -64,23 +95,40 @@ export function AppLayout() {
       {/* collapsible="icon" → the SidebarTrigger minimizes the sidebar to icons. */}
       <Sidebar collapsible="icon" side={ar ? "right" : "left"}>
         <SidebarHeader>
-          <Link to="/dashboard" className="flex items-center gap-2 px-2 py-1.5">
-            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground"><Layers className="h-4 w-4" /></span>
-            <span className="truncate font-semibold group-data-[collapsible=icon]:hidden">{APP_NAME}</span>
-          </Link>
+          {/* SidebarHeader already applies p-2; SidebarMenuButton (not a raw
+              padded Link) is what carries the group-data-[collapsible=icon]
+              sizing that keeps the logo inside the collapsed icon rail. A
+              plain Link with its own px-2 doubled the horizontal padding and
+              pushed the logo past the sidebar's collapsed width. */}
+          <SidebarMenu>
+            <SidebarMenuItem>
+              <SidebarMenuButton size="lg" asChild tooltip={APP_NAME}>
+                <Link to="/dashboard">
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground"><Layers className="h-4 w-4" /></span>
+                  <span className="truncate font-semibold group-data-[collapsible=icon]:hidden">{APP_NAME}</span>
+                </Link>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          </SidebarMenu>
         </SidebarHeader>
         <SidebarContent>
-          {/* Core nav — always visible */}
+          {/* Core nav.
+
+              Agents, Skills, Issues and Vault used to live here. They are the
+              BUILDER's own screens, not the product's, and putting them in the
+              product's navigation meant every app built on this framework
+              shipped with four permanent menu items belonging to its own build
+              tooling — and left the agents no room to add their own without
+              colliding with them.
+
+              They now live behind the feedback button as an overlay, which is
+              what they always were: a layer over the app, not part of it. The
+              sidebar below this point belongs entirely to the product. */}
           <SidebarGroup>
             <SidebarMenu>
               <SidebarMenuItem>
                 <SidebarMenuButton isActive={pathname === "/dashboard"} tooltip={ar_label("Dashboard", "لوحة التحكم", ar)} onClick={() => go("/dashboard")}>
                   <LayoutGrid className="h-4 w-4" /><span>{ar_label("Dashboard", "لوحة التحكم", ar)}</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton isActive={pathname === "/admin"} tooltip={ar_label("Admin", "الإدارة", ar)} onClick={() => go("/admin")}>
-                  <Table2 className="h-4 w-4" /><span>{ar_label("Admin", "الإدارة", ar)}</span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
             </SidebarMenu>

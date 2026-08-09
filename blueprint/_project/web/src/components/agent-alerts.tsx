@@ -42,7 +42,13 @@ export function AgentAlerts() {
 
   async function submit(d: Decision, state: string) {
     const text = (answers[d.id] ?? "").trim();
-    if (!text) { setErr("Write an answer before submitting."); return; }
+    // Parking needs no words — "not now" IS the answer. Demanding a sentence
+    // for it puts friction on the one action taken precisely when the operator
+    // has nothing to add.
+    if (!text && state !== "cancelled") {
+      setErr("Write an answer before submitting.");
+      return;
+    }
     setBusy(d.id); setErr("");
     try {
       await answerDecision(d.id, text, state);
@@ -115,10 +121,27 @@ export function AgentAlerts() {
                     >
                       {busy === d.id ? "Sending…" : "Approve & unblock"}
                     </button>
+                    {/* The third answer, and often the right one.
+                        An agent that says "do not send me back until the thing
+                        I depend on exists" is asking for neither approval nor
+                        rejection: approving makes it find the same nothing and
+                        spend another run doing it, rejecting closes work that
+                        is wanted. This parks the issue instead — it stays on
+                        the board, human-only keeps agents off it, and one
+                        checkbox brings it back. */}
+                    <button
+                      onClick={() => void submit(d, "cancelled")}
+                      disabled={busy === d.id}
+                      title="Keep the issue, stop dispatching agents to it. Untick 'human only' when you want it picked up again."
+                      className="rounded-md border border-border px-3 py-1.5 text-xs disabled:opacity-50"
+                    >
+                      Not now
+                    </button>
                     <button
                       onClick={() => void submit(d, "rejected")}
                       disabled={busy === d.id}
-                      className="rounded-md border border-border px-3 py-1.5 text-xs disabled:opacity-50"
+                      title="Close the issue as rejected. The work will not happen."
+                      className="ms-auto rounded-md border border-border px-3 py-1.5 text-xs text-red-600 hover:bg-red-500/10 disabled:opacity-50"
                     >
                       Reject
                     </button>

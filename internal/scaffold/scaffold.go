@@ -118,6 +118,17 @@ func New(project, claude fs.FS, o Options) (*Result, error) {
 	}
 	step("builder overlay applied")
 
+	// The overlay's routes import packages the base app never declared. Merged
+	// straight after the overlay lands, so `go build` and the web build below
+	// are looking at the same project an operator will.
+	added, err := ensureWebDeps(abs)
+	if err != nil {
+		return res, fmt.Errorf("reconcile web dependencies: %w", err)
+	}
+	if len(added) > 0 {
+		step(fmt.Sprintf("web dependencies declared (%s)", strings.Join(added, ", ")))
+	}
+
 	if err := render(claude, "_claude", filepath.Join(abs, ".claude"), data); err != nil {
 		return res, fmt.Errorf("write .claude: %w", err)
 	}
@@ -154,6 +165,17 @@ func New(project, claude fs.FS, o Options) (*Result, error) {
 			}
 		}
 		step(fmt.Sprintf("database %s created and migrated", o.DBName))
+	}
+
+	// --- 4b. web dependencies ------------------------------------------------
+	//
+	// Best-effort, and after the database so a slow or offline install cannot
+	// cost the operator the parts that already worked. SkipTidy is reused as
+	// the "do not touch the network" signal it already is for Go.
+	if !o.SkipTidy {
+		if installWeb(abs, o.Out) {
+			step("web dependencies installed")
+		}
 	}
 
 	// --- 5. .env -------------------------------------------------------------

@@ -1,13 +1,15 @@
 import { useEffect, useState } from "react";
-import { LayoutGrid, List } from "lucide-react";
+import { LayoutGrid, List, Plus } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import {
-  Callout, EmptyState, Input, PageHeader, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, StatCard, StatusBadge, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, ToggleGroup, ToggleGroupItem,
+  Button, Callout, Checkbox, Dialog, DialogContent, DialogHeader, DialogTitle, EmptyState, Input, Label, MarkdownEditor, PageHeader, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, StatCard, StatusBadge, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, ToggleGroup, ToggleGroupItem,
 } from "@togo-framework/ui";
 import {
-  COLUMN_LABEL, TRANSITIONS, ago, fetchBoard, patchIssue,
-  type Board, type Card, type IssueStatus,
+  COLUMN_LABEL, TRANSITIONS, ago, createIssue, fetchBoard, patchIssue,
+  type Board, type Card, type IssueStatus, type IssueType, type Priority,
 } from "../lib/issues";
+import { listAgents, type Agent } from "../lib/agents";
+import { FADE_ONLY } from "../lib/dialog-motion";
 
 /**
  * The board is built on togo UI primitives — PageHeader, StatCard, StatusBadge,
@@ -46,6 +48,7 @@ export function Issues() {
   const [board, setBoard] = useState<Board | null>(null);
   const [err, setErr] = useState("");
   const [q, setQ] = useState("");
+  const [creating, setCreating] = useState(false);
   // Remembered: an operator who works in list view wants it next time too.
   const [view, setView] = useState<"board" | "list">(
     () => (localStorage.getItem("builder.issues.view") as "board" | "list") || "board",
@@ -124,9 +127,28 @@ export function Issues() {
                 <List className="size-4" />
               </ToggleGroupItem>
             </ToggleGroup>
+            {/* Filing work directly.
+                The widget is for reporting what you just hit on a page. This is
+                for writing down work you already know you want, which had no
+                path at all — the only way onto this board was to go and find a
+                page to complain about. */}
+            <Button size="sm" onClick={() => setCreating(true)}>
+              <Plus className="me-1.5 size-4" />
+              New issue
+            </Button>
           </div>
         }
       />
+
+      {creating && (
+        <NewIssueDialog
+          onClose={() => setCreating(false)}
+          onCreated={() => {
+            setCreating(false);
+            void load();
+          }}
+        />
+      )}
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <StatCard label="Total" value={String(all.length)} />
@@ -140,13 +162,13 @@ export function Issues() {
       {view === "list" ? (
         <IssueTable rows={all.filter(match)} />
       ) : (
-      <div className="flex flex-1 gap-4 overflow-x-auto pb-4">
+      <div className="flex flex-1 gap-4 overflow-x-auto pb-4 scrollbar-hide">
         {board.columns.map((col) => {
           const cards = (board.cards[col] ?? []).filter(match);
           return (
             <section
               key={col}
-              className="flex w-72 shrink-0 flex-col rounded-lg border border-border bg-muted/30"
+              className="flex w-72 shrink-0 flex-col rounded-lg"
               onDragOver={(e) => e.preventDefault()}
               onDrop={(e) => {
                 e.preventDefault();
@@ -167,15 +189,27 @@ export function Issues() {
                 <span className="tabular-nums">{cards.length}</span>
               </h2>
 
-              <div className="flex flex-col gap-2 overflow-y-auto px-2 pb-2">
-                {cards.map((c) => (
+              <div className="flex flex-col gap-2 overflow-y-auto px-2 pb-2 scrollbar-hide">
+                {cards.map((c, i) => (
                   <article
                     key={c.id}
                     draggable
                     onDragStart={(e) =>
                       e.dataTransfer.setData("application/json", JSON.stringify(c))
                     }
-                    className="cursor-grab rounded-md border border-border bg-background p-3 shadow-sm active:cursor-grabbing"
+                    // Same treatment as the skills catalogue and the fleet.
+                    //
+                    // Restrained here on purpose: a board is dragged, and a card
+                    // that lifts and glows on hover fights the drag affordance
+                    // rather than supporting it. Entrance only, plus a border
+                    // and shadow response — no translate.
+                    style={{ animationDelay: `${Math.min(i, 10) * 20}ms`, animationFillMode: "backwards" }}
+                    className="group cursor-grab rounded-lg border border-border bg-background p-3 shadow-sm
+                               transition-all duration-200 ease-out
+                               hover:border-primary/60 hover:shadow-md
+                               active:cursor-grabbing
+                               animate-in fade-in slide-in-from-bottom-1
+                               motion-reduce:animate-none motion-reduce:transition-none"
                   >
                     <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
                       <span className="text-[11px] tabular-nums text-muted-foreground">
@@ -321,3 +355,205 @@ const IssueTable = ({ rows }: { rows: Card[] }) => {
   );
 };
 IssueTable.displayName = "IssueTable";
+
+const TYPES: IssueType[] = ["bug", "feature", "enhancement", "chore", "question", "discussion"];
+const PRIORITIES: Priority[] = ["low", "normal", "high", "critical"];
+
+/**
+ * File an issue by hand.
+ *
+ * Deliberately not the widget's form. That one is built around a reporter
+ * standing on a page — it captures the route, the pinned elements, a
+ * screenshot — and none of that exists when you are looking at the board
+ * writing down work you already know you want. What matters here is the two
+ * fields the board actually sorts by, priority and area, which the widget has
+ * no business asking a passer-by for.
+ */
+const NewIssueDialog = ({
+  onClose,
+  onCreated,
+}: {
+  onClose: () => void;
+  onCreated: (n: number) => void;
+}) => {
+  const [type, setType] = useState<IssueType>("feature");
+  const [priority, setPriority] = useState<Priority>("normal");
+  const [title, setTitle] = useState("");
+  const [body, setBody] = useState("");
+  const [area, setArea] = useState("");
+  const [assignee, setAssignee] = useState("");
+  const [humanOnly, setHumanOnly] = useState(false);
+  const [agents, setAgents] = useState<Agent[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  // The fleet, for the assignee picker. Best-effort: an operator who cannot
+  // reach the agent list can still file the issue and let the lead route it.
+  useEffect(() => {
+    listAgents().then(setAgents).catch(() => setAgents([]));
+  }, []);
+
+  async function submit() {
+    const t = title.trim();
+    if (!t) {
+      setErr("Give the issue a title.");
+      return;
+    }
+    setBusy(true);
+    setErr("");
+    try {
+      const r = await createIssue({ type, title: t, body, priority, area, assignee, humanOnly });
+      onCreated(r.number);
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-lg" style={FADE_ONLY}>
+        <DialogHeader>
+          <DialogTitle>New issue</DialogTitle>
+        </DialogHeader>
+
+        <div className="flex flex-col gap-3">
+          {err && <Callout kind="warn" title="Could not file it">{err}</Callout>}
+
+          <div>
+            <Label htmlFor="ni-title" className="mb-1 block text-xs text-muted-foreground">
+              Title
+            </Label>
+            <Input
+              id="ni-title"
+              autoFocus
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="What needs doing?"
+              onKeyDown={(e) => {
+                // Enter submits from the title, because that is the only
+                // required field and typing one line then reaching for the
+                // mouse is the whole friction this dialog exists to remove.
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  void submit();
+                }
+              }}
+            />
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <Label className="mb-1 block text-xs text-muted-foreground">Type</Label>
+              <Select value={type} onValueChange={(v) => setType(v as IssueType)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {TYPES.map((t) => (
+                    <SelectItem key={t} value={t} className="capitalize">{t}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="mb-1 block text-xs text-muted-foreground">Priority</Label>
+              <Select value={priority} onValueChange={(v) => setPriority(v as Priority)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {PRIORITIES.map((p) => (
+                    <SelectItem key={p} value={p} className="capitalize">{p}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div>
+            <Label htmlFor="ni-area" className="mb-1 block text-xs text-muted-foreground">
+              Area
+            </Label>
+            <Input
+              id="ni-area"
+              value={area}
+              onChange={(e) => setArea(e.target.value)}
+              placeholder="dashboard, sdk, db…"
+            />
+            {/* Said out loud, because an unrouted issue sits on the board
+                looking claimable and never is. */}
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              An agent only claims work in an area it owns. Leave it blank and
+              the lead will route it.
+            </p>
+          </div>
+
+          <div>
+            <Label className="mb-1 block text-xs text-muted-foreground">Assignee</Label>
+            <Select value={assignee || "__auto"} onValueChange={(v) => setAssignee(v === "__auto" ? "" : v)}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {/* Radix rejects an empty-string value, so the "no choice"
+                    option carries a sentinel and is mapped back on the way
+                    out. */}
+                <SelectItem value="__auto">Let the lead choose</SelectItem>
+                {agents.map((a) => (
+                  <SelectItem key={a.slug} value={a.slug}>
+                    {a.displayName || a.slug}
+                    {!a.enabled && " (disabled)"}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              Naming someone overrides area routing entirely — they get it even
+              if the area is not theirs.
+            </p>
+          </div>
+
+          <div className="flex items-start gap-2.5 rounded-lg border border-border p-2.5">
+            <Checkbox
+              id="ni-human"
+              checked={humanOnly}
+              onCheckedChange={(v) => setHumanOnly(v === true)}
+              className="mt-0.5"
+            />
+            <Label htmlFor="ni-human" className="cursor-pointer font-normal">
+              <span className="text-sm font-medium">Human only</span>
+              <span className="block text-xs text-muted-foreground">
+                Agents will never claim it, whatever the assignee says. For work
+                you intend to do yourself.
+              </span>
+            </Label>
+          </div>
+
+          <div>
+            <Label htmlFor="ni-body" className="mb-1 block text-xs text-muted-foreground">
+              Details
+            </Label>
+            {/* The body is rendered as markdown on the issue page, in the
+                widget and in the agent's own prompt, so it is written as
+                markdown here too rather than in a bare textarea. */}
+            <MarkdownEditor
+              value={body}
+              onChange={setBody}
+              defaultView="write"
+              minRows={6}
+              placeholder="What does done look like? Anything the agent should not touch?"
+            />
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              A title on its own is enough. Leave this empty and the agent will
+              ask you what it needs before it starts.
+            </p>
+          </div>
+
+          <div className="flex items-center justify-end gap-2 pt-1">
+            <Button variant="outline" onClick={onClose} disabled={busy}>Cancel</Button>
+            <Button onClick={() => void submit()} disabled={busy || !title.trim()}>
+              {busy ? "Filing…" : "File issue"}
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+};
+NewIssueDialog.displayName = "NewIssueDialog";

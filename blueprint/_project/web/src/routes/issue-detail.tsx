@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Trash2 } from "lucide-react";
+import { listAgents, type Agent } from "../lib/agents";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, Callout, Checkbox, EmptyState, Input, Label, MarkdownEditor, MarkdownRenderer, PageHeader, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, StatusBadge,
@@ -7,12 +8,15 @@ import {
 import {
   COLUMN_LABEL, TRANSITIONS, ago, addComment, fetchIssue, patchIssue,
   type Detail, type IssueStatus, type Priority, deleteIssue } from "../lib/issues";
+import { DeployPanel } from "../components/deploy-panel";
 
 export function IssueDetail() {
   const { number } = useParams({ from: "/_app/issues/$number" });
   const [issue, setIssue] = useState<Detail | null>(null);
   const [err, setErr] = useState("");
   const [deleting, setDeleting] = useState(false);
+  const [agents, setAgents] = useState<Agent[]>([]);
+  useEffect(() => { void listAgents().then(setAgents).catch(() => {}); }, []);
   const nav = useNavigate();
 
   async function removeIssue() {
@@ -164,6 +168,10 @@ export function IssueDetail() {
           </section>
         )}
 
+        <div className="mt-6">
+          <DeployPanel number={Number(number)} onDeployed={() => void load()} />
+        </div>
+
         <section className="mt-8">
           <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             Discussion
@@ -268,6 +276,53 @@ export function IssueDetail() {
           />
         </Field>
 
+        <Field label="Assignee">
+          {/* One control for the whole routing decision: a specific agent, any
+              agent that owns the area, or a person. Splitting "assignee" from
+              "human only" made it possible to set both and get a silently
+              unclaimable issue. */}
+          <Select
+            value={issue.humanOnly ? "__human__" : (issue.assignee || "__auto__")}
+            onValueChange={(v) => {
+              if (v === "__human__") return void update({ humanOnly: true, assignee: "" });
+              if (v === "__auto__") return void update({ humanOnly: false, assignee: "" });
+              void update({ assignee: v, humanOnly: false });
+            }}
+          >
+            <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__auto__">Any agent that owns the area</SelectItem>
+              <SelectItem value="__human__">A person — agents keep out</SelectItem>
+              {agents.filter((a) => a.enabled && a.role === "builder").map((a) => (
+                <SelectItem key={a.slug} value={a.slug}>
+                  {a.displayName || a.slug}
+                  {a.areas.length ? ` — ${a.areas.slice(0, 3).join(", ")}` : ""}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {issue.assignee && (
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              Only {issue.assignee} can claim this issue.
+            </p>
+          )}
+        </Field>
+
+        <div className="flex items-start gap-2.5 rounded-lg border border-border p-3">
+          <Checkbox
+            id="human-only"
+            checked={issue.humanOnly}
+            onCheckedChange={(v) => void update({ humanOnly: v === true })}
+            className="mt-0.5"
+          />
+          <Label htmlFor="human-only" className="cursor-pointer font-normal">
+            <span className="font-medium">Human only</span>
+            <span className="block text-xs font-normal text-muted-foreground">
+              Agents will never claim this issue, whatever the assignee says.
+            </span>
+          </Label>
+        </div>
+
         <AlertDialog>
           <AlertDialogTrigger asChild>
             <Button variant="outline" size="sm" disabled={deleting}
@@ -297,20 +352,6 @@ export function IssueDetail() {
           </AlertDialogContent>
         </AlertDialog>
 
-        <div className="flex items-start gap-2.5 rounded-lg border border-border p-3">
-          <Checkbox
-            id="human-only"
-            checked={issue.humanOnly}
-            onCheckedChange={(v) => void update({ humanOnly: v === true })}
-            className="mt-0.5"
-          />
-          <Label htmlFor="human-only" className="cursor-pointer font-normal">
-            <span className="font-medium">Human only</span>
-            <span className="block text-xs font-normal text-muted-foreground">
-              Agents will never claim this issue.
-            </span>
-          </Label>
-        </div>
 
         <dl className="grid grid-cols-[80px_1fr] gap-y-1.5 rounded-lg border border-border p-3 text-xs">
           <dt className="text-muted-foreground">Route</dt>
