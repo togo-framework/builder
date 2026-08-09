@@ -90,7 +90,7 @@ export function AppLayout() {
   // standalone, which is the case the sticky flag exists for.
   const STANDALONE_ROUTES = [
     "/agents", "/skills", "/issues", "/vault",
-    "/mcp", "/terminal", "/sources", "/docs",
+    "/mcp", "/terminal", "/sources", "/library",
   ];
 
   let embedded = false;

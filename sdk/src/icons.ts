@@ -48,6 +48,8 @@ const PATHS: Record<string, string[]> = {
   mcp: ["M6.3 20.3a2.4 2.4 0 0 0 3.4 0L12 18l-6-6-2.3 2.3a2.4 2.4 0 0 0 0 3.4Z", "m2 22 3-3", "M7.5 13.5 10 11", "M10.5 16.5 13 14", "m18 3-4 4h6l-4 4", "M22 2 12 12"],
 
   // square-terminal
+  sources: ["M4 11a9 9 0 0 1 9 9", "M4 4a16 16 0 0 1 16 16", "M5 19a1 1 0 1 0 2 0 1 1 0 1 0-2 0"],
+  docs: ["M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z", "M14 2v5h5", "M9 13h6", "M9 17h6"],
   terminal: ["m7 11 2-2-2-2", "M11 13h4", "M3 5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"],
 
   // external-link, for the launcher's "open in a tab" affordance.

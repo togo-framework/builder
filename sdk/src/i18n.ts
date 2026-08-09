@@ -51,6 +51,8 @@ const en = {
   appIssues: "Issues",
   appVault: "Vault",
   appMcp: "MCP",
+  appSources: "Sources",
+  appDocs: "Library",
   appTerminal: "Terminal",
   dir: "ltr" as "ltr" | "rtl",
 };
@@ -103,6 +105,8 @@ const ar: Dict = {
   appIssues: "المشكلات",
   appVault: "الخزنة",
   appMcp: "MCP",
+  appSources: "المصادر",
+  appDocs: "المكتبة",
   appTerminal: "الطرفية",
   dir: "rtl",
 };

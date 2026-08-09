@@ -23,6 +23,8 @@ const Vault = lazyRouteComponent(() => import("./routes/vault"), "Vault");
 const Agents = lazyRouteComponent(() => import("./routes/agents"), "Agents");
 const AgentDetail = lazyRouteComponent(() => import("./routes/agent-detail"), "AgentDetail");
 const Skills = lazyRouteComponent(() => import("./routes/skills"), "Skills");
+const Sources = lazyRouteComponent(() => import("./routes/sources"), "Sources");
+const Docs = lazyRouteComponent(() => import("./routes/docs"), "Docs");
 const SkillDetail = lazyRouteComponent(() => import("./routes/skill-detail"), "SkillDetail");
 const Mcp = lazyRouteComponent(() => import("./routes/mcp"), "Mcp");
 const Terminal = lazyRouteComponent(() => import("./routes/terminal"), "Terminal");
@@ -74,6 +76,11 @@ const vaultRoute = createRoute({ getParentRoute: () => appRoute, path: "/vault",
 const agentsRoute = createRoute({ getParentRoute: () => appRoute, path: "/agents", component: Agents });
 const agentDetailRoute = createRoute({ getParentRoute: () => appRoute, path: "/agents/$slug", component: AgentDetail });
 const skillsRoute = createRoute({ getParentRoute: () => appRoute, path: "/skills", component: Skills });
+const sourcesRoute = createRoute({ getParentRoute: () => appRoute, path: "/sources", component: Sources });
+// /docs belongs to togo's own API reference (Stoplight, served by the Go
+// backend), so the reference library lives at /library. Discovered by opening
+// it: the route resolved to the API docs and this page never rendered.
+const docsRoute = createRoute({ getParentRoute: () => appRoute, path: "/library", component: Docs });
 const skillDetailRoute = createRoute({ getParentRoute: () => appRoute, path: "/skills/$name", component: SkillDetail });
 const mcpRoute = createRoute({ getParentRoute: () => appRoute, path: "/mcp", component: Mcp });
 const terminalRoute = createRoute({ getParentRoute: () => appRoute, path: "/terminal", component: Terminal });
@@ -81,7 +88,7 @@ const issueDetailRoute = createRoute({ getParentRoute: () => appRoute, path: "/i
 
 const routeTree = rootRoute.addChildren([
   indexRoute, loginRoute, registerRoute, resetRoute, setupRoute,
-  appRoute.addChildren([dashboardRoute, resourceRoute, profileRoute, issuesRoute, issueDetailRoute, vaultRoute, agentsRoute, agentDetailRoute, skillsRoute, skillDetailRoute, mcpRoute, terminalRoute]),
+  appRoute.addChildren([dashboardRoute, resourceRoute, profileRoute, issuesRoute, issueDetailRoute, vaultRoute, agentsRoute, agentDetailRoute, skillsRoute, skillDetailRoute, sourcesRoute, docsRoute, mcpRoute, terminalRoute]),
 ]);
 
 export const router = createRouter({
