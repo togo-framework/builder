@@ -15,6 +15,7 @@ import (
 
 	"github.com/togo-framework/builder/internal/brain"
 	"github.com/togo-framework/builder/internal/deploy"
+	"github.com/togo-framework/builder/internal/docs"
 	"github.com/togo-framework/builder/internal/fleet"
 	"github.com/togo-framework/builder/internal/issues"
 	mcpsrv "github.com/togo-framework/builder/internal/mcp"
@@ -237,6 +238,15 @@ func provideFleet(k *togo.Kernel) error {
 		skillsRoot = "." // the process's own directory: this app
 	}
 	k.Router.Route("/api/builder/skills", skills.New(db, k.Log, skillsRoot).Routes)
+
+	// The reference library. Mounted here because it needs the brain, which is
+	// bound by now, and because an upload with nowhere to be ingested is a file
+	// store pretending to be a knowledge base.
+	if b, ok := k.Get(ProviderBrain); ok && b != nil {
+		if bs, ok := b.(*brain.Store); ok {
+			k.Router.Route("/api/builder/docs", docs.New(db, k.Log, bs).Routes)
+		}
+	}
 
 	// The MCP surface: this fleet, reachable from any MCP client.
 	//
