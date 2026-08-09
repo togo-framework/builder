@@ -63,19 +63,19 @@ export function mount(opts: MountOptions = {}): Handle {
       <span class="fab-ico"></span><span class="fab-label"></span><span class="count hidden"></span>
     </button>
     <aside class="panel" role="dialog" aria-modal="false" data-open="false">
-      <div class="head"><h2></h2><button class="x" aria-label=""></button></div>
+      <!-- The brand row names the surface and shows the route the panel is
+           scoped to — the subline is the answer to "issues on WHICH page?",
+           which a bare "Feedback" title left implicit. -->
+      <div class="head">
+        <div class="brand">
+          <span class="brand-ico"></span>
+          <div class="brand-txt"><h2></h2><span class="brand-sub"></span></div>
+        </div>
+        <button class="x" aria-label=""></button>
+      </div>
       <div class="body">
         <p class="intro"></p>
         <button class="primary report"></button>
-
-        <!-- The builder's own screens, as an app launcher.
-             These used to be four permanent items in the product's sidebar.
-             They belong to the tooling, not to the app being built, so they
-             live behind this button and open as a layer over the page. -->
-        <div class="apps">
-          <div class="label lbl-apps"></div>
-          <div class="appgrid"></div>
-        </div>
 
         <div class="listing">
           <div class="label lbl-page"></div>
@@ -83,6 +83,17 @@ export function mount(opts: MountOptions = {}): Handle {
           <!-- The panel shows only issues for THIS page. Getting to the full
                board previously meant knowing the /issues URL by heart. -->
           <a class="board-link" href="/issues" target="_blank" rel="noopener"></a>
+        </div>
+
+        <!-- The builder's own screens, as an app launcher.
+             These used to be four permanent items in the product's sidebar.
+             They belong to the tooling, not to the app being built, so they
+             live behind this button and open as a layer over the page.
+             Last in the column (and anchored to the bottom by CSS): the page's
+             issues are what this panel is FOR; the launcher is its side door. -->
+        <div class="apps">
+          <div class="label lbl-apps"></div>
+          <div class="appgrid"></div>
         </div>
       </div>
     </aside>
@@ -194,11 +205,17 @@ export function mount(opts: MountOptions = {}): Handle {
   // ---- static copy -------------------------------------------------------
   $(".fab-label").textContent = t.fab;
   $("h2").textContent = t.title;
-  $(".fab-ico").replaceChildren(icon("pencil", 15));
-  $(".x").replaceChildren(icon("x", 15));
+  // role=dialog does not take its accessible name from the heading inside it.
+  panel.setAttribute("aria-label", t.title);
+  $(".brand-ico").replaceChildren(icon("messageSquare", 16));
+  // The route, not the full URL: the panel scopes issues by route, and origin
+  // + query would truncate away the only part that varies.
+  $(".brand-sub").textContent = normalizeRoute();
+  $(".fab-ico").replaceChildren(icon("messageSquare", 14));
+  $(".x").replaceChildren(icon("x", 16));
   $(".x").setAttribute("aria-label", t.close);
   $(".intro").textContent = t.intro;
-  $(".report").textContent = t.report;
+  iconLabel($(".report"), "plus", t.report, 15);
   $(".lbl-type").textContent = t.type;
   $(".lbl-title").textContent = t.titleLabel;
   $(".lbl-details").textContent = t.details;
@@ -210,7 +227,7 @@ export function mount(opts: MountOptions = {}): Handle {
   $(".lbl-apps").textContent = t.apps;
   $(".modal-title").textContent = t.reportTitle;
   modalX.setAttribute("aria-label", t.close);
-  modalX.appendChild(icon("x", 15));
+  modalX.appendChild(icon("x", 16));
   modal.setAttribute("aria-label", t.reportTitle);
   cancelBtn.textContent = t.cancel;
   $(".lbl-md").textContent = t.markdownHint;
@@ -219,7 +236,7 @@ export function mount(opts: MountOptions = {}): Handle {
   iconLabel(pinBtn, "pin", t.pin);
   iconLabel(clearPinBtn, "x", t.clear);
   iconLabel($(".addfile"), "paperclip", t.addFile);
-  iconLabel($(".shot"), "image", t.screenshot);
+  iconLabel($(".shot"), "camera", t.screenshot);
   sendBtn.textContent = t.submit;
 
   for (const ty of TYPES) {
@@ -305,6 +322,9 @@ export function mount(opts: MountOptions = {}): Handle {
     panel.dataset.open = "true";
     fab.setAttribute("aria-expanded", "true");
     urlIn.value = location.href;
+    // Re-read on every open: in an SPA the route changes without a remount,
+    // and a header pinned to the mount-time route would quietly lie.
+    $(".brand-sub").textContent = normalizeRoute();
     void refresh();
   }
   function close() {
@@ -363,10 +383,10 @@ export function mount(opts: MountOptions = {}): Handle {
 
     const chip = document.createElement("span");
     chip.className = "app-ico";
-    // 22% alpha on the fill, full strength on the glyph: the tile reads as that
-    // colour without four saturated blocks fighting the panel behind them.
-    chip.style.background = `${app.color}38`;
-    chip.style.color = app.color;
+    // Solid fill, white glyph (glyph colour and depth live in the stylesheet).
+    // The earlier 22%-alpha tint washed ten distinct surfaces into one grey
+    // smear — the tile colour IS the identity, so it gets full strength.
+    chip.style.background = app.color;
     chip.appendChild(icon(app.key, 18));
 
     const name = document.createElement("span");
@@ -800,6 +820,11 @@ export function mount(opts: MountOptions = {}): Handle {
         who.setAttribute("title", it.agent ? t.agentWorkingBy(it.agent) : t.agentWorking);
         b.appendChild(who);
       }
+      // The chevron says "this row opens something" — without it a grouped
+      // list of buttons is indistinguishable from a read-only table.
+      const go = icon("chevronRight", 14);
+      go.classList.add("go");
+      b.appendChild(go);
       // Open in the panel, not a new tab: the reporter is mid-task on the page
       // the issue is about, and a navigation throws that context away.
       b.addEventListener("click", () => void showDetail(it.number));
@@ -813,6 +838,9 @@ export function mount(opts: MountOptions = {}): Handle {
         detail?.el.classList.add("hidden");
         listing.classList.remove("hidden");
         $(".report").classList.remove("hidden");
+        // showDetail hides the launcher too — restore it, or the first detail
+        // view removes the launcher for the rest of the session.
+        $(".apps").classList.remove("hidden");
         panel.dataset.detail = "false";
         void refresh();
       });

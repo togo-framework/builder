@@ -18,3 +18,8 @@
 
 # OS
 .DS_Store
+
+# The daemon's local workspace: it points at sibling checkouts on this machine
+# and must not be what resolves modules for anyone else.
+builderd/go.work
+builderd/go.work.sum

@@ -6,57 +6,150 @@
  * this is a Shadow DOM rather than a React portal. All spacing uses logical
  * properties (`inline-start`, not `left`) so RTL is a `dir` attribute rather
  * than a second stylesheet.
+ *
+ * The sheet opens with design tokens — type scale, spacing rhythm, radii,
+ * motion — and every rule below draws from them. A widget that sits over
+ * somebody else's product is judged as a product itself, and ad-hoc pixel
+ * values are exactly how it stops looking like one.
+ *
+ * color-mix() is used for the accent-derived tints so that an operator's
+ * custom --accent (injected at mount) retints them too; static rgba tints
+ * would stay indigo under a green brand. Browsers older than 2023 drop those
+ * single declarations and fall back to the plain value declared before them
+ * (or to no tint), never to a broken layout.
  */
 export const CSS = /* css */ `
 :host {
+  /* ---- palette ---- */
   --bg: #ffffff;
-  --surface: #f6f7f9;
-  --border: #e2e5ea;
-  --text: #16191d;
-  --muted: #6b7280;
+  --surface: #f8f9fb;
+  --surface-2: #eef1f4;
+  --border: #e6e9ee;
+  --border-strong: #cdd3dc;
+  --text: #14181f;
+  --text-2: #4b5565;
+  --muted: #6c7686;
   --accent: #4f46e5;
   --accent-fg: #ffffff;
-  --danger: #b42318;
-  --radius: 10px;
-  --shadow: 0 1px 2px rgba(0,0,0,.06), 0 12px 32px -12px rgba(0,0,0,.25);
-  --font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  /* accent-ink is accent AS TEXT — overridden in dark, where #4f46e5 on a
+     near-black panel fails contrast. Derived, so a custom accent tracks. */
+  --accent-ink: var(--accent);
+  --accent-soft: color-mix(in srgb, var(--accent) 9%, transparent);
+  --danger: #d92d20;
+  --ok: #087443;
+  /* issue-type colours: one hue per type, re-tuned per theme below */
+  --c-bug: #d92d20;
+  --c-feature: #1570ef;
+  --c-question: #b54708;
+  --c-discussion: #6938ef;
+
+  /* ---- type scale ---- */
+  /* px, not rem: rem resolves against the HOST document's root font size, and
+     the whole point of the explicit stack below is that the widget looks the
+     same on every site it is embedded in. */
+  --fs-2xs: 10.5px;
+  --fs-xs: 11.5px;
+  --fs-sm: 12.5px;
+  --fs-md: 13.5px;
+  --fs-lg: 15px;
+  --fs-xl: 16.5px;
+  --lh-tight: 1.25;
+  --lh-body: 1.55;
+
+  /* ---- spacing rhythm (4px base) ---- */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+
+  /* ---- radii ---- */
+  --r-sm: 8px;
+  --r-md: 10px;
+  --r-lg: 16px;
+  --r-full: 999px;
+
+  /* ---- motion ---- */
+  --ease: cubic-bezier(.32, .72, 0, 1);
+  --t-1: .13s;
+  --t-2: .26s;
+
+  /* ---- elevation ---- */
+  --shadow-1: 0 1px 2px rgba(16,24,40,.07), 0 8px 24px -8px rgba(16,24,40,.16);
+  --shadow-2: 0 2px 6px rgba(16,24,40,.08), 0 24px 64px -16px rgba(16,24,40,.30);
+
+  /* ---- fonts ---- */
+  /* Explicit system stack: inheriting the host's font means the widget looks
+     different on every site it is embedded in. Tabular numerals are applied
+     per-element (counts, issue numbers) rather than globally. */
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI",
+          Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+  --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas,
+          "Liberation Mono", monospace;
+
   all: initial;
   font-family: var(--font);
+  font-size: var(--fs-md);
+  -webkit-font-smoothing: antialiased;
 }
 @media (prefers-color-scheme: dark) {
   :host(:not([data-theme="light"])) {
-    --bg: #16181d; --surface: #1e2127; --border: #2c313a;
-    --text: #e9ebef; --muted: #9099a6;
-    --shadow: 0 1px 2px rgba(0,0,0,.5), 0 12px 32px -12px rgba(0,0,0,.7);
+    --bg: #15171d; --surface: #1c1f27; --surface-2: #262a35;
+    --border: #2b303c; --border-strong: #414957;
+    --text: #edeef1; --text-2: #aab2c0; --muted: #8a93a5;
+    --accent-ink: color-mix(in srgb, var(--accent) 55%, #ffffff);
+    --ok: #75e0a7; --danger: #f97066;
+    --c-bug: #f97066; --c-feature: #84adff; --c-question: #fdb022; --c-discussion: #b692f6;
+    --shadow-1: 0 1px 2px rgba(0,0,0,.5), 0 8px 24px -8px rgba(0,0,0,.6);
+    --shadow-2: 0 2px 6px rgba(0,0,0,.5), 0 24px 64px -16px rgba(0,0,0,.75);
   }
 }
 :host([data-theme="dark"]) {
-  --bg: #16181d; --surface: #1e2127; --border: #2c313a;
-  --text: #e9ebef; --muted: #9099a6;
-  --shadow: 0 1px 2px rgba(0,0,0,.5), 0 12px 32px -12px rgba(0,0,0,.7);
+  --bg: #15171d; --surface: #1c1f27; --surface-2: #262a35;
+  --border: #2b303c; --border-strong: #414957;
+  --text: #edeef1; --text-2: #aab2c0; --muted: #8a93a5;
+  --accent-ink: color-mix(in srgb, var(--accent) 55%, #ffffff);
+  --ok: #75e0a7; --danger: #f97066;
+  --c-bug: #f97066; --c-feature: #84adff; --c-question: #fdb022; --c-discussion: #b692f6;
+  --shadow-1: 0 1px 2px rgba(0,0,0,.5), 0 8px 24px -8px rgba(0,0,0,.6);
+  --shadow-2: 0 2px 6px rgba(0,0,0,.5), 0 24px 64px -16px rgba(0,0,0,.75);
 }
 
 * { box-sizing: border-box; }
 button { font: inherit; cursor: pointer; }
+/* One focus treatment for every control. :focus-visible, not :focus — the
+   ring is for keyboard users, and painting it on every click reads as a bug. */
+button:focus-visible, a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
 
 /* ---- floating action button ---- */
-/* The launcher button.
-   Trimmed from a 14px/10-16 pill to a compact one: this sits on top of
-   somebody's product all day, so it should read as a tool at the edge of the
-   screen rather than as a call to action in the middle of their design. */
+/* The launcher button. Compact: this sits on top of somebody's product all
+   day, so it should read as a tool at the edge of the screen rather than as a
+   call to action in the middle of their design. */
 .fab {
   position: fixed; z-index: 2147483645;
-  display: inline-flex; align-items: center; gap: 6px;
-  padding: 7px 12px; border: 0; border-radius: 999px;
+  display: inline-flex; align-items: center; gap: 7px;
+  height: 36px; padding: 0 14px; border: 0; border-radius: var(--r-full);
   background: var(--accent); color: var(--accent-fg);
-  font-size: 12.5px; font-weight: 600; line-height: 1;
-  box-shadow: var(--shadow);
+  font-family: var(--font);
+  font-size: var(--fs-sm); font-weight: 600; letter-spacing: .01em; line-height: 1;
+  box-shadow: var(--shadow-1);
+  /* accent-tinted glow; browsers without color-mix keep the neutral shadow */
+  box-shadow: 0 1px 2px rgba(16,24,40,.12),
+              0 6px 20px -6px color-mix(in srgb, var(--accent) 55%, transparent);
   touch-action: none;                 /* let pointer events drive the drag */
   user-select: none;
-  transition: transform .12s ease, box-shadow .12s ease;
+  transition: transform var(--t-1) var(--ease), box-shadow var(--t-1) var(--ease);
 }
-.fab:hover { transform: translateY(-1px); }
-.fab:active { cursor: grabbing; }
+.fab:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(16,24,40,.12),
+              0 10px 28px -6px color-mix(in srgb, var(--accent) 60%, transparent);
+}
+.fab:active { cursor: grabbing; transform: translateY(0); }
 .fab:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 /* The count.
    place-items alone centred the box but not the digit: the badge inherited the
@@ -64,40 +157,227 @@ button { font: inherit; cursor: pointer; }
    line-height and tabular figures put the number in the middle and keep it
    there when it goes from 9 to 10. */
 .fab .count {
-  min-width: 17px; height: 17px; padding: 0 4px;
+  min-width: 18px; height: 18px; padding: 0 5px;
   box-sizing: border-box;
-  border-radius: 999px; background: rgba(255,255,255,.24);
-  font-size: 10.5px; font-weight: 700;
-  line-height: 17px;
+  border-radius: var(--r-full); background: rgba(255,255,255,.25);
+  font-size: var(--fs-2xs); font-weight: 700;
+  line-height: 18px;
   font-variant-numeric: tabular-nums;
   display: inline-flex; align-items: center; justify-content: center;
 }
-.fab-ico svg { width: 13px; height: 13px; }
+.fab-ico { display: inline-flex; align-items: center; }
+.fab-ico svg { width: 14px; height: 14px; }
+
+/* ---- slide-over panel ---- */
+.panel {
+  position: fixed; inset-block: 0; inset-inline-end: 0; z-index: 2147483645;
+  width: min(420px, 100vw);
+  display: flex; flex-direction: column;
+  background: var(--bg); color: var(--text);
+  border-inline-start: 1px solid var(--border);
+  box-shadow: var(--shadow-2);
+  transform: translateX(var(--slide, 100%));
+  transition: transform var(--t-2) var(--ease), width var(--t-2) var(--ease);
+}
+:host([dir="rtl"]) .panel { --slide: -100%; }
+.panel[data-open="true"] { --slide: 0 !important; }
+/* A single issue's title, body, pin and comment thread need more room to read
+   and to type a reply into than the listing's scannable row of short titles. */
+.panel[data-detail="true"] { width: min(640px, 100vw); }
+
+/* Header: names the product surface, carries the close control. The route
+   subline is live context — this panel only ever shows THIS page's issues. */
+.head {
+  display: flex; align-items: center; gap: var(--sp-3);
+  padding: 14px var(--sp-4); border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
+}
+.brand { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1 1 auto; }
+.brand-ico {
+  flex: none; width: 32px; height: 32px; border-radius: var(--r-md);
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--accent); color: var(--accent-fg);
+}
+.brand-ico svg { width: 16px; height: 16px; }
+.brand-txt { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.head h2 {
+  margin: 0; font-size: var(--fs-lg); font-weight: 650;
+  letter-spacing: -.01em; line-height: var(--lh-tight);
+}
+.brand-sub {
+  font-size: var(--fs-xs); color: var(--muted);
+  font-family: var(--mono); font-variant-numeric: tabular-nums;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  direction: ltr; text-align: start;   /* a route is LTR text even in RTL UI */
+}
+.x {
+  flex: none; width: 32px; height: 32px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 0; border-radius: var(--r-sm);
+  background: transparent; color: var(--muted);
+  transition: background var(--t-1) var(--ease), color var(--t-1) var(--ease);
+}
+.x:hover { background: var(--surface-2); color: var(--text); }
+
+.body {
+  padding: var(--sp-4); overflow-y: auto; flex: 1 1 auto;
+  display: flex; flex-direction: column;
+  scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent;
+}
+.intro {
+  margin: 0 0 var(--sp-4);
+  font-size: var(--fs-sm); line-height: var(--lh-body); color: var(--muted);
+}
+
+.primary {
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  width: 100%; height: 38px; padding: 0 var(--sp-4);
+  border: 0; border-radius: var(--r-md);
+  background: var(--accent); color: var(--accent-fg);
+  font-size: var(--fs-md); font-weight: 600; letter-spacing: .01em;
+  transition: filter var(--t-1) var(--ease), box-shadow var(--t-1) var(--ease);
+}
+.primary:hover {
+  filter: brightness(1.07);
+  box-shadow: 0 4px 14px -4px color-mix(in srgb, var(--accent) 50%, transparent);
+}
+.primary:disabled { opacity: .55; cursor: default; filter: none; box-shadow: none; }
+
+.label {
+  margin: var(--sp-5) 0 var(--sp-2);
+  font-size: var(--fs-2xs); font-weight: 650;
+  letter-spacing: .08em; text-transform: uppercase; color: var(--muted);
+}
+
+/* ---- issue rows ---- */
+/* One grouped card, hairline dividers, hover per row. Uniform bordered slabs
+   made every row shout at the same volume; a grouped list lets the number,
+   type and title carry the hierarchy instead of the chrome. */
+.rows {
+  display: flex; flex-direction: column;
+  border: 1px solid var(--border); border-radius: var(--r-md);
+  background: var(--bg); overflow: hidden;
+}
+.rows > * + * { border-top: 1px solid var(--border); }
+.row {
+  display: flex; align-items: center; gap: 10px;
+  min-height: 40px; padding: 9px var(--sp-3);
+  border: 0; background: transparent;
+  font-size: var(--fs-md); text-align: start; color: var(--text); width: 100%;
+  transition: background var(--t-1) var(--ease);
+}
+.row:hover { background: var(--surface); }
+.row:focus-visible { outline-offset: -2px; }  /* overflow:hidden clips an outer ring */
+.row .num {
+  flex: none; color: var(--muted); font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+}
+.row .t {
+  flex: 1 1 auto; min-width: 0; font-weight: 500;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.row .go {
+  flex: none; color: var(--border-strong);
+  transition: color var(--t-1) var(--ease), transform var(--t-1) var(--ease);
+}
+.row:hover .go { color: var(--muted); transform: translateX(2px); }
+
+/* Type as a coloured dot + word, not a filled chip: ten tinted pills in a
+   list is decoration, one dot per row is information. */
+.chip {
+  display: inline-flex; align-items: center; gap: 5px; flex: none;
+  font-size: var(--fs-2xs); font-weight: 650; letter-spacing: .01em;
+  text-transform: capitalize; color: var(--text-2);
+}
+.chip::before {
+  content: ""; width: 6px; height: 6px; border-radius: 50%;
+  background: currentColor;
+}
+.chip.bug { color: var(--c-bug); }
+.chip.feature { color: var(--c-feature); }
+.chip.question { color: var(--c-question); }
+.chip.discussion { color: var(--c-discussion); }
+/* Status and agent are badges, not types — pill treatment, no dot. */
+.chip.status {
+  padding: 2px 8px; border-radius: var(--r-full);
+  background: var(--surface-2); color: var(--text-2);
+}
+.chip.status::before { display: none; }
+.chip.agent {
+  padding: 2px 8px; border-radius: var(--r-full);
+  background: var(--accent); color: var(--accent-fg);
+}
+.chip.agent::before { display: none; }
+
+/* An agent holds a lease on this issue. */
+.spin {
+  flex: none; width: 12px; height: 12px; border-radius: 50%;
+  border: 2px solid var(--border); border-top-color: var(--accent);
+  animation: spin .8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.empty {
+  font-size: var(--fs-sm); color: var(--muted); padding: var(--sp-2) 0;
+}
+.rows .empty { padding: var(--sp-4); text-align: center; }
+
+/* "who is working on this" — a spinner plus the agent's name. */
+.agent-tag {
+  display: inline-flex; align-items: center; gap: 5px; flex: none;
+  max-width: 42%; padding: 2px 8px 2px 6px; border-radius: var(--r-full);
+  background: var(--surface); border: 1px solid var(--border);
+}
+.agent-tag .who {
+  font-size: var(--fs-2xs); font-family: var(--mono);
+  color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.agent-tag .spin { width: 10px; height: 10px; border-width: 1.5px; flex: none; }
+
+/* Link out to the full board from the on-this-page listing. */
+.board-link {
+  display: inline-flex; align-items: center; gap: 6px;
+  margin-top: var(--sp-3); padding: 5px 2px;
+  font-size: var(--fs-sm); font-weight: 500;
+  color: var(--accent-ink); text-decoration: none;
+  border-radius: var(--r-sm);
+}
+.board-link:hover { text-decoration: underline; text-underline-offset: 3px; }
+.board-link .ico { transition: transform var(--t-1) var(--ease); }
+.board-link:hover .ico { transform: translateX(2px); }
 
 /* ---- app launcher ---- */
-.apps { margin-top: 14px; }
+/* Pushed to the bottom of the panel: page feedback is the panel's job, the
+   launcher is its second function. margin-top:auto keeps it anchored there
+   even when the issue list is short. */
+.apps {
+  margin-top: auto; padding-top: var(--sp-2);
+}
+.apps .label { margin-top: var(--sp-5); }
 .appgrid {
-  /* auto-fill, not a fixed four. The launcher grew to five and a hard column
-     count either squeezes them or strands one alone on a second row. */
-  display: grid; gap: 8px;
-  grid-template-columns: repeat(auto-fill, minmax(76px, 1fr));
+  /* auto-fill, not a fixed column count: the launcher grew from four items to
+     ten, and a hard count either squeezes them or strands one alone. */
+  display: grid; gap: 2px;
+  grid-template-columns: repeat(auto-fill, minmax(70px, 1fr));
 }
 .app {
-  display: flex; flex-direction: column; align-items: center; gap: 6px;
-  padding: 10px 4px; border: 1px solid var(--border); border-radius: 12px;
-  background: transparent; color: var(--text);
-  font-size: 11px; font-weight: 500; line-height: 1.2; text-align: center;
-  cursor: pointer;
-  transition: transform .15s ease, border-color .15s ease, background .15s ease;
+  display: flex; flex-direction: column; align-items: center; gap: 7px;
+  padding: 10px 4px 8px; border: 0; border-radius: var(--r-md);
+  background: transparent; color: var(--text-2);
+  font-size: var(--fs-xs); font-weight: 500; line-height: 1.2; text-align: center;
+  transition: background var(--t-1) var(--ease), color var(--t-1) var(--ease);
 }
-.app:hover { transform: translateY(-2px); border-color: var(--accent); }
-.app:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-/* The tile's own colour, set per app from JS. Kept to the icon chip so four
-   saturated tiles never compete with the panel's own content. */
+.app:hover { background: var(--surface); color: var(--text); }
+/* Solid app-colour tile, white glyph — reads as a real launcher. The washed
+   22%-alpha version made ten distinct surfaces look like one grey smear. The
+   inset highlight is what keeps a flat colour square from looking printed. */
 .app-ico {
-  width: 34px; height: 34px; border-radius: 10px;
+  width: 38px; height: 38px; border-radius: 11px;
   display: inline-flex; align-items: center; justify-content: center;
+  color: #ffffff;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.22), 0 1px 2px rgba(16,24,40,.18);
+  transition: transform var(--t-1) var(--ease);
 }
+.app:hover .app-ico { transform: translateY(-1px); }
 .app-ico svg { width: 18px; height: 18px; }
 
 /* ---- the report modal ---- */
@@ -110,7 +390,7 @@ button { font: inherit; cursor: pointer; }
      is not one that should be blocking the view in the first place. */
   background: transparent;
   opacity: 0; pointer-events: none;
-  transition: opacity .14s ease;
+  transition: opacity var(--t-1) var(--ease);
 }
 .modal[data-open="true"] { opacity: 1; pointer-events: auto; }
 .modal-card {
@@ -120,13 +400,17 @@ button { font: inherit; cursor: pointer; }
   max-height: min(86vh, 720px);
   display: flex; flex-direction: column;
   background: var(--bg); color: var(--text);
-  border: 1px solid var(--border); border-radius: 14px;
-  box-shadow: 0 24px 60px rgba(0,0,0,.35);
+  border: 1px solid var(--border); border-radius: var(--r-lg);
+  box-shadow: var(--shadow-2);
   overflow: hidden;
 }
+.modal[data-open="true"] .modal-card { animation: modal-in var(--t-2) var(--ease); }
+@keyframes modal-in {
+  from { opacity: 0; transform: translateY(6px) scale(.985); }
+}
 .modal-head {
-  display: flex; align-items: center; gap: 8px;
-  padding: 12px 14px; border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-4); border-bottom: 1px solid var(--border);
   cursor: grab; user-select: none;
   touch-action: none;                 /* pointer events drive the drag */
   flex: 0 0 auto;
@@ -146,277 +430,204 @@ button { font: inherit; cursor: pointer; }
   display: flex; flex-direction: column;
   flex: 1 1 auto; min-height: 0;
 }
-.modal-title { margin: 0; font-size: 14px; font-weight: 600; }
+.modal-title { margin: 0; font-size: var(--fs-md); font-weight: 650; }
 .modal-x {
   margin-inline-start: auto;
-  border: 0; background: transparent; color: var(--muted);
-  cursor: pointer; padding: 5px; border-radius: 8px; display: inline-flex;
+  flex: none; width: 32px; height: 32px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 0; border-radius: var(--r-sm);
+  background: transparent; color: var(--muted);
+  transition: background var(--t-1) var(--ease), color var(--t-1) var(--ease);
 }
-.modal-x:hover { color: var(--text); background: var(--border); }
-.modal-body { padding: 14px; overflow-y: auto; flex: 1 1 auto; min-height: 0; }
+.modal-x:hover { color: var(--text); background: var(--surface-2); }
+.modal-body {
+  padding: var(--sp-4); overflow-y: auto; flex: 1 1 auto; min-height: 0;
+  scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent;
+}
+.modal-body .label:first-child { margin-top: 0; }
 .modal-foot {
-  display: flex; align-items: center; justify-content: flex-end; gap: 8px;
-  padding: 12px 14px; border-top: 1px solid var(--border); flex: 0 0 auto;
+  display: flex; align-items: center; justify-content: flex-end; gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-4); border-top: 1px solid var(--border); flex: 0 0 auto;
+  background: var(--surface);
 }
 .modal-foot .primary { width: auto; }
-.row2 { display: grid; gap: 10px; }
-.hint { margin: 4px 0 0; font-size: 11px; color: var(--muted); }
+.row2 { display: grid; gap: var(--sp-2); }
+.hint { margin: var(--sp-1) 0 0; font-size: var(--fs-xs); color: var(--muted); }
 /* One row per pin, each removable on its own. */
 .pinrow {
-  display: flex; align-items: center; gap: 8px;
-  padding: 5px 8px; border: 1px solid var(--border); border-radius: 8px;
-  margin-bottom: 5px; font-size: 11px;
+  display: flex; align-items: center; gap: var(--sp-2);
+  padding: 5px var(--sp-2); border: 1px solid var(--border); border-radius: var(--r-sm);
+  margin-bottom: 5px; font-size: var(--fs-xs);
 }
 .pinnum {
-  flex: 0 0 auto; width: 16px; height: 16px; border-radius: 999px;
+  flex: 0 0 auto; width: 16px; height: 16px; border-radius: var(--r-full);
   background: var(--accent); color: var(--accent-fg);
   font-size: 9.5px; font-weight: 700; line-height: 16px; text-align: center;
   font-variant-numeric: tabular-nums;
 }
 .pintxt { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pindel {
-  flex: 0 0 auto; border: 0; background: transparent; color: var(--muted);
-  padding: 2px; border-radius: 6px; display: inline-flex; cursor: pointer;
+  flex: 0 0 auto; min-width: 32px; min-height: 32px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 0; background: transparent; color: var(--muted); border-radius: var(--r-sm);
 }
-.pindel:hover { color: var(--text); background: var(--border); }
-
-@media (prefers-reduced-motion: reduce) {
-  .modal { transition: none; }
-}
-
-
-@media (prefers-reduced-motion: reduce) {
-  .app { transition: none; }
-  .app:hover { transform: none; }
-}
-
-/* ---- slide-over panel ---- */
-.panel {
-  position: fixed; inset-block: 0; inset-inline-end: 0; z-index: 2147483645;
-  width: min(420px, 100vw);
-  display: flex; flex-direction: column;
-  background: var(--bg); color: var(--text);
-  border-inline-start: 1px solid var(--border);
-  box-shadow: var(--shadow);
-  transform: translateX(var(--slide, 100%));
-  transition: transform .18s ease, width .18s ease;
-}
-:host([dir="rtl"]) .panel { --slide: -100%; }
-.panel[data-open="true"] { --slide: 0 !important; }
-/* A single issue's title, body, pin and comment thread need more room to read
-   and to type a reply into than the listing's scannable row of short titles. */
-.panel[data-detail="true"] { width: min(640px, 100vw); }
-
-.head {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 16px 18px; border-bottom: 1px solid var(--border);
-}
-.head h2 { margin: 0; font-size: 15px; font-weight: 650; }
-.x {
-  border: 0; background: transparent; color: var(--muted);
-  font-size: 18px; line-height: 1; padding: 4px 6px; border-radius: 6px;
-}
-.x:hover { background: var(--surface); color: var(--text); }
-
-.body { padding: 18px; overflow-y: auto; flex: 1; }
-.intro { margin: 0 0 16px; font-size: 13px; line-height: 1.55; color: var(--muted); }
-
-.primary {
-  width: 100%; padding: 11px 16px; border: 0; border-radius: var(--radius);
-  background: var(--accent); color: var(--accent-fg);
-  font-size: 14px; font-weight: 600;
-}
-.primary:disabled { opacity: .55; cursor: default; }
-
-.label {
-  margin: 22px 0 10px; font-size: 10.5px; font-weight: 650;
-  letter-spacing: .09em; text-transform: uppercase; color: var(--muted);
-}
-
-/* ---- issue rows ---- */
-.rows { display: flex; flex-direction: column; gap: 6px; }
-.row {
-  display: flex; align-items: center; gap: 9px;
-  padding: 9px 11px; border: 1px solid var(--border);
-  border-radius: 8px; background: var(--surface);
-  font-size: 13px; text-align: start; color: var(--text); width: 100%;
-}
-.row:hover { border-color: var(--accent); }
-.row .num { color: var(--muted); font-variant-numeric: tabular-nums; flex: none; }
-.row .t { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.chip {
-  flex: none; padding: 2px 7px; border-radius: 5px;
-  font-size: 10.5px; font-weight: 650; text-transform: capitalize;
-}
-.chip.bug { background: #fde8e6; color: #b42318; }
-.chip.feature { background: #e6edfd; color: #2c4fd6; }
-.chip.question { background: #fdf3d7; color: #8a6100; }
-.chip.discussion { background: #efe6fd; color: #6b34c8; }
-@media (prefers-color-scheme: dark) {
-  :host(:not([data-theme="light"])) .chip.bug { background: #3a1c19; color: #f5a79b; }
-  :host(:not([data-theme="light"])) .chip.feature { background: #1a2547; color: #9db4f5; }
-  :host(:not([data-theme="light"])) .chip.question { background: #3a2f13; color: #e8c66a; }
-  :host(:not([data-theme="light"])) .chip.discussion { background: #2b1f42; color: #c4a4f2; }
-}
-/* An agent holds a lease on this issue. */
-.spin {
-  flex: none; width: 12px; height: 12px; border-radius: 50%;
-  border: 2px solid var(--border); border-top-color: var(--accent);
-  animation: spin .8s linear infinite;
-}
-@keyframes spin { to { transform: rotate(360deg); } }
-@media (prefers-reduced-motion: reduce) {
-  .spin { animation: none; border-top-color: var(--border); }
-  .panel { transition: none; }
-}
-.empty { font-size: 13px; color: var(--muted); padding: 6px 0; }
+.pindel:hover { color: var(--text); background: var(--surface-2); }
 
 /* ---- report form ---- */
 .pills { display: flex; flex-wrap: wrap; gap: 7px; }
 .pill {
-  padding: 6px 13px; border-radius: 999px; font-size: 12.5px;
-  border: 1px solid var(--border); background: var(--bg); color: var(--muted);
+  min-height: 32px; padding: 6px 14px; border-radius: var(--r-full);
+  font-size: var(--fs-sm); font-weight: 500;
+  border: 1px solid var(--border); background: var(--bg); color: var(--text-2);
+  transition: border-color var(--t-1) var(--ease), background var(--t-1) var(--ease),
+              color var(--t-1) var(--ease);
 }
-.pill[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+.pill:hover { border-color: var(--border-strong); }
+.pill[aria-pressed="true"] {
+  border-color: var(--accent); color: var(--accent-ink); font-weight: 600;
+  background: var(--accent-soft);
+}
 
 input[type="text"], textarea {
-  width: 100%; padding: 9px 11px; font: inherit; font-size: 13.5px;
+  width: 100%; min-height: 36px; padding: 8px var(--sp-3);
+  font: inherit; font-size: var(--fs-md); line-height: var(--lh-body);
   color: var(--text); background: var(--bg);
-  border: 1px solid var(--border); border-radius: 8px;
+  border: 1px solid var(--border); border-radius: var(--r-sm);
+  transition: border-color var(--t-1) var(--ease);
 }
+input:hover, textarea:hover { border-color: var(--border-strong); }
 input:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: var(--accent); }
 input:disabled { color: var(--muted); background: var(--surface); }
 textarea { min-height: 96px; resize: vertical; }
+::placeholder { color: var(--muted); opacity: .8; }
 
-.btns { display: flex; flex-wrap: wrap; gap: 8px; }
+.btns { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
 .ghost {
   display: inline-flex; align-items: center; gap: 6px;
-  padding: 7px 12px; font-size: 12.5px;
-  border: 1px solid var(--border); border-radius: 8px;
-  background: var(--bg); color: var(--text);
+  min-height: 32px; padding: 6px var(--sp-3); font-size: var(--fs-sm); font-weight: 500;
+  border: 1px solid var(--border); border-radius: var(--r-sm);
+  background: transparent; color: var(--text);
+  transition: border-color var(--t-1) var(--ease), background var(--t-1) var(--ease),
+              color var(--t-1) var(--ease);
 }
-.ghost:hover { border-color: var(--accent); color: var(--accent); }
-.ghost[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+.ghost:hover { border-color: var(--border-strong); background: var(--surface); }
+.ghost[aria-pressed="true"] {
+  border-color: var(--accent); color: var(--accent-ink); background: var(--accent-soft);
+}
 
-.files { display: flex; flex-direction: column; gap: 5px; margin-top: 9px; }
+.files { display: flex; flex-direction: column; gap: 5px; margin-top: var(--sp-2); }
 .file {
-  display: flex; align-items: center; gap: 8px;
-  font-size: 12px; color: var(--muted);
-  padding: 6px 9px; background: var(--surface);
-  border: 1px solid var(--border); border-radius: 7px;
+  display: flex; align-items: center; gap: var(--sp-2);
+  font-size: var(--fs-xs); color: var(--muted);
+  padding: 6px var(--sp-2); background: var(--surface);
+  border: 1px solid var(--border); border-radius: var(--r-sm);
 }
 .file .nm { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.file button { border: 0; background: transparent; color: var(--muted); padding: 0 3px; }
+.file button {
+  flex: none; min-width: 32px; min-height: 32px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 0; background: transparent; color: var(--muted); border-radius: var(--r-sm);
+}
+.file button:hover { color: var(--text); background: var(--surface-2); }
 .thumb { width: 32px; height: 32px; flex: none; border-radius: 5px; object-fit: cover; border: 1px solid var(--border); }
 
 /* Confirms what got pinned, right under the button that captured it — the
    button's own label truncates the tag, this shows the accessible name too. */
 .pin-preview {
-  margin-top: 8px; padding: 7px 10px; font-size: 12px; color: var(--muted);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  background: var(--surface); border: 1px solid var(--border); border-radius: 7px;
+  margin-top: var(--sp-2); padding: 7px 10px; font-size: var(--fs-xs); color: var(--muted);
+  font-family: var(--mono);
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-sm);
   overflow-wrap: anywhere; word-break: break-word;
 }
 
-.note { font-size: 12px; margin-top: 10px; }
+.note { font-size: var(--fs-xs); margin-top: 10px; }
 .note.err { color: var(--danger); }
-.note.ok { color: var(--accent); }
-.foot { padding: 14px 18px; border-top: 1px solid var(--border); }
+.note.ok { color: var(--ok); }
 .hidden { display: none !important; }
 
 /* ---- in-panel issue detail ---- */
 .detail { display: flex; flex-direction: column; gap: 10px; }
 .d-head { display: flex; align-items: center; justify-content: space-between; }
-.d-meta { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
-.d-title { margin: 2px 0 0; font-size: 15.5px; font-weight: 650; line-height: 1.35; }
-.d-body { margin: 0; font-size: 13.5px; line-height: 1.6;
+.d-meta { display: flex; flex-wrap: wrap; gap: var(--sp-2); align-items: center; }
+.d-meta .num { color: var(--muted); font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
+.d-title {
+  margin: 2px 0 0; font-size: var(--fs-xl); font-weight: 650;
+  letter-spacing: -.01em; line-height: 1.35;
+}
+.d-body { margin: 0; font-size: var(--fs-md); line-height: var(--lh-body);
           background: var(--surface); border: 1px solid var(--border);
-          border-radius: 8px; padding: 10px 12px; }
-.d-pin { display: flex; align-items: flex-start; gap: 8px; font-size: 12.5px;
+          border-radius: var(--r-sm); padding: 10px var(--sp-3); }
+.d-pin { display: flex; align-items: flex-start; gap: var(--sp-2); font-size: var(--fs-sm);
          background: var(--surface); border: 1px solid var(--border);
-         border-radius: 7px; padding: 7px 10px; }
+         border-radius: var(--r-sm); padding: 7px 10px; }
 /* min-width:0 lets the flex item shrink below its content width — without it
    a long accessible name (the pinned node's whole text) forces the panel wider
    and the WHOLE slide-over scrolls sideways. */
-.d-pin .nm { flex: 1; min-width: 0; font-family: ui-monospace, monospace;
+.d-pin .nm { flex: 1; min-width: 0; font-family: var(--mono);
              overflow-wrap: anywhere; word-break: break-word; }
-.d-comment { border: 1px solid var(--border); border-radius: 8px; padding: 9px 11px; }
-.d-comment .who { margin: 0 0 4px; font-size: 11.5px; font-weight: 600; color: var(--muted);
+.d-comment { border: 1px solid var(--border); border-radius: var(--r-sm); padding: 9px var(--sp-3); }
+.d-comment .who { margin: 0 0 var(--sp-1); font-size: var(--fs-xs); font-weight: 600; color: var(--muted);
                   display: flex; align-items: center; gap: 6px; }
-.d-comment .txt { margin: 0; font-size: 13px; line-height: 1.55; white-space: pre-wrap; }
-.chip.status { background: var(--surface-2, var(--surface)); color: var(--muted); }
-.chip.agent { background: var(--accent); color: var(--accent-fg); }
+.d-comment .txt { margin: 0; font-size: var(--fs-sm); line-height: var(--lh-body); white-space: pre-wrap; }
 
-/* ── moved here from HOST_CSS ───────────────────────────────────────────
-   These style elements INSIDE the shadow root, so they must live in CSS.
-   Appending them to the end of this file put them in HOST_CSS, which is
-   injected into the host document — where none of these selectors exist.
-   The markdown still rendered (the DOM was right) but with UA styling only,
-   which is exactly the kind of bug that looks fine in a screenshot. */
-/* ── rendered markdown (see markdown.ts) ─────────────────────────────── */
-.md-p { margin: 0 0 8px; line-height: 1.55; }
+/* ---- rendered markdown (see markdown.ts) ----
+   These style elements INSIDE the shadow root, so they must live in CSS —
+   appended to HOST_CSS they would be injected into the host document, where
+   none of these selectors exist. */
+.md-p { margin: 0 0 var(--sp-2); line-height: var(--lh-body); }
 .md-p:last-child { margin-bottom: 0; }
-.md-h { margin: 12px 0 6px; font-size: 13px; font-weight: 600; line-height: 1.35; color: var(--text); }
+.md-h { margin: var(--sp-3) 0 6px; font-size: var(--fs-md); font-weight: 600; line-height: 1.35; color: var(--text); }
 .md-h:first-child { margin-top: 0; }
-.md-list { margin: 0 0 8px; padding-inline-start: 20px; }
+.md-list { margin: 0 0 var(--sp-2); padding-inline-start: 20px; }
 .md-list li { margin: 2px 0; line-height: 1.5; }
 .md-list:last-child { margin-bottom: 0; }
 .md-code {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px;
+  font-family: var(--mono); font-size: var(--fs-xs);
   background: var(--bg); border: 1px solid var(--border);
   border-radius: 4px; padding: 1px 4px;
 }
 .md-pre {
-  margin: 0 0 8px; padding: 9px 11px; overflow-x: auto;
-  border-radius: 8px; background: var(--bg); border: 1px solid var(--border);
+  margin: 0 0 var(--sp-2); padding: 9px var(--sp-3); overflow-x: auto;
+  border-radius: var(--r-sm); background: var(--bg); border: 1px solid var(--border);
 }
 .md-pre:last-child { margin-bottom: 0; }
 .md-pre code {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 11.5px; line-height: 1.5; white-space: pre;
+  font-family: var(--mono);
+  font-size: var(--fs-xs); line-height: 1.5; white-space: pre;
   background: none; border: 0; padding: 0;
 }
 .md-quote {
-  margin: 0 0 8px; padding: 2px 0 2px 10px; color: var(--muted);
+  margin: 0 0 var(--sp-2); padding: 2px 0; padding-inline-start: 10px; color: var(--muted);
   border-inline-start: 2px solid var(--border);
 }
 .md-quote .md-p:last-child { margin-bottom: 0; }
 .md-strong { font-weight: 600; }
 .md-em { font-style: italic; }
 .md-del { opacity: .65; }
-.md-a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+.md-a { color: var(--accent-ink); text-decoration: underline; text-underline-offset: 2px; }
 .d-body hr, .txt hr { margin: 10px 0; border: 0; border-top: 1px solid var(--border); }
-.txt { margin: 0; font-size: 13px; }
-
-/* Link out to the full board from the on-this-page listing. */
-.board-link {
-  display: inline-block; margin-top: 10px; padding: 7px 10px;
-  border: 1px solid var(--border); border-radius: 8px;
-  font-size: 12.5px; color: var(--text); text-decoration: none;
-  background: var(--bg);
-}
-.board-link:hover { border-color: var(--accent); color: var(--accent); }
-
-/* "who is working on this" — a spinner plus the agent's name. */
-.agent-tag {
-  display: inline-flex; align-items: center; gap: 5px; flex: none;
-  max-width: 42%; padding: 2px 7px 2px 5px; border-radius: 999px;
-  background: var(--surface); border: 1px solid var(--border);
-}
-.agent-tag .who {
-  font-size: 11px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.agent-tag .spin { width: 10px; height: 10px; border-width: 1.5px; flex: none; }
+.txt { margin: 0; font-size: var(--fs-sm); }
 
 /* Inline SVG icons (see icons.ts). Sized in em so they track the label they
    sit beside, and flex:none so a long label never squashes them. */
 .ico { flex: none; width: 1em; height: 1em; }
 button .ico, a .ico { margin-inline-end: 2px; vertical-align: -0.125em; }
-.fab-ico { display: inline-flex; align-items: center; }
-.board-link { display: inline-flex; align-items: center; gap: 6px; }
 .pin-btn, .addfile, .shot, .clear-pin {
   display: inline-flex; align-items: center; gap: 6px;
+}
+/* Directional glyphs flip with the layout; translate direction flips with the
+   scaleX so the hover nudge still points "forward". */
+:host([dir="rtl"]) .board-link .ico,
+:host([dir="rtl"]) .row .go { transform: scaleX(-1); }
+:host([dir="rtl"]) .board-link:hover .ico { transform: scaleX(-1) translateX(2px); }
+:host([dir="rtl"]) .row:hover .go { transform: scaleX(-1) translateX(2px); }
+
+@media (prefers-reduced-motion: reduce) {
+  .panel, .modal, .fab, .primary, .app, .app-ico, .row, .row .go,
+  .board-link .ico, .pill, .ghost, .x, .modal-x { transition: none; }
+  .modal[data-open="true"] .modal-card { animation: none; }
+  .fab:hover, .app:hover .app-ico, .row:hover .go { transform: none; }
+  .spin { animation: none; border-top-color: var(--border); }
 }
 `;
 
