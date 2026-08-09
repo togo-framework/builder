@@ -37,16 +37,53 @@ async function json<T>(res: Response): Promise<T> {
 export const listChatAgents = () =>
   fetch(`${base}/agents`, { credentials: "include" }).then(json<{ agents: ChatAgent[] }>);
 
-export const ask = (agent: string, question: string, history: Turn[]) =>
+export interface SessionSummary {
+  id: string;
+  agent: string;
+  title: string;
+  turns: number;
+  updatedAt: string;
+}
+
+export const listSessions = () =>
+  fetch(`${base}/sessions`, { credentials: "include" })
+    .then(json<{ sessions: SessionSummary[] }>);
+
+export const fetchSession = (id: string) =>
+  fetch(`${base}/sessions/${encodeURIComponent(id)}`, { credentials: "include" })
+    .then(json<{ id: string; agent: string; title: string; turns: StoredTurn[] }>);
+
+export interface StoredTurn {
+  role: "you" | "agent";
+  text: string;
+  citations: Citation[];
+  grounded: boolean;
+  createdAt: string;
+}
+
+export const deleteSession = (id: string) =>
+  fetch(`${base}/sessions/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    credentials: "include",
+  }).then(json<void>);
+
+export const ask = (agent: string, question: string, history: Turn[], session = "") =>
   fetch(`${base}/ask`, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
     // Only the plain turns travel: citations are the server's own output and
     // sending them back would grow the prompt with text it already wrote.
+    // With a session open the server reads the history from the database
+    // instead — trusting the client's copy meant a reopened conversation
+    // answered as though it had just begun.
     body: JSON.stringify({
       agent,
       question,
-      history: history.map((t) => ({ role: t.role, text: t.text })),
+      session,
+      history: session ? [] : history.map((t) => ({ role: t.role, text: t.text })),
     }),
-  }).then(json<{ answer: string; citations: Citation[]; costUSD: number; grounded: boolean }>);
+  }).then(json<{
+    answer: string; citations: Citation[]; costUSD: number;
+    grounded: boolean; session: string;
+  }>);

@@ -32,13 +32,22 @@ const took = (r: SourceRun) => {
  * last_error alone cannot tell you a source failed at 03:00 and succeeded at
  * 04:00 — the success overwrites it, and the night looks clean.
  */
-const RunHistory = ({ id }: { id: string }) => {
+const RunHistory = ({ id, reloadKey }: { id: string; reloadKey: number }) => {
   const [runs, setRuns] = useState<SourceRun[] | null>(null);
   const [err, setErr] = useState("");
 
+  // reloadKey is bumped by a manual refresh. Without it this panel keeps showing
+  // the runs it fetched when it was opened, so the run the operator just
+  // triggered — the one they pressed the button in order to see — never arrives.
   useEffect(() => {
-    sourceRuns(id).then((d) => setRuns(d.runs)).catch((e) => setErr(String(e.message)));
-  }, [id]);
+    let stale = false;
+    sourceRuns(id)
+      .then((d) => { if (!stale) setRuns(d.runs); })
+      .catch((e) => { if (!stale) setErr(String(e.message)); });
+    // Two refreshes in quick succession can resolve out of order, and the late
+    // arrival of the earlier fetch would overwrite the newer list.
+    return () => { stale = true; };
+  }, [id, reloadKey]);
 
   if (err) return <p className="px-3 py-2 text-xs text-destructive">{err}</p>;
   if (!runs) return <p className="px-3 py-2 text-xs text-muted-foreground">Loading runs…</p>;
@@ -84,6 +93,7 @@ const SourceRow = ({
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState("");
   const [result, setResult] = useState("");
+  const [runsKey, setRunsKey] = useState(0);
 
   const handleToggle = async () => {
     setBusy("toggle");
@@ -106,6 +116,9 @@ const SourceRow = ({
       // readable line is the whole point of the button: this is where an
       // operator finds out their config is wrong, instead of at 3am.
       setResult(r.ok ? "Collected." : r.error || "The refresh failed.");
+      // A failed run is still a run, and its row carries the error in full —
+      // so the history is refetched either way, not only on success.
+      setRunsKey((n) => n + 1);
       onChanged();
     } catch (e) {
       onError((e as Error).message);
@@ -200,7 +213,7 @@ const SourceRow = ({
         </div>
       </div>
 
-      {open && <RunHistory id={s.id} />}
+      {open && <RunHistory id={s.id} reloadKey={runsKey} />}
     </div>
   );
 };

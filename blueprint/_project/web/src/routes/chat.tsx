@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { Button, Callout, Input, MarkdownRenderer, PageHeader } from "@togo-framework/ui";
-import { Send } from "lucide-react";
-import { ask, listChatAgents, type ChatAgent, type Turn } from "../lib/chat";
+import { MessageSquarePlus, Send, Trash2 } from "lucide-react";
+import {
+  ask, deleteSession, fetchSession, listChatAgents, listSessions,
+  type ChatAgent, type SessionSummary, type Turn,
+} from "../lib/chat";
 
 export const Chat = () => {
   const [agents, setAgents] = useState<ChatAgent[]>([]);
@@ -10,6 +13,8 @@ export const Chat = () => {
   const [q, setQ] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  const [sessions, setSessions] = useState<SessionSummary[]>([]);
+  const [session, setSession] = useState("");
   const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -17,7 +22,41 @@ export const Chat = () => {
       setAgents(d.agents);
       if (d.agents.length > 0) setAgent(d.agents[0].slug);
     }).catch((e) => setErr(String(e.message)));
+    void reloadSessions();
   }, []);
+
+  const reloadSessions = () =>
+    listSessions().then((d) => setSessions(d.sessions)).catch(() => {});
+
+  const handleOpen = async (id: string) => {
+    try {
+      const s = await fetchSession(id);
+      setSession(s.id);
+      setAgent(s.agent);
+      setTurns(s.turns.map((t) => ({
+        role: t.role, text: t.text, citations: t.citations, grounded: t.grounded,
+      })));
+    } catch (e) {
+      setErr((e as Error).message);
+    }
+  };
+
+  const handleNew = () => {
+    setSession("");
+    setTurns([]);
+    setErr("");
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!window.confirm("Delete this conversation? Nothing was retained in the brain from it.")) return;
+    try {
+      await deleteSession(id);
+      if (id === session) handleNew();
+      void reloadSessions();
+    } catch (e) {
+      setErr((e as Error).message);
+    }
+  };
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -36,10 +75,14 @@ export const Chat = () => {
     setBusy(true);
     setErr("");
     try {
-      const r = await ask(agent, question, history);
+      const r = await ask(agent, question, history, session);
       setTurns((t) => [...t, {
         role: "agent", text: r.answer, citations: r.citations, grounded: r.grounded,
       }]);
+      // The server mints the id on the first question; keeping it is what makes
+      // the next question a continuation rather than a new conversation.
+      if (r.session) setSession(r.session);
+      void reloadSessions();
     } catch (e2) {
       setErr((e2 as Error).message);
     } finally {
@@ -59,7 +102,7 @@ export const Chat = () => {
       <div className="mt-4 flex flex-wrap items-center gap-2">
         <select
           value={agent}
-          onChange={(e) => { setAgent(e.target.value); setTurns([]); }}
+          onChange={(e) => { setAgent(e.target.value); handleNew(); }}
           className="rounded-md border border-border bg-background px-3 py-2 text-sm"
         >
           {agents.map((a) => <option key={a.slug} value={a.slug}>{a.displayName}</option>)}
@@ -72,11 +115,45 @@ export const Chat = () => {
         {/* Switching agents clears the thread, so say so rather than letting it
             look like the history was lost. */}
         {turns.length > 0 && (
-          <span className="text-xs text-muted-foreground">
-            · changing agent starts a new conversation
-          </span>
+          <Button variant="ghost" size="sm" onClick={handleNew}>
+            <MessageSquarePlus className="size-4" />
+            New
+          </Button>
         )}
       </div>
+
+      {/* Past conversations. Without these the answer an operator wanted to
+          keep disappears when the tab closes, and the same question is asked
+          and billed again an hour later. */}
+      {sessions.length > 0 && (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {sessions.slice(0, 8).map((s) => (
+            <span
+              key={s.id}
+              className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs ${
+                s.id === session ? "border-primary bg-primary/10" : "border-border"
+              }`}
+            >
+              <button
+                type="button"
+                onClick={() => handleOpen(s.id)}
+                className="max-w-[22ch] truncate text-muted-foreground hover:text-foreground"
+                title={s.title}
+              >
+                {s.title || "(untitled)"}
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDelete(s.id)}
+                aria-label="Delete this conversation"
+                className="text-muted-foreground hover:text-destructive"
+              >
+                <Trash2 className="size-3" />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
 
       {err && <Callout kind="warn" className="mt-4">{err}</Callout>}
 

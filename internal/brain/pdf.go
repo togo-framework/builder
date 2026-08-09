@@ -29,6 +29,7 @@ import (
 	"io"
 	"strconv"
 	"strings"
+	"unicode"
 	"unicode/utf16"
 )
 
@@ -419,31 +420,38 @@ func decodePDFString(b []byte) string {
 // matters. A spec full of version numbers and table cells scores poorly on
 // ratio and passes here, which is the same distinction from the other side.
 func looksLikeProse(s string) bool {
-	const wantWords = 5
-	words := 0
-	for _, f := range strings.Fields(s) {
-		letters, ok := 0, true
-		for _, r := range f {
-			switch {
-			case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z':
-				letters++
-			case strings.ContainsRune("-'’.,;:()[]\"", r):
-				// Punctuation a real word can carry.
-			default:
-				ok = false
-			}
-			if !ok {
-				break
-			}
-		}
-		if ok && letters >= 3 {
-			words++
-			if words >= wantWords {
-				return true
-			}
+	// Measured over the whole string rather than word by word.
+	//
+	// The word-based version counted ASCII letters, so a PDF in Arabic,
+	// Chinese, Cyrillic, Hebrew or Greek extracted perfectly and was then
+	// discarded for not looking English — the operator was told "no readable
+	// text layer" about a document whose text had in fact just been read.
+	//
+	// Splitting on whitespace does not survive translation either: Chinese and
+	// Japanese write without spaces, so a per-word letter threshold rejects
+	// them however the letters are counted.
+	//
+	// What survives every script is the ratio. Language is mostly letters;
+	// a font with no Unicode mapping decodes to symbols, digits and control
+	// characters, which is what this exists to catch.
+	var letters, other int
+	for _, r := range s {
+		switch {
+		case unicode.IsSpace(r):
+		case unicode.IsLetter(r):
+			letters++
+		case unicode.IsPunct(r):
+			// Punctuation is normal in prose and normal in noise. It votes
+			// for neither.
+		default:
+			other++
 		}
 	}
-	return false
+	// The asymmetry is deliberate. A wrong ACCEPT gives the operator a
+	// document full of nonsense they can see and delete. A wrong REJECT
+	// silently discards a document they uploaded on purpose and tells them
+	// their file was broken. The second is much worse, so the bar is low.
+	return letters >= 12 && letters >= 2*other
 }
 
 func isPDFSpace(c byte) bool {

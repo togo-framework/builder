@@ -50,6 +50,105 @@ func New(db *sql.DB, log *slog.Logger, b Recaller) *Service {
 func (s *Service) Routes(r chi.Router) {
 	r.Get("/agents", s.handleAgents)
 	r.Post("/ask", s.handleAsk)
+	r.Get("/sessions", s.handleSessions)
+	r.Get("/sessions/{id}", s.handleSession)
+	r.Delete("/sessions/{id}", s.handleDeleteSession)
+}
+
+type sessionSummary struct {
+	ID        string    `json:"id"`
+	Agent     string    `json:"agent"`
+	Title     string    `json:"title"`
+	Turns     int       `json:"turns"`
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+// handleSessions lists past conversations, newest first.
+func (s *Service) handleSessions(w http.ResponseWriter, r *http.Request) {
+	rows, err := s.db.QueryContext(r.Context(),
+		`SELECT c.id, c.agent_slug, c.title, c.updated_at,
+		        (SELECT count(*) FROM builder_chat_turns t WHERE t.session_id = c.id)
+		   FROM builder_chat_sessions c ORDER BY c.updated_at DESC LIMIT 100`)
+	if err != nil {
+		s.log.Error("list chat sessions", "err", err)
+		httpErr(w, http.StatusInternalServerError, "could not list the conversations")
+		return
+	}
+	defer rows.Close()
+
+	out := []sessionSummary{}
+	for rows.Next() {
+		var v sessionSummary
+		if rows.Scan(&v.ID, &v.Agent, &v.Title, &v.UpdatedAt, &v.Turns) != nil {
+			continue
+		}
+		out = append(out, v)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"sessions": out})
+}
+
+type storedTurn struct {
+	Role      string     `json:"role"`
+	Text      string     `json:"text"`
+	Citations []citation `json:"citations"`
+	Grounded  bool       `json:"grounded"`
+	CreatedAt time.Time  `json:"createdAt"`
+}
+
+// handleSession reopens one conversation with its citations intact.
+func (s *Service) handleSession(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	var agent, title string
+	if err := s.db.QueryRowContext(r.Context(),
+		`SELECT agent_slug, title FROM builder_chat_sessions WHERE id = $1`, id).
+		Scan(&agent, &title); err != nil {
+		httpErr(w, http.StatusNotFound, "no such conversation")
+		return
+	}
+
+	rows, err := s.db.QueryContext(r.Context(),
+		`SELECT role, body_md, citations, grounded, created_at
+		   FROM builder_chat_turns WHERE session_id = $1 ORDER BY created_at`, id)
+	if err != nil {
+		httpErr(w, http.StatusInternalServerError, "could not read the conversation")
+		return
+	}
+	defer rows.Close()
+
+	turns := []storedTurn{}
+	for rows.Next() {
+		var t storedTurn
+		var raw []byte
+		if rows.Scan(&t.Role, &t.Text, &raw, &t.Grounded, &t.CreatedAt) != nil {
+			continue
+		}
+		// A citation that fails to decode is dropped rather than failing the
+		// whole conversation: the answer is still worth reading without it.
+		_ = json.Unmarshal(raw, &t.Citations)
+		if t.Citations == nil {
+			t.Citations = []citation{}
+		}
+		turns = append(turns, t)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"id": id, "agent": agent, "title": title, "turns": turns,
+	})
+}
+
+func (s *Service) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
+	// The turns go with it via ON DELETE CASCADE. Nothing is in the brain to
+	// clean up: a chat is advisory and never retained.
+	res, err := s.db.ExecContext(r.Context(),
+		`DELETE FROM builder_chat_sessions WHERE id = $1`, chi.URLParam(r, "id"))
+	if err != nil {
+		httpErr(w, http.StatusInternalServerError, "could not delete the conversation")
+		return
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		httpErr(w, http.StatusNotFound, "no such conversation")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // agentOption is one pickable agent. Only enabled ones: an agent the operator
@@ -87,6 +186,9 @@ func (s *Service) handleAgents(w http.ResponseWriter, r *http.Request) {
 type askReq struct {
 	Agent    string `json:"agent"`
 	Question string `json:"question"`
+	// Session continues an existing conversation. Empty starts a new one, and
+	// the response carries the id so the client can keep using it.
+	Session string `json:"session"`
 	// History is the conversation so far, oldest first. Sent by the client
 	// rather than stored: a chat is advisory and ephemeral, and persisting
 	// every exchange would make the brain's contents a function of idle
@@ -189,6 +291,17 @@ func (s *Service) handleAsk(w http.ResponseWriter, r *http.Request) {
 		knowledge.WriteString("(nothing in the project brain matched this question)")
 	}
 
+	// History comes from the database when a session is open. Trusting the
+	// client's copy meant a reopened conversation answered as though it had
+	// just begun, and a second tab could silently rewrite what was said.
+	if in.Session != "" {
+		if stored, err := s.historyFor(r.Context(), in.Session); err == nil {
+			in.History = stored
+		} else {
+			s.log.Warn("could not read the session history", "session", in.Session, "err", err)
+		}
+	}
+
 	var history strings.Builder
 	// Bounded: a long chat would otherwise grow the prompt without limit, and
 	// the oldest turns are the least relevant to the question just asked.
@@ -226,12 +339,93 @@ func (s *Service) handleAsk(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.recordSpend(r.Context(), in.Agent, res.CostUSD)
+
+	answer := strings.TrimSpace(res.Text)
+	// Persisted AFTER the answer arrives, both turns together. Writing the
+	// question first would leave a conversation ending in an unanswered
+	// question every time a session failed or timed out.
+	session, err := s.persist(r.Context(), in, answer, cites, res.CostUSD)
+	if err != nil {
+		// Not fatal: the operator has their answer on screen, and losing the
+		// transcript is a smaller failure than pretending the answer failed.
+		s.log.Error("could not save the conversation", "err", err)
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{
-		"answer":    strings.TrimSpace(res.Text),
+		"answer":    answer,
 		"citations": cites,
 		"costUSD":   res.CostUSD,
 		"grounded":  len(cites) > 0,
+		"session":   session,
 	})
+}
+
+// historyFor reads a session's turns back in order.
+func (s *Service) historyFor(ctx context.Context, id string) ([]turn, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT role, body_md FROM builder_chat_turns
+		  WHERE session_id = $1 ORDER BY created_at`, id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []turn
+	for rows.Next() {
+		var t turn
+		if rows.Scan(&t.Role, &t.Text) != nil {
+			continue
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
+// persist writes the exchange, creating the session on the first question.
+//
+// One transaction: a session row with no turns is a conversation that shows in
+// the list and opens empty, which reads as data loss whether or not it is.
+func (s *Service) persist(ctx context.Context, in askReq, answer string,
+	cites []citation, usd float64) (string, error) {
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return in.Session, err
+	}
+	defer tx.Rollback()
+
+	id := in.Session
+	if id == "" {
+		// Titled from the question, because a list of timestamps tells an
+		// operator nothing about which conversation they want.
+		title := truncate(in.Question, 120)
+		if err := tx.QueryRowContext(ctx,
+			`INSERT INTO builder_chat_sessions (agent_slug, title) VALUES ($1,$2) RETURNING id`,
+			in.Agent, title).Scan(&id); err != nil {
+			return "", err
+		}
+	}
+
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO builder_chat_turns (session_id, role, body_md) VALUES ($1,'you',$2)`,
+		id, in.Question); err != nil {
+		return id, err
+	}
+
+	raw, err := json.Marshal(cites)
+	if err != nil {
+		raw = []byte("[]")
+	}
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO builder_chat_turns (session_id, role, body_md, citations, grounded, cost_usd)
+		 VALUES ($1,'agent',$2,$3,$4,$5)`, id, answer, raw, len(cites) > 0, usd); err != nil {
+		return id, err
+	}
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE builder_chat_sessions SET updated_at = now() WHERE id = $1`, id); err != nil {
+		return id, err
+	}
+	return id, tx.Commit()
 }
 
 // fence wraps untrusted text so the model can tell information from
