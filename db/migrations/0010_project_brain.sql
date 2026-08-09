@@ -26,6 +26,12 @@ ALTER TABLE builder_brains ALTER COLUMN agent_slug DROP NOT NULL;
 --
 -- Without this CHECK, dropping NOT NULL would also permit an ownerless AGENT
 -- brain — a row nothing can ever write to and nothing can ever clean up.
+-- Dropped first so this file can be re-applied. There is no migration ledger:
+-- scaffold runs every file in db/migrations under ON_ERROR_STOP=1, and a
+-- blueprint upgrade runs them again over a database that already has them. A
+-- bare ADD CONSTRAINT would succeed exactly once and fail every run after,
+-- taking the whole upgrade down with it.
+ALTER TABLE builder_brains DROP CONSTRAINT IF EXISTS builder_brains_owner_check;
 ALTER TABLE builder_brains ADD CONSTRAINT builder_brains_owner_check
   CHECK (agent_slug IS NOT NULL OR namespace LIKE '%:project');
 
