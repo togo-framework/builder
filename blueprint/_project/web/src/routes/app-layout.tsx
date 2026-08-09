@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Outlet, useNavigate, useRouterState, Link } from "@tanstack/react-router";
-import { LayoutGrid, Table2, User, LogOut, Layers, ChevronDown } from "lucide-react";
+import { LayoutGrid, Table2, User, LogOut, Layers, ChevronDown, X } from "lucide-react";
 import {
   SidebarProvider, Sidebar, SidebarHeader, SidebarContent,
   SidebarGroup, SidebarGroupLabel, SidebarMenu, SidebarMenuItem, SidebarMenuButton,
@@ -57,33 +57,103 @@ export function AppLayout() {
   const go = (to: string) => nav({ to });
   const grouped = groupResources(resources);
 
-  // Embedded mode: the page, without the product's chrome.
+  // Standalone mode: the page, without the product's chrome.
   //
-  // The builder's screens are opened from the feedback overlay in an iframe on
-  // this same origin. Rendering the full layout in there would put a second
-  // sidebar and a second account menu inside a panel floating over the first
-  // ones — two apps stacked on screen, both claiming to be the navigation.
+  // The builder's screens are opened from the feedback launcher, which now
+  // NAVIGATES rather than framing them. Drawing the host's sidebar and account
+  // menu around one would put the operator back inside the application they
+  // just left — the launcher exists to step out of it, not to redecorate it.
   //
-  // BOTH conditions, deliberately. The `?embed=1` param is what the launcher
-  // sets and what makes the mode visible in the address bar while debugging it,
-  // but it does not survive in-app navigation: a <Link> to /skills/$name inside
-  // the overlay drops the query string, and the chrome would reappear one click
-  // in. The frame check is what actually holds, and it is the honest question —
-  // "am I rendering inside someone else's page?" — so it is not scoped to this
-  // one launcher either.
-  const embedded =
-    typeof window !== "undefined" &&
-    (new URLSearchParams(window.location.search).get("embed") === "1" ||
-      window.self !== window.top);
+  // Three signals, because none alone survives everything:
+  //   - `?embed=1` is what the launcher sets, and what makes the mode visible
+  //     in the address bar while debugging.
+  //   - sessionStorage is what makes it STICK. The param does not survive
+  //     in-app navigation: a <Link> to /skills/$name drops the query string,
+  //     and the chrome would reappear one click in. With the iframe gone there
+  //     is no frame check left to catch that.
+  //   - window.self !== window.top still holds for anyone embedding a screen
+  //     in their own page, which is an honest question independent of this
+  //     launcher.
+  //
+  // Scoped to the tab (sessionStorage, not localStorage): opening the board in
+  // a new tab from a bookmark should give the full product, not a stripped
+  // screen the operator has no way to explain.
+  const STANDALONE_KEY = "builder:standalone";
+  const RETURN_KEY = "builder:standalone:return";
+
+  // The launcher's own screens. The flag is sticky for the tab, so without
+  // this list it strips the chrome from the HOST product's pages too: open the
+  // board, press the browser's Back, and the dashboard arrives with no sidebar
+  // and no account menu, looking broken with no way to explain it.
+  //
+  // Scoped by prefix so a detail route (/issues/39, /skills/foo) stays
+  // standalone, which is the case the sticky flag exists for.
+  const STANDALONE_ROUTES = [
+    "/agents", "/skills", "/issues", "/vault",
+    "/mcp", "/terminal", "/sources", "/docs",
+  ];
+
+  let embedded = false;
+  if (typeof window !== "undefined") {
+    const path = window.location.pathname;
+    const isAppRoute = STANDALONE_ROUTES.some(
+      (p) => path === p || path.startsWith(p + "/"),
+    );
+    const param = new URLSearchParams(window.location.search).get("embed") === "1";
+    if (param && isAppRoute) sessionStorage.setItem(STANDALONE_KEY, "1");
+    embedded =
+      isAppRoute &&
+      (param ||
+        window.self !== window.top ||
+        sessionStorage.getItem(STANDALONE_KEY) === "1");
+  }
+
+  // Leaving standalone mode has to clear the flag, or the next visit to any
+  // route in this tab is still stripped.
+  const handleClose = () => {
+    const back = sessionStorage.getItem(RETURN_KEY);
+    sessionStorage.removeItem(STANDALONE_KEY);
+    sessionStorage.removeItem(RETURN_KEY);
+    // The page they were on when they opened the launcher, recorded by the SDK
+    // at that moment. history.back() steps ONE entry, so after opening two
+    // screens it lands on another builder screen — technically "back", but not
+    // where anyone meant.
+    if (back) {
+      window.location.assign(back);
+      return;
+    }
+    // A screen opened directly, with no launcher and nothing recorded.
+    if (window.history.length > 1) window.history.back();
+    else window.location.assign("/");
+  };
 
   if (embedded) {
     return (
       <ToastProvider dir={ar ? "rtl" : "ltr"}>
         {/* No AgentAlerts here: the host page behind this overlay is already
             running its own, and two copies would announce every alert twice. */}
-        <main className="min-h-dvh min-w-0 overflow-auto bg-background">
-          <Outlet />
-        </main>
+        <div className="flex min-h-dvh min-w-0 flex-col bg-background">
+          {/* One slim bar, and the only host chrome a standalone screen gets.
+              Without a way back, arriving here is a one-way trip: the operator
+              came from the product, and the launcher gave them no navigation
+              to return through. */}
+          <div className="flex shrink-0 items-center justify-end border-b border-border px-3 py-2">
+            <button
+              type="button"
+              onClick={handleClose}
+              aria-label={ar ? "إغلاق والعودة" : "Close and go back"}
+              className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            >
+              <X className="size-3.5" />
+              {ar ? "إغلاق" : "Close"}
+            </button>
+          </div>
+          {/* min-h-0 so the scroll chain reaches this child rather than
+              stopping at the flex parent. */}
+          <main className="min-h-0 min-w-0 flex-1 overflow-auto">
+            <Outlet />
+          </main>
+        </div>
       </ToastProvider>
     );
   }

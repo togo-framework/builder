@@ -382,11 +382,15 @@ export function mount(opts: MountOptions = {}): Handle {
   // itself was squeezed into a floating layer with two scroll contexts and a
   // close button where a page just wants to be navigated away from.
   //
-  // No ?embed=1 either: that flag exists to strip the app's own chrome for the
-  // iframe case, and a real page should arrive with its real navigation.
+  // ?embed=1 stays. It is not an iframe flag — it means "render this screen on
+  // its own, without the host product's sidebar and account menu". Arriving as
+  // a real navigation and then drawing the host's chrome around it would put
+  // the operator back inside the application they just left, which is the
+  // thing the launcher exists to escape. The app persists the mode for the
+  // session, so a Link deeper into the screen keeps it.
   function openApp(app: (typeof APPS)[number]) {
     const origin = appOrigin();
-    const url = appURL(app.path, false);
+    const url = appURL(app.path, true);
 
     // Cross-origin means the widget is embedded in somebody else's product. We
     // navigate the top-level document only when the app lives on THIS origin;
@@ -394,9 +398,30 @@ export function mount(opts: MountOptions = {}): Handle {
     // whatever they had unsaved, is not a thing a feedback widget may do. A new
     // tab is still a real page with a real URL, which is the whole ask.
     if (origin && origin !== location.origin) {
+      // Cross-origin: sessionStorage on the target cannot be written from
+      // here, so the query param is the only carrier. It is enough — the app
+      // stores the flag itself on arrival.
       window.open(url, "_blank", "noopener");
       close();
       return;
+    }
+
+    // Same origin: set the flag DIRECTLY rather than trusting the query string
+    // to survive the trip. The router validates search params per route and
+    // drops the ones a route does not declare, so ?embed=1 reaches /mcp and is
+    // stripped from /issues before the layout ever reads it — the chrome came
+    // back on exactly the screens most worth opening. Writing the flag here is
+    // immune to that, and the param stays only so the mode is visible in the
+    // address bar while debugging.
+    try {
+      sessionStorage.setItem("builder:standalone", "1");
+      // Where Close returns to. history.back() would only step one entry, so
+      // after two screens it lands on another builder screen rather than on
+      // the page the operator actually left. This is that page.
+      sessionStorage.setItem("builder:standalone:return", location.href);
+    } catch {
+      // Private browsing, or storage disabled. The param is the fallback, and
+      // Close falls back to history.
     }
     close();
     location.assign(url);

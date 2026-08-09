@@ -25,15 +25,15 @@ type fakeSlack struct {
 	mu sync.Mutex
 
 	messages []slackMessage // any order; served newest-first, like real Slack
-	pageSize int             // 0 = honour the limit= the connector sent
+	pageSize int            // 0 = honour the limit= the connector sent
 
 	errCode string // when set, respond {"ok":false,"error":errCode}
 	status  int    // when non-zero, respond with this HTTP status instead
 
-	requests []url_ // every request this fake saw
+	requests []slackFakeRequest // every request this fake saw
 }
 
-type url_ struct {
+type slackFakeRequest struct {
 	oldest, cursor, limit, auth string
 }
 
@@ -55,7 +55,7 @@ func (f *fakeSlack) start(t *testing.T) string {
 func (f *fakeSlack) serve(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	q := r.URL.Query()
-	f.requests = append(f.requests, url_{
+	f.requests = append(f.requests, slackFakeRequest{
 		oldest: q.Get("oldest"), cursor: q.Get("cursor"), limit: q.Get("limit"),
 		auth: r.Header.Get("Authorization"),
 	})
@@ -138,7 +138,11 @@ func slackCfg(api string) map[string]any {
 	}
 }
 
-var slackVault = &fakeVault{values: map[string]string{"slack-bot-token": "xoxb-fake-token-value"}}
+// freshSlackVault returns a new fake vault per test — a shared one would make
+// assertions on which secret name was asked order-dependent across tests.
+func freshSlackVault() *fakeVault {
+	return &fakeVault{values: map[string]string{"slack-bot-token": "xoxb-fake-token-value"}}
+}
 
 // --- config validation -------------------------------------------------
 
@@ -200,7 +204,7 @@ func TestSlackConfigValidation(t *testing.T) {
 			if err != nil {
 				t.Fatalf("marshal: %v", err)
 			}
-			_, err = Open(KindSlack, raw, slackVault)
+			_, err = Open(KindSlack, raw, freshSlackVault())
 			if tt.wantErr == "" {
 				if err != nil {
 					t.Fatalf("Open: unexpected error: %v", err)
@@ -219,7 +223,7 @@ func TestSlackConfigValidation(t *testing.T) {
 
 func TestSlackMaxMessagesDefaultsAndCaps(t *testing.T) {
 	cfg := map[string]any{"channelID": "C0123456789", "tokenSecret": "slack-bot-token"}
-	src, err := Open(KindSlack, marshal(t, cfg), slackVault)
+	src, err := Open(KindSlack, marshal(t, cfg), freshSlackVault())
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -228,7 +232,7 @@ func TestSlackMaxMessagesDefaultsAndCaps(t *testing.T) {
 	}
 
 	cfg["maxMessages"] = 50_000
-	src, err = Open(KindSlack, marshal(t, cfg), slackVault)
+	src, err = Open(KindSlack, marshal(t, cfg), freshSlackVault())
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -290,7 +294,8 @@ func TestFirstRunNeverBackfillsAndNeverCallsSlack(t *testing.T) {
 // every later message is measured against.
 func TestFirstRunCursorIsApproximatelyNow(t *testing.T) {
 	before := time.Now()
-	src := newSlackSource(t, slackCfg("http://unused.invalid"), slackVault)
+	// sec is nil on purpose: the first-run path must not need a vault at all.
+	src := newSlackSource(t, slackCfg("http://unused.invalid"), nil)
 	batch, err := src.Fetch(context.Background(), "")
 	if err != nil {
 		t.Fatalf("Fetch: %v", err)
@@ -324,13 +329,8 @@ func TestSecondRunRetainsOnlyMessagesAfterTheCursor(t *testing.T) {
 	}
 	api := fs.start(t)
 
-	brain := &fakeBrain{}
-	src := newSlackSource(t, slackCfg(api), slackVault)
-	rep, err := Refresh(context.Background(), src, NewMemCursors(), brain, "default:project")
-	// direct Fetch, since the cursor for this test is hand-picked rather than
-	// coming from a prior Refresh.
-	_ = rep
-	_ = err
+	vault := freshSlackVault()
+	src := newSlackSource(t, slackCfg(api), vault)
 
 	batch, err := src.Fetch(context.Background(), "1000000000.000000")
 	if err != nil {
@@ -363,8 +363,8 @@ func TestSecondRunRetainsOnlyMessagesAfterTheCursor(t *testing.T) {
 
 	// The vault was asked by NAME, and the value never leaked into anything
 	// this test can see.
-	if len(slackVault.asked) == 0 || slackVault.asked[len(slackVault.asked)-1] != "slack-bot-token" {
-		t.Errorf("token was not revealed by name: %v", slackVault.asked)
+	if len(vault.asked) == 0 || vault.asked[len(vault.asked)-1] != "slack-bot-token" {
+		t.Errorf("token was not revealed by name: %v", vault.asked)
 	}
 }
 
@@ -377,7 +377,7 @@ func TestUnchangedChannelCostsOneRequestZeroWrites(t *testing.T) {
 
 	cur := NewMemCursors()
 	_ = cur.SetCursor(context.Background(), KindSlack, "C0123456789", "1000000000.000000")
-	src := newSlackSource(t, slackCfg(api), slackVault)
+	src := newSlackSource(t, slackCfg(api), freshSlackVault())
 	brain := &fakeBrain{}
 
 	rep, err := Refresh(context.Background(), src, cur, brain, "default:project")
@@ -401,7 +401,7 @@ func TestDocRefIsTheMessageTimestamp(t *testing.T) {
 	fs := newFakeSlack()
 	fs.messages = []slackMessage{{TS: "1000000100.000000", Text: "hello"}}
 	api := fs.start(t)
-	src := newSlackSource(t, slackCfg(api), slackVault)
+	src := newSlackSource(t, slackCfg(api), freshSlackVault())
 
 	batch, err := src.Fetch(context.Background(), "1000000000.000000")
 	if err != nil {
@@ -421,7 +421,7 @@ func TestTextlessMessagesAreReportedSkipped(t *testing.T) {
 		{TS: "1000000200.000000", Text: "real content"},
 	}
 	api := fs.start(t)
-	src := newSlackSource(t, slackCfg(api), slackVault)
+	src := newSlackSource(t, slackCfg(api), freshSlackVault())
 
 	batch, err := src.Fetch(context.Background(), "1000000000.000000")
 	if err != nil {
@@ -451,15 +451,20 @@ func TestPaginationStopsAtTheMessageCap(t *testing.T) {
 	api := fs.start(t)
 
 	cfg := slackCfg(api)
-	cfg["maxMessages"] = 20
-	src := newSlackSource(t, cfg, slackVault)
+	// 25, not 20: the cap must land MID-page (page size 10) for this to prove
+	// anything. At an even multiple of the page size the loop simply stops
+	// before requesting the next page, and no over-cap message is ever seen
+	// (let alone reported Skipped) — see TestPageCountIsBoundedRegardlessOfHasMore
+	// for that page-boundary case instead.
+	cfg["maxMessages"] = 25
+	src := newSlackSource(t, cfg, freshSlackVault())
 
 	batch, err := src.Fetch(context.Background(), "1000000000.000000")
 	if err != nil {
 		t.Fatalf("Fetch: %v", err)
 	}
-	if len(batch.Docs) != 20 {
-		t.Errorf("Docs = %d, want exactly the 20-message cap", len(batch.Docs))
+	if len(batch.Docs) != 25 {
+		t.Errorf("Docs = %d, want exactly the 25-message cap", len(batch.Docs))
 	}
 	if len(batch.Skipped) == 0 {
 		t.Error("messages beyond the cap should be reported Skipped, not dropped without a trace")
@@ -483,7 +488,7 @@ func TestPageCountIsBoundedRegardlessOfHasMore(t *testing.T) {
 		})
 	}
 	api := fs.start(t)
-	src := newSlackSource(t, slackCfg(api), slackVault)
+	src := newSlackSource(t, slackCfg(api), freshSlackVault())
 
 	_, err := src.Fetch(context.Background(), "0999999999.000000")
 	if err != nil {
@@ -502,7 +507,7 @@ func TestSlackOKFalseIsAnError(t *testing.T) {
 	fs := newFakeSlack()
 	fs.errCode = "channel_not_found"
 	api := fs.start(t)
-	src := newSlackSource(t, slackCfg(api), slackVault)
+	src := newSlackSource(t, slackCfg(api), freshSlackVault())
 
 	_, err := src.Fetch(context.Background(), "1000000000.000000")
 	if err == nil {
@@ -531,8 +536,14 @@ func TestTokenNeverAppearsInAnError(t *testing.T) {
 	}
 
 	// Refresh() wraps and scrubs it too; check that path as well since that is
-	// what actually reaches a log line.
-	_, rerr := Refresh(context.Background(), src, NewMemCursors(), &fakeBrain{}, "default:project")
+	// what actually reaches a log line. A pre-seeded cursor is required here —
+	// an empty one takes the no-backfill branch, which never calls Slack and
+	// so never fails, telling us nothing about error scrubbing.
+	cur := NewMemCursors()
+	if err := cur.SetCursor(context.Background(), KindSlack, "C0123456789", "1000000000.000000"); err != nil {
+		t.Fatalf("SetCursor: %v", err)
+	}
+	_, rerr := Refresh(context.Background(), src, cur, &fakeBrain{}, "default:project")
 	if rerr == nil || strings.Contains(rerr.Error(), "xoxb-super-secret-value-do-not-leak") {
 		t.Fatalf("Refresh error leaked the token: %v", rerr)
 	}
@@ -561,7 +572,7 @@ func TestRateLimitIsReportedNotRetried(t *testing.T) {
 	fs := newFakeSlack()
 	fs.status = http.StatusTooManyRequests
 	api := fs.start(t)
-	src := newSlackSource(t, slackCfg(api), slackVault)
+	src := newSlackSource(t, slackCfg(api), freshSlackVault())
 
 	_, err := src.Fetch(context.Background(), "1000000000.000000")
 	if err == nil {
