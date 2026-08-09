@@ -40,7 +40,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with: { node-version: "20" }
+        with: { node-version: "22" }
+      # corepack, with the version pinned by packageManager in sdk/package.json.
+      # Unpinned it resolves whatever pnpm published most recently — which is how
+      # a commit that changed no JavaScript failed CI on node:sqlite, a builtin
+      # that only exists in Node 22+.
       - run: corepack enable
       - working-directory: sdk
         run: pnpm install --frozen-lockfile || pnpm install

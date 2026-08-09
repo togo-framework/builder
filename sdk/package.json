@@ -22,5 +22,9 @@
     "jsdom": "^26.1.0",
     "typescript": "^5.7.0"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "packageManager": "pnpm@10.32.1",
+  "engines": {
+    "node": ">=22"
+  }
 }
