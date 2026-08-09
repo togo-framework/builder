@@ -12,12 +12,6 @@ import (
 	"time"
 )
 
-// Retainer is the brain, narrowed to the one call this package makes.
-// *brain.Store satisfies it.
-type Retainer interface {
-	Retain(ctx context.Context, ns, content, sourceKind, sourceRef string, importance float64) (string, error)
-}
-
 // Store runs sources.
 type Store struct {
 	db    *sql.DB
@@ -37,14 +31,19 @@ func New(db *sql.DB, log *slog.Logger, b Retainer, v Revealer) *Store {
 
 // MemoryRef is the source_ref every refresh writes under.
 //
-// It is stable per source, and that is the whole of requirement 4. The brain's
-// unique index on (namespace, source_ref) turns Retain into an upsert, so the
-// tenth refresh UPDATES the row the ninth wrote instead of adding to it. A
-// source that appended would bury its own current answer under 200 stale copies
-// within a fortnight, and recall would surface whichever one embedded best.
-func MemoryRef(kind, name string) string {
-	return "source:" + kind + ":" + name
-}
+// wholeResultRef is the ref every whole-result source retains under.
+//
+// A source whose whole output IS one answer — a SQL query's rendered result —
+// wants exactly one memory that each refresh replaces. The brain's unique index
+// on (namespace, source_ref) turns Retain into an upsert, so the tenth refresh
+// UPDATES the row the ninth wrote. Appending instead would bury the current
+// answer under 200 stale copies within a fortnight, and recall would surface
+// whichever one embedded best.
+//
+// Document-shaped sources (a repository, a feed) pass a per-document ref
+// instead, because there a repo's README and its CONTRIBUTING are two answers,
+// not two versions of one.
+const wholeResultRef = "result"
 
 type sourceRow struct {
 	ID        string
@@ -73,12 +72,32 @@ func (s *Store) Run(ctx context.Context) {
 }
 
 // RefreshDue runs every enabled source whose next_run_at has passed.
+//
+// Each source runs AT MOST ONCE per pass. The loop used to trust next_run_at to
+// move forward, which is true only if markOK's UPDATE succeeds — and against a
+// database whose builder_sources predated total_runs it did not, silently. The
+// source stayed due, the loop claimed it again immediately, and one connector
+// refetched the same repository in a tight loop for as long as the process ran.
+//
+// A scheduler that can spin is worse than one that skips a tick: the tick comes
+// round again in a minute, whereas a loop hammers somebody else's API and fills
+// the brain until an operator notices. Seeing a source twice means something is
+// wrong with the row, so stop and let the next pass — and the logged error —
+// deal with it.
 func (s *Store) RefreshDue(ctx context.Context) {
+	seen := make(map[string]bool)
 	for {
 		row, token, ok := s.claimNext(ctx)
 		if !ok {
 			return
 		}
+		if seen[row.ID] {
+			s.log.Error("a source came due twice in one pass; stopping to avoid a refetch loop",
+				"source", row.Name, "kind", row.Kind)
+			s.release(ctx, row, token)
+			return
+		}
+		seen[row.ID] = true
 		if err := s.refresh(ctx, row, "schedule"); err != nil {
 			// Already recorded against the source; the log line is for an
 			// operator watching, and is scrubbed like everything else.
@@ -154,10 +173,42 @@ func (s *Store) release(ctx context.Context, row sourceRow, token string) {
 
 // refresh runs one source and records what happened, whatever happened.
 func (s *Store) refresh(ctx context.Context, row sourceRow, trigger string) error {
+	// Logged, not discarded. Without a run id every finishRun below returns
+	// early, so a source that refreshes perfectly leaves no trace in the ledger
+	// — and the ledger is the only place a failure at 03:00 is still visible
+	// after a success at 04:00.
 	var runID string
-	_ = s.db.QueryRowContext(ctx,
+	if err := s.db.QueryRowContext(ctx,
 		`INSERT INTO builder_source_runs (source_id, trigger) VALUES ($1,$2) RETURNING id`,
-		row.ID, trigger).Scan(&runID)
+		row.ID, trigger).Scan(&runID); err != nil {
+		s.log.Error("could not open a run row; this refresh will not be recorded",
+			"source", row.Name, "kind", row.Kind, "err", Scrub(err.Error()))
+	}
+
+	// Checked before the source runs, not after. Fetching a repository and then
+	// discovering there is nowhere to put it spends the whole request budget to
+	// produce an error that was knowable up front.
+	ns := strings.TrimSpace(row.Namespace)
+	if ns == "" {
+		err := errors.New("the source has no target namespace")
+		s.finishRun(ctx, runID, "error", 0, false, err.Error())
+		s.markFailed(ctx, row, err)
+		return err
+	}
+
+	// A registered kind is document-shaped and retains inside Refresh.
+	if isPlugin(row.Kind) {
+		rep, err := s.runPlugin(ctx, row, ns, runID)
+		if err != nil {
+			s.finishRun(ctx, runID, "error", 0, false, ScrubErr(err))
+			s.markFailed(ctx, row, err)
+			return err
+		}
+		res := Result{RowsRead: rep.Retained}
+		s.finishRun(ctx, runID, "ok", rep.Retained, false, "")
+		s.markOK(ctx, row, res)
+		return nil
+	}
 
 	res, err := s.execute(ctx, row)
 	if err != nil {
@@ -166,16 +217,8 @@ func (s *Store) refresh(ctx context.Context, row sourceRow, trigger string) erro
 		return err
 	}
 
-	ns := strings.TrimSpace(row.Namespace)
-	if ns == "" {
-		err := errors.New("the source has no target namespace")
-		s.finishRun(ctx, runID, "error", res.RowsRead, res.Truncated, err.Error())
-		s.markFailed(ctx, row, err)
-		return err
-	}
-
 	// The upsert that makes the result replace rather than accumulate.
-	if _, err := s.brain.Retain(ctx, ns, res.Text, "source", MemoryRef(row.Kind, row.Name), 0.6); err != nil {
+	if _, err := s.brain.Retain(ctx, ns, res.Text, "source", MemoryRef(row.Kind, row.Name, wholeResultRef), 0.6); err != nil {
 		s.finishRun(ctx, runID, "error", res.RowsRead, res.Truncated, ScrubErr(err))
 		s.markFailed(ctx, row, err)
 		return fmt.Errorf("retain: %w", err)
@@ -186,9 +229,9 @@ func (s *Store) refresh(ctx context.Context, row sourceRow, trigger string) erro
 	return nil
 }
 
-// execute dispatches on kind. Adding a source kind means adding a case here and
-// a config type beside SQLConfig — the scheduler, the lease and the retain are
-// already shared.
+// execute runs the whole-result kinds: those whose entire output is one answer
+// that each refresh replaces. Document-shaped kinds never reach here — they
+// register a Factory and are driven through Refresh by runPlugin.
 func (s *Store) execute(ctx context.Context, row sourceRow) (Result, error) {
 	switch row.Kind {
 	case "sql":
@@ -206,19 +249,28 @@ func (s *Store) finishRun(ctx context.Context, runID, status string, rows int, t
 	if runID == "" {
 		return
 	}
-	_, _ = s.db.ExecContext(ctx,
+	if _, err := s.db.ExecContext(ctx,
 		`UPDATE builder_source_runs
 		    SET status=$2, rows_read=$3, truncated=$4, error=$5, ended_at=now()
-		  WHERE id=$1`, runID, status, rows, truncated, errText)
+		  WHERE id=$1`, runID, status, rows, truncated, errText); err != nil {
+		s.log.Error("could not close the run row", "run", runID, "err", Scrub(err.Error()))
+	}
 }
 
 func (s *Store) markOK(ctx context.Context, row sourceRow, res Result) {
-	_, _ = s.db.ExecContext(ctx,
+	// The error is logged, not discarded. This UPDATE is what moves next_run_at
+	// forward; if it fails silently the source stays due and RefreshDue claims
+	// it again on the very next pass, refetching the same documents in a tight
+	// loop for as long as the process lives.
+	if _, err := s.db.ExecContext(ctx,
 		`UPDATE builder_sources SET
 		    last_run_at = now(), last_status = 'ok', last_error = '',
 		    consecutive_failures = 0, total_runs = total_runs + 1,
 		    next_run_at = now() + $2::interval, updated_at = now()
-		  WHERE id = $1`, row.ID, intervalFor(row.Schedule, 0))
+		  WHERE id = $1`, row.ID, intervalFor(row.Schedule, 0)); err != nil {
+		s.log.Error("could not advance the schedule; the source will be retried immediately",
+			"source", row.Name, "kind", row.Kind, "err", Scrub(err.Error()))
+	}
 	s.log.Info("source refreshed", "source", row.Name, "kind", row.Kind,
 		"rows", res.RowsRead, "truncated", res.Truncated)
 }

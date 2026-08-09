@@ -130,7 +130,7 @@ func ValidateReadOnly(q string) (string, error) {
 //   - Dollar quoting ($$ ... $$). It exists to embed a function body without
 //     escaping, which is precisely the thing a metrics query never needs and an
 //     attacker always wants.
-//   - E'' escape strings, where a backslash escapes the closing quote. Parsing
+//   - E” escape strings, where a backslash escapes the closing quote. Parsing
 //     them correctly means knowing the server's standard_conforming_strings
 //     setting, which this process does not; guessing wrong mis-parses the rest
 //     of the statement, and mis-parsing is how a scanner gets walked past.
