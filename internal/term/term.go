@@ -12,9 +12,11 @@
 //   - OFF unless BUILDER_TERMINAL=1. This ships inside a blueprint that other
 //     people generate applications from. A web shell that turned itself on
 //     because the plugin was installed would be indefensible.
+//
 //   - Local environments ONLY, by allowlist across APP_ENV, ENV and TOGO_ENV —
 //     the same three the auth plugin reads. Anything unrecognised, including
 //     unset, denies.
+//
 //   - Behind auth.Middleware + RequireRole("admin"), applied at the MOUNT in
 //     providers.go, and NOT MOUNTED AT ALL when the auth plugin is absent.
 //
@@ -25,6 +27,7 @@
 //     shell, as this process, with its whole environment, on a port that binds
 //     to every interface. Stating a control is not implementing one, and this
 //     package is the worst possible place to confuse the two.
+//
 //   - Same-origin only. A WebSocket ignores CORS, so the Origin header is
 //     checked by hand — without that, any page the operator visits while
 //     logged in could open a shell on their machine.

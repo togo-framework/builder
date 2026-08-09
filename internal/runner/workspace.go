@@ -30,9 +30,25 @@ type Workspace struct {
 // repository, because an agent that believes it changed three files and
 // actually changed thirty is exactly the case the caps exist to catch.
 type Diff struct {
-	Files      []string
-	Added      int
-	Removed    int
+	Files   []string
+	Added   int
+	Removed int
+
+	// New files versus existing ones, counted apart.
+	//
+	// Blast radius is what a change DISTURBS, not what it adds. Two thousand
+	// lines across five brand-new files cannot break one line of what already
+	// works — nothing imports them yet. Three hundred lines rewritten across
+	// twenty existing files can break all twenty. Measured as one number those
+	// two are indistinguishable, and the second is by far the more dangerous.
+	//
+	// So the caps are applied to Touched* only, and the totals serve as a
+	// runaway guard rather than as the design limit.
+	NewFiles       []string
+	TouchedFiles   []string
+	TouchedAdded   int
+	TouchedRemoved int
+
 	HeadSHA    string
 	HasChanges bool
 }
@@ -107,7 +123,48 @@ func (w *Workspace) Diff(ctx context.Context) (Diff, error) {
 			}
 		}
 	}
+
+	// Split by whether the file existed at base. Asking git with --diff-filter
+	// is more reliable than parsing --name-status ourselves, because renames and
+	// copies print a similarity score and an arrow form that is easy to
+	// mis-split on whitespace.
+	d.NewFiles, _, _ = w.filterStat(ctx, "A")
+	d.TouchedFiles, d.TouchedAdded, d.TouchedRemoved = w.filterStat(ctx, "MDRCT")
+
 	return d, nil
+}
+
+// filterStat reports the files and line counts for one class of change.
+//
+// Errors are swallowed deliberately and reported as zero: this feeds a safety
+// cap, and a cap that cannot be measured must not be the thing that fails a run
+// which otherwise succeeded. A zero here means the caller sees a smaller
+// blast radius than reality — which is caught by the total-churn guard that is
+// derived from the plain numstat above and cannot silently read as zero.
+func (w *Workspace) filterStat(ctx context.Context, filter string) ([]string, int, int) {
+	out, err := git(ctx, w.Dir, "diff", "--cached", "--numstat",
+		"--diff-filter="+filter, w.BaseSHA)
+	if err != nil {
+		return nil, 0, 0
+	}
+	var files []string
+	var added, removed int
+	for _, l := range strings.Split(strings.TrimSpace(out), "\n") {
+		f := strings.Fields(l)
+		if len(f) < 3 {
+			continue
+		}
+		if a, err := strconv.Atoi(f[0]); err == nil {
+			added += a
+		}
+		if r, err := strconv.Atoi(f[1]); err == nil {
+			removed += r
+		}
+		// For a rename numstat prints "old => new"; the last field is close
+		// enough for a count and a message, and nothing downstream opens it.
+		files = append(files, f[len(f)-1])
+	}
+	return files, added, removed
 }
 
 // Commit records the work with provenance in the trailer.

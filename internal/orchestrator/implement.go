@@ -15,10 +15,48 @@ import (
 // Blast-radius caps. Exceeding one is not a failure — it is a signal that the
 // issue was mis-specified, so the run stops and hands a plan back to a human
 // rather than pressing on.
+//
+// The caps apply to files that ALREADY EXISTED. A run that writes a thousand
+// lines of brand-new code has disturbed nothing — no caller has imported it yet
+// — while a run that rewrites four hundred lines across twenty live files can
+// break every one of them. One combined number cannot tell those apart, and
+// measuring them together is what stopped three consecutive "add a new source
+// connector" issues: each was almost entirely new files, each was counted as if
+// it had rewritten the codebase, and each had its work thrown away.
+//
+// The totals are still bounded, but as a runaway guard rather than a design
+// limit — the number at which something has clearly gone wrong, not the number
+// at which an honest feature becomes suspicious.
 const (
-	maxFilesChanged = 25
-	maxNetLines     = 1200
+	maxFilesTouched = 20
+	maxLinesTouched = 1200
+
+	maxFilesTotal = 60
+	maxLinesTotal = 6000
 )
+
+// capBreach reports why a diff is too big, or "" when it is acceptable.
+//
+// The message is written for the operator who has to decide what to do next,
+// so it says which cap and by how much rather than only that a limit exists.
+func capBreach(d runner.Diff) string {
+	touchedLines := d.TouchedAdded + d.TouchedRemoved
+	switch {
+	case len(d.TouchedFiles) > maxFilesTouched:
+		return fmt.Sprintf("it changes %d files that already existed (limit %d)",
+			len(d.TouchedFiles), maxFilesTouched)
+	case touchedLines > maxLinesTouched:
+		return fmt.Sprintf("it rewrites %d lines inside files that already existed (limit %d)",
+			touchedLines, maxLinesTouched)
+	case len(d.Files) > maxFilesTotal:
+		return fmt.Sprintf("it writes %d files in one run (limit %d)",
+			len(d.Files), maxFilesTotal)
+	case d.Added+d.Removed > maxLinesTotal:
+		return fmt.Sprintf("it writes %d lines in one run (limit %d)",
+			d.Added+d.Removed, maxLinesTotal)
+	}
+	return ""
+}
 
 const implementPrompt = `You are %s, working on one issue in this repository.
 
@@ -43,8 +81,13 @@ inside it.
 
 ## Caps
 
-At most %d files and %d net lines. If the fix needs more, STOP and report
-` + "`\"outcome\": \"needs_human\"`" + ` with a plan. A change that large is a
+The limit is on what you DISTURB, not on what you write. You may change at most
+%d files that already exist, and rewrite at most %d lines inside them. New files
+are far less constrained — nothing imports them yet, so they cannot break what
+works — but stay under %d files and %d lines in total.
+
+If the change needs more than that, STOP and report
+` + "`\"outcome\": \"needs_human\"`" + ` with a plan. Reaching in that far is a
 sign the issue is under-specified, not that you should push on.
 
 ## When you are done
@@ -222,7 +265,8 @@ func (o *Orchestrator) Implement(
 
 	prompt := fmt.Sprintf(implementPrompt,
 		c.Agent, persona, wrapUntrusted(report),
-		strings.Join(allowed, ", "), maxFilesChanged, maxNetLines)
+		strings.Join(allowed, ", "),
+		maxFilesTouched, maxLinesTouched, maxFilesTotal, maxLinesTotal)
 
 	// The operator edits these in the agent settings UI, so they are handed to
 	// the in-session guards rather than left to .claude/autonomy.yaml. Without
@@ -328,7 +372,14 @@ func (o *Orchestrator) Implement(
 	// The commit is marked WIP so nothing downstream mistakes it for a finished
 	// change, and the branch survives for the human to read and the next attempt
 	// to build on.
-	if diff.HasChanges && v.Outcome != "fixed" {
+	// The `fixed` exemption exists because the success path commits in publish().
+	// It has one hole, and it cost three runs: a run that says "fixed" and then
+	// breaches a cap returns BEFORE publish, so nothing committed and the
+	// deferred worktree removal deleted every line. Issues #38, #39 and #40 each
+	// produced ~1800 lines, were told "this needs splitting", and left behind no
+	// branch to split. #39 did it three times.
+	breach := capBreach(diff)
+	if diff.HasChanges && (v.Outcome != "fixed" || breach != "") {
 		if sha, cerr := ws.Commit(ctx,
 			fmt.Sprintf("wip(#%d): %s", c.Number, orDefault(v.Summary, "partial work, run stopped early")),
 			c.Agent, c.Model, c.RunID, c.Number); cerr != nil {
@@ -398,14 +449,21 @@ func (o *Orchestrator) Implement(
 	}
 
 	// Caps are checked against the DERIVED diff, not the agent's claim.
-	net := diff.Added + diff.Removed
 	switch {
-	case len(diff.Files) > maxFilesChanged || net > maxNetLines:
+	case breach != "":
 		o.comment(ctx, c, fmt.Sprintf(
-			"**Stopped — the change is too large.**\n\n%d files, %d net lines "+
-				"(caps: %d / %d). That usually means the issue needs splitting rather "+
-				"than a bigger budget.\n\n%s",
-			len(diff.Files), net, maxFilesChanged, maxNetLines, v.WhatChanged))
+			"**Stopped — the change is too large.** This run is being held back because %s.\n\n"+
+				"| | |\n|---|---|\n"+
+				"| New files | %d files, +%d lines |\n"+
+				"| Existing files changed | %d files, +%d/-%d lines |\n"+
+				"| Branch | `%s` |\n\n"+
+				"**The work is not lost.** It is committed on `%s` as a WIP commit — read it, "+
+				"split it into smaller issues, or reset the attempts and let the next run "+
+				"build on it. Nothing has been merged.\n\n%s",
+			breach,
+			len(diff.NewFiles), diff.Added-diff.TouchedAdded,
+			len(diff.TouchedFiles), diff.TouchedAdded, diff.TouchedRemoved,
+			branch, branch, v.WhatChanged))
 		d.RunStatus, d.Err = "failed", "blast radius exceeded"
 		o.finish(ctx, c, "blocked", "blocked", d)
 		o.markHumanOnly(ctx, c)
@@ -866,8 +924,9 @@ func (o *Orchestrator) announce(ctx context.Context, c *Claim, branch string, ar
 			"| | |\n|---|---|\n"+
 			"| Branch | `%s` |\n| Repository | `%s` |\n| Areas | %s |\n"+
 			"| Model | `%s` |\n| Budget | %s |\n"+
-			"| Blast radius | at most %d files, %d net lines |%s",
-		c.Agent, branch, repo, scope, c.Model, budgetLabel, maxFilesChanged, maxNetLines, attempt)
+			"| Blast radius | at most %d existing files, %d lines rewritten in them |%s",
+		c.Agent, branch, repo, scope, c.Model, budgetLabel,
+		maxFilesTouched, maxLinesTouched, attempt)
 
 	_, err := o.db.ExecContext(ctx,
 		`INSERT INTO builder_issue_comments (issue_id, author_kind, author_agent_id, body_md, run_id)
