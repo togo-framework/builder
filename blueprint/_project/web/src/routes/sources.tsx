@@ -1,12 +1,19 @@
 import { useEffect, useState } from "react";
 import {
-  Button, Callout, EmptyState, Input, Label, PageHeader, StatCard,
+  Button, Callout, EmptyState, Input, PageHeader, Select, SelectContent,
+  SelectItem, SelectTrigger, SelectValue, StatCard, StatusBadge, Textarea,
 } from "@togo-framework/ui";
-import { ChevronDown, ChevronRight, Play, Plus, RefreshCw, Trash2, X } from "lucide-react";
+import {
+  ChevronDown, ChevronRight, History, Play, Plus, RefreshCw, Rss, Trash2, X,
+} from "lucide-react";
 import {
   configTemplate, createSource, deleteSource, listKinds, listSources, patchSource,
   refreshSource, sourceRuns, type Source, type SourceRun,
 } from "../lib/sources";
+import {
+  Field, FormCard, FormFooter, ListSkeleton, MonoBadge, PageShell, Row, RowMeta,
+  RowTitle, Section, StatRow,
+} from "../components/page-shell";
 
 const ago = (iso: string | null) => {
   if (!iso) return "—";
@@ -50,16 +57,24 @@ const RunHistory = ({ id, reloadKey }: { id: string; reloadKey: number }) => {
   }, [id, reloadKey]);
 
   if (err) return <p className="px-3 py-2 text-xs text-destructive">{err}</p>;
-  if (!runs) return <p className="px-3 py-2 text-xs text-muted-foreground">Loading runs…</p>;
+  if (!runs) {
+    return (
+      <p className="flex items-center gap-1.5 px-3 py-2 text-xs text-muted-foreground">
+        <RefreshCw className="size-3.5 animate-spin motion-reduce:animate-none" />
+        Loading runs…
+      </p>
+    );
+  }
   if (runs.length === 0) {
     return <p className="px-3 py-2 text-xs text-muted-foreground">No runs yet.</p>;
   }
 
   return (
-    <div className="space-y-1 px-3 pb-3">
+    <div className="space-y-1 border-t border-border/60 px-3 py-2">
       {runs.map((r) => (
         <div key={r.id} className="flex items-start gap-2 rounded-md bg-muted/40 px-2 py-1.5 text-xs">
           <span
+            aria-label={r.status}
             className={
               r.status === "ok" ? "text-emerald-500"
                 : r.status === "error" ? "text-destructive"
@@ -146,55 +161,21 @@ const SourceRow = ({
   const failing = s.lastStatus === "error";
 
   return (
-    <div
-      className={`rounded-lg border ${failing ? "border-destructive/50" : "border-border"} bg-card`}
-    >
-      <div className="flex items-start gap-3 p-3">
+    <Row
+      danger={failing}
+      leading={
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
           aria-label={open ? "Hide runs" : "Show runs"}
-          className="mt-0.5 text-muted-foreground hover:text-foreground"
+          aria-expanded={open}
+          className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
         >
           {open ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
         </button>
-
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">{s.kind}</span>
-            <span className="font-medium">{s.name}</span>
-            {/* Disabled is the single most confusing state — a source that
-                collects nothing and looks configured — so it is unmissable. */}
-            {!s.enabled && (
-              <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-xs font-medium text-amber-600 dark:text-amber-400">
-                Off
-              </span>
-            )}
-            {failing && (
-              <span className="rounded bg-destructive/15 px-1.5 py-0.5 text-xs font-medium text-destructive">
-                Failing{s.consecutiveFailures > 1 ? ` ×${s.consecutiveFailures}` : ""}
-              </span>
-            )}
-          </div>
-
-          <p className="mt-1 text-sm text-muted-foreground">{s.description}</p>
-
-          <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-            <span>into <span className="font-mono">{s.namespace}</span></span>
-            <span>every <span className="font-mono">{s.schedule}</span></span>
-            <span>last run {ago(s.lastRunAt)}</span>
-            <span className="tabular-nums">{s.totalRuns} runs</span>
-          </div>
-
-          {s.lastError && (
-            <p className="mt-2 break-words rounded-md bg-destructive/10 px-2 py-1 text-xs text-destructive">
-              {s.lastError}
-            </p>
-          )}
-          {result && <p className="mt-2 text-xs text-muted-foreground">{result}</p>}
-        </div>
-
-        <div className="flex shrink-0 items-center gap-1">
+      }
+      trailing={
+        <>
           <Button
             variant="ghost" size="sm" onClick={handleRefresh} disabled={busy !== ""}
             title="Run it now and show what happened"
@@ -206,18 +187,189 @@ const SourceRow = ({
           </Button>
           <Button
             variant="ghost" size="sm" onClick={handleDelete} disabled={busy !== ""}
-            className="text-destructive hover:bg-destructive/10"
+            title="Delete this source"
+            className="text-destructive hover:bg-destructive/10 hover:text-destructive"
           >
             <Trash2 className="size-4" />
           </Button>
-        </div>
-      </div>
+        </>
+      }
+      footer={open ? <RunHistory id={s.id} reloadKey={runsKey} /> : undefined}
+    >
+      <RowTitle>
+        <MonoBadge>{s.kind}</MonoBadge>
+        <span className="font-medium">{s.name}</span>
+        {/* Disabled is the single most confusing state — a source that
+            collects nothing and looks configured — so it is unmissable. */}
+        {!s.enabled && <StatusBadge tone="warning">Off</StatusBadge>}
+        {failing && (
+          <StatusBadge tone="danger">
+            Failing{s.consecutiveFailures > 1 ? ` ×${s.consecutiveFailures}` : ""}
+          </StatusBadge>
+        )}
+      </RowTitle>
 
-      {open && <RunHistory id={s.id} reloadKey={runsKey} />}
-    </div>
+      <p className="mt-1 text-sm text-muted-foreground">{s.description}</p>
+
+      <RowMeta>
+        <span>into <span className="font-mono">{s.namespace}</span></span>
+        <span>every <span className="font-mono">{s.schedule}</span></span>
+        <span className="inline-flex items-center gap-1">
+          <History className="size-3.5" />
+          last run {ago(s.lastRunAt)}
+        </span>
+        <span className="tabular-nums">{s.totalRuns} runs</span>
+      </RowMeta>
+
+      {s.lastError && (
+        <p className="mt-2 break-words rounded-md bg-destructive/10 px-2 py-1 text-xs text-destructive">
+          {s.lastError}
+        </p>
+      )}
+      {result && <p className="mt-2 text-xs text-muted-foreground">{result}</p>}
+    </Row>
   );
 };
 SourceRow.displayName = "SourceRow";
+
+/**
+ * The create form, structured field-by-field rather than the JSON dump it was.
+ *
+ * The configuration stays a JSON editor on purpose — a per-kind form is worth
+ * building once the kinds settle; until then it would be four forms to keep in
+ * step with four connectors — but it is validated as it is typed, so "not
+ * valid JSON" is caught next to the field while the operator is still there,
+ * not by the server after submit.
+ */
+const AddSourceForm = ({
+  kinds, onClose, onCreated, onError,
+}: {
+  kinds: string[];
+  onClose: () => void;
+  onCreated: () => void;
+  onError: (m: string) => void;
+}) => {
+  const [kind, setKind] = useState(kinds[0] ?? "");
+  const [name, setName] = useState("");
+  const [namespace, setNamespace] = useState("default:project");
+  const [schedule, setSchedule] = useState("@hourly");
+  const [config, setConfig] = useState(configTemplate(kinds[0] ?? ""));
+  const [saving, setSaving] = useState(false);
+
+  const handleKind = (k: string) => {
+    setKind(k);
+    setConfig(configTemplate(k));
+  };
+
+  // Validated live, but only surfaced as an error — the parsed value the
+  // server receives is still produced at submit time from the same string.
+  let jsonError = "";
+  try {
+    JSON.parse(config);
+  } catch {
+    jsonError = "This is not valid JSON — check for a trailing comma or a missing quote.";
+  }
+
+  const canSubmit = !saving && kind !== "" && name.trim() !== "" && jsonError === "";
+  const blockedBy =
+    name.trim() === "" ? "Name it first."
+      : jsonError ? "Fix the configuration first."
+        : "Created switched off — enable it when you have run it once.";
+
+  const handleCreate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!canSubmit) return;
+    setSaving(true);
+    try {
+      await createSource({
+        kind, name, namespace, schedule,
+        config: JSON.parse(config),
+        // Created off, always. A form must not be able to start polling
+        // somebody's production database the moment it is submitted.
+        enabled: false,
+      });
+      onCreated();
+    } catch (e2) {
+      // Verbatim. The server names the exact field that is wrong and is better
+      // at it than anything this form could guess.
+      onError((e2 as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <FormCard title="Add a source" onClose={onClose}>
+      <form onSubmit={handleCreate}>
+        <div className="grid gap-4 md:grid-cols-2">
+          <Field
+            label="Kind" htmlFor="src-kind" required
+            hint="What system this connects to. Picking one loads its example configuration below."
+          >
+            <Select value={kind} onValueChange={handleKind}>
+              <SelectTrigger id="src-kind" className="w-full font-mono text-xs">
+                <SelectValue placeholder="Pick a connector" />
+              </SelectTrigger>
+              <SelectContent>
+                {kinds.map((k) => (
+                  <SelectItem key={k} value={k} className="font-mono text-xs">{k}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Field>
+          <Field
+            label="Name" htmlFor="src-name" required
+            hint="Shown in the list and in every error message — make it the thing you would say out loud."
+          >
+            <Input
+              id="src-name" value={name} onChange={(e) => setName(e.target.value)}
+              placeholder="Go blog feed"
+            />
+          </Field>
+          <Field
+            label="Collect into" htmlFor="src-ns"
+            hint="The brain namespace the memories land in. The default is the project's own."
+          >
+            <Input
+              id="src-ns" value={namespace} onChange={(e) => setNamespace(e.target.value)}
+              className="font-mono text-xs"
+            />
+          </Field>
+          <Field
+            label="Schedule" htmlFor="src-sched"
+            hint="How often it runs on its own. @hourly, @daily, or an interval like 30m."
+          >
+            <Input
+              id="src-sched" value={schedule} onChange={(e) => setSchedule(e.target.value)}
+              placeholder="@hourly" className="font-mono text-xs"
+            />
+          </Field>
+        </div>
+
+        <Field
+          label="Configuration" htmlFor="src-cfg" className="mt-4"
+          error={jsonError || undefined}
+          hint={`What the ${kind || "connector"} needs to reach its system. Secrets are named here and resolved from the Vault — never pasted in.`}
+        >
+          <Textarea
+            id="src-cfg" value={config} onChange={(e) => setConfig(e.target.value)}
+            rows={9} spellCheck={false}
+            aria-invalid={jsonError !== ""}
+            className="font-mono text-xs leading-relaxed"
+          />
+        </Field>
+
+        <FormFooter note={blockedBy}>
+          <Button type="submit" disabled={!canSubmit}>
+            <Plus className="me-1.5 size-4" />
+            {saving ? "Saving…" : "Create source"}
+          </Button>
+        </FormFooter>
+      </form>
+    </FormCard>
+  );
+};
+AddSourceForm.displayName = "AddSourceForm";
 
 export const Sources = () => {
   const [sources, setSources] = useState<Source[] | null>(null);
@@ -225,159 +377,81 @@ export const Sources = () => {
   const [err, setErr] = useState("");
   const [adding, setAdding] = useState(false);
 
-  const [kind, setKind] = useState("");
-  const [name, setName] = useState("");
-  const [namespace, setNamespace] = useState("default:project");
-  const [schedule, setSchedule] = useState("@hourly");
-  const [config, setConfig] = useState("{}");
-  const [saving, setSaving] = useState(false);
-
   const load = () => {
     listSources().then((d) => setSources(d.sources)).catch((e) => setErr(String(e.message)));
   };
 
   useEffect(() => {
     load();
-    listKinds().then((d) => {
-      setKinds(d.kinds);
-      if (d.kinds.length > 0) {
-        setKind(d.kinds[0]);
-        setConfig(configTemplate(d.kinds[0]));
-      }
-    }).catch(() => {});
+    listKinds().then((d) => setKinds(d.kinds)).catch(() => {});
   }, []);
-
-  const handleKind = (k: string) => {
-    setKind(k);
-    setConfig(configTemplate(k));
-  };
-
-  const handleCreate = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setErr("");
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(config);
-    } catch {
-      setErr("The configuration is not valid JSON.");
-      return;
-    }
-    setSaving(true);
-    try {
-      await createSource({ kind, name, namespace, schedule, config: parsed, enabled: false });
-      setAdding(false);
-      setName("");
-      load();
-    } catch (e2) {
-      // Verbatim. The server names the exact field that is wrong and is better
-      // at it than anything this form could guess.
-      setErr((e2 as Error).message);
-    } finally {
-      setSaving(false);
-    }
-  };
 
   const enabled = (sources ?? []).filter((s) => s.enabled).length;
   const failing = (sources ?? []).filter((s) => s.lastStatus === "error").length;
   const collected = (sources ?? []).reduce((n, s) => n + s.totalRuns, 0);
 
   return (
-    <div className="mx-auto w-full max-w-6xl p-6">
+    <PageShell>
       <PageHeader
         title="Sources"
+        icon={<Rss className="size-5" />}
         description="Everything that feeds the project brain on a schedule — repositories, feeds, channels, saved queries."
         actions={
           <Button onClick={() => setAdding((v) => !v)}>
-            {adding ? <X className="size-4" /> : <Plus className="size-4" />}
+            {adding ? <X className="me-1.5 size-4" /> : <Plus className="me-1.5 size-4" />}
             {adding ? "Cancel" : "Add a source"}
           </Button>
         }
       />
 
-      {err && (
-        <Callout kind="warn" className="mt-4">
-          {err}
-        </Callout>
-      )}
-
-      <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4">
+      <StatRow>
         <StatCard label="Sources" value={String(sources?.length ?? 0)} />
-        <StatCard label="Collecting" value={String(enabled)} />
-        <StatCard label="Failing" value={String(failing)} />
+        <StatCard label="Collecting" value={String(enabled)} tone={enabled ? "success" : "muted"} />
+        <StatCard label="Failing" value={String(failing)} tone={failing ? "danger" : "muted"} />
         <StatCard label="Runs" value={String(collected)} />
-      </div>
+      </StatRow>
+
+      {err && <Callout kind="warn" title="Something went wrong">{err}</Callout>}
 
       {adding && (
-        <form onSubmit={handleCreate} className="mt-4 space-y-3 rounded-lg border border-border bg-card p-4">
-          <div className="grid gap-3 md:grid-cols-2">
-            <div>
-              <Label htmlFor="kind">Kind</Label>
-              <select
-                id="kind"
-                value={kind}
-                onChange={(e) => handleKind(e.target.value)}
-                className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
-              >
-                {kinds.map((k) => <option key={k} value={k}>{k}</option>)}
-              </select>
-            </div>
-            <div>
-              <Label htmlFor="name">Name</Label>
-              <Input
-                id="name" value={name} onChange={(e) => setName(e.target.value)}
-                placeholder="what you will recognise it by" required
-              />
-            </div>
-            <div>
-              <Label htmlFor="ns">Collect into</Label>
-              <Input id="ns" value={namespace} onChange={(e) => setNamespace(e.target.value)} />
-            </div>
-            <div>
-              <Label htmlFor="sched">Schedule</Label>
-              <Input
-                id="sched" value={schedule} onChange={(e) => setSchedule(e.target.value)}
-                placeholder="@hourly, @daily, or 30m"
-              />
-            </div>
-          </div>
-
-          <div>
-            <Label htmlFor="cfg">Configuration</Label>
-            {/* A JSON textarea rather than a form per kind. A per-kind form is
-                worth building once the kinds settle; until then it would be
-                four forms to keep in step with four connectors. */}
-            <textarea
-              id="cfg" value={config} onChange={(e) => setConfig(e.target.value)} rows={9}
-              spellCheck={false}
-              className="mt-1 w-full rounded-md border border-border bg-background p-3 font-mono text-xs"
-            />
-          </div>
-
-          <div className="flex items-center gap-2">
-            <Button type="submit" disabled={saving}>{saving ? "Saving…" : "Create"}</Button>
-            {/* Created off, always. A form must not be able to start polling
-                somebody's production database the moment it is submitted. */}
-            <span className="text-xs text-muted-foreground">
-              Created switched off — enable it when you have run it once.
-            </span>
-          </div>
-        </form>
+        <AddSourceForm
+          // Keyed so a form opened before the kinds list arrives remounts with
+          // a real default kind + template instead of an empty picker.
+          key={kinds.join(",")}
+          kinds={kinds}
+          onClose={() => setAdding(false)}
+          onCreated={() => {
+            setAdding(false);
+            load();
+          }}
+          onError={setErr}
+        />
       )}
 
-      <div className="mt-4 space-y-2">
-        {sources === null && <p className="text-sm text-muted-foreground">Loading…</p>}
+      <Section title="Sources" count={sources?.length}>
+        {sources === null && <ListSkeleton rows={3} />}
         {sources?.length === 0 && (
           <EmptyState
             icon={<Play className="size-6" />}
             title="No sources yet"
             description="Add a repository, a feed or a saved query and the brain keeps itself current."
+            action={
+              <Button onClick={() => setAdding(true)}>
+                <Plus className="me-1.5 size-4" />
+                Add a source
+              </Button>
+            }
           />
         )}
-        {sources?.map((s) => (
-          <SourceRow key={s.id} s={s} onChanged={load} onError={setErr} />
-        ))}
-      </div>
-    </div>
+        {sources && sources.length > 0 && (
+          <div className="flex flex-col gap-2">
+            {sources.map((s) => (
+              <SourceRow key={s.id} s={s} onChanged={load} onError={setErr} />
+            ))}
+          </div>
+        )}
+      </Section>
+    </PageShell>
   );
 };
 Sources.displayName = "Sources";

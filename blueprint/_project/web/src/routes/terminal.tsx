@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import {
-  Button, Callout, EmptyState, Input, PageHeader, StatusBadge,
+  Button, Callout, EmptyState, Input, PageHeader, Skeleton, StatusBadge,
 } from "@togo-framework/ui";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, SquareTerminal, Trash2 } from "lucide-react";
 import {
   attachURL, createSession, killSession, termStatus, type TermStatus,
 } from "../lib/term";
 import { API } from "../lib/api";
+import { PageShell } from "../components/page-shell";
 
 /**
  * A terminal in the dashboard, attached to tmux on the machine the builder
@@ -205,19 +206,31 @@ export const Terminal = () => {
   }
 
   if (!status) {
+    // The header is identical to the loaded one so nothing jumps when the
+    // status arrives; the skeleton is the size of the terminal it becomes.
     return (
-      <div className="p-6">
-        <PageHeader title="Terminal" description="Checking…" />
-      </div>
+      <PageShell width="wide">
+        <PageHeader
+          title="Terminal"
+          icon={<SquareTerminal className="size-5" />}
+          description="A shell on the machine this builder runs on."
+        />
+        <Skeleton className="h-[min(72dvh,760px)] w-full rounded-lg" />
+      </PageShell>
     );
   }
 
   // The two states where there is no terminal to show. Both say exactly what to
-  // do rather than rendering a dead black box.
+  // do rather than rendering a dead black box. Narrow: they are prose, and a
+  // sentence stretched across a terminal-wide column stops being read.
   if (!status.enabled) {
     return (
-      <div className="mx-auto flex max-w-3xl flex-col gap-4 p-6">
-        <PageHeader title="Terminal" description="A shell on the machine this builder runs on." />
+      <PageShell width="narrow">
+        <PageHeader
+          title="Terminal"
+          icon={<SquareTerminal className="size-5" />}
+          description="A shell on the machine this builder runs on."
+        />
         <Callout kind="warn" title="The terminal is off">
           {status.reason}
         </Callout>
@@ -226,14 +239,18 @@ export const Terminal = () => {
           would be able to run commands on this machine. It refuses to run in
           production whatever the flag says.
         </p>
-      </div>
+      </PageShell>
     );
   }
 
   if (!status.hasTmux) {
     return (
-      <div className="mx-auto flex max-w-3xl flex-col gap-4 p-6">
-        <PageHeader title="Terminal" description="A shell on the machine this builder runs on." />
+      <PageShell width="narrow">
+        <PageHeader
+          title="Terminal"
+          icon={<SquareTerminal className="size-5" />}
+          description="A shell on the machine this builder runs on."
+        />
         <Callout kind="warn" title="tmux is not installed">
           Sessions run inside tmux so they survive closing this tab. Install it
           and reload:
@@ -241,14 +258,15 @@ export const Terminal = () => {
         <pre className="overflow-x-auto rounded-md border border-border bg-card p-3 text-xs">
           {status.install}
         </pre>
-      </div>
+      </PageShell>
     );
   }
 
   return (
-    <div className="flex min-w-0 flex-col gap-4 p-6">
+    <PageShell width="wide">
       <PageHeader
         title="Terminal"
+        icon={<SquareTerminal className="size-5" />}
         description={`tmux on this machine, in ${status.workdir}. Sessions keep running when you close the tab.`}
         actions={
           <div className="flex items-center gap-2">
@@ -290,7 +308,7 @@ export const Terminal = () => {
                 type="button"
                 onClick={() => void kill(n)}
                 aria-label={`Kill ${n}`}
-                className="text-muted-foreground hover:text-red-600"
+                className="text-muted-foreground transition-colors hover:text-destructive"
               >
                 <Trash2 className="size-3.5" />
               </button>
@@ -325,7 +343,7 @@ export const Terminal = () => {
           }
         />
       )}
-    </div>
+    </PageShell>
   );
 };
 Terminal.displayName = "Terminal";

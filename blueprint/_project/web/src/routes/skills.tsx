@@ -1,14 +1,15 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import {
-  Button, Callout, EmptyState, Input, Label, MarkdownEditor, PageHeader, StatCard,
+  Button, Callout, EmptyState, Input, MarkdownEditor, PageHeader, StatCard,
 } from "@togo-framework/ui";
-import { Download, FolderSync, Github, Plus, X } from "lucide-react";
+import { BookOpen, Download, FolderSync, Github, Plus, X } from "lucide-react";
 import {
   createSkill, importSkills, listSkills, syncSkills,
   type ImportResult, type Skill, type Skipped, type SyncResult,
 } from "../lib/skills";
 import { SkillCard } from "../components/skill-card";
+import { Field, FormCard, FormFooter, GridSkeleton, PageShell, StatRow } from "../components/page-shell";
 
 const ago = (iso: string) => {
   const ms = Date.now() - new Date(iso).getTime();
@@ -84,7 +85,9 @@ OutcomeReport.displayName = "OutcomeReport";
 const PAGE = 50;
 
 export const Skills = () => {
-  const [skills, setSkills] = useState<Skill[]>([]);
+  // null = not loaded yet, so the first paint is a skeleton rather than a
+  // false "No skills yet" while the request is in flight.
+  const [skills, setSkills] = useState<Skill[] | null>(null);
   const [dir, setDir] = useState("");
   const [q, setQ] = useState("");
   const [err, setErr] = useState("");
@@ -110,11 +113,11 @@ export const Skills = () => {
       .catch((e: Error) => setErr(e.message));
 
   async function loadMore() {
-    if (loadingMore || skills.length >= total) return;
+    if (loadingMore || (skills?.length ?? 0) >= total) return;
     setLoadingMore(true);
     try {
-      const d = await listSkills(q, skills.length, PAGE);
-      setSkills((prev) => [...prev, ...d.skills]);
+      const d = await listSkills(q, skills?.length ?? 0, PAGE);
+      setSkills((prev) => [...(prev ?? []), ...d.skills]);
       setTotal(d.total);
     } catch {
       /* a failed page must not discard the ones already shown */
@@ -146,15 +149,16 @@ export const Skills = () => {
     }
   }
 
-  const shown = skills;
-  const inUse = skills.filter((s) => s.agents > 0).length;
-  const unused = skills.filter((s) => s.agents === 0).length;
-  const off = skills.filter((s) => !s.enabled).length;
+  const shown = skills ?? [];
+  const inUse = shown.filter((s) => s.agents > 0).length;
+  const unused = shown.filter((s) => s.agents === 0).length;
+  const off = shown.filter((s) => !s.enabled).length;
 
   return (
-    <div className="mx-auto flex min-w-0 max-w-6xl flex-col gap-4 p-6">
+    <PageShell>
       <PageHeader
         title="Skills"
+        icon={<BookOpen className="size-5" />}
         description="The instruction files agents load by name. Editing one here rewrites its SKILL.md on disk, which is what an agent actually reads on its next run."
         actions={
           <div className="flex flex-wrap items-center gap-2">
@@ -193,12 +197,12 @@ export const Skills = () => {
         }
       />
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <StatCard label="Skills" value={String(skills.length)} />
+      <StatRow>
+        <StatCard label="Skills" value={String(shown.length)} />
         <StatCard label="In use" value={String(inUse)} tone={inUse ? "success" : "muted"} />
         <StatCard label="Nobody uses" value={String(unused)} tone={unused ? "warning" : "muted"} />
         <StatCard label="Disabled" value={String(off)} tone="muted" />
-      </div>
+      </StatRow>
 
       {err && <Callout kind="warn" title="Something went wrong">{err}</Callout>}
 
@@ -227,11 +231,15 @@ export const Skills = () => {
         />
       )}
 
-      {shown.length === 0 ? (
+      {skills === null ? (
+        <GridSkeleton count={6} />
+      ) : shown.length === 0 ? (
         <EmptyState
-          title={skills.length ? "No skills match" : "No skills yet"}
+          // Search is server-side, so an empty RESULT with a query is "no
+          // match" — the local array being empty says nothing about the fleet.
+          title={q.trim() ? "No skills match" : "No skills yet"}
           description={
-            skills.length
+            q.trim()
               ? "Try a different search."
               : `Sync from disk to pick up whatever is already in ${dir || ".claude/skills"}, import a repository, or write one here.`
           }
@@ -284,7 +292,7 @@ export const Skills = () => {
         </>
       )}
 
-    </div>
+    </PageShell>
   );
 };
 Skills.displayName = "Skills";
@@ -322,21 +330,14 @@ const CreateSkill = ({
   }
 
   return (
-    <div className="rounded-lg border border-border bg-card p-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold">New skill</h2>
-        <button onClick={onClose} className="text-xs text-muted-foreground hover:underline">
-          Cancel
-        </button>
-      </div>
+    <FormCard title="New skill" onClose={onClose}>
+      {err && <div className="mb-3"><Callout kind="warn" title="Could not create it">{err}</Callout></div>}
 
-      {err && <div className="mt-3"><Callout kind="warn" title="Could not create it">{err}</Callout></div>}
-
-      <div className="mt-3 grid gap-3 sm:grid-cols-2">
-        <div>
-          <Label htmlFor="skill-name" className="mb-1 block text-xs text-muted-foreground">
-            Name
-          </Label>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field
+          label="Name" htmlFor="skill-name" required
+          hint="Lowercase letters, digits and hyphens. This is also the directory name, and agents reference it — it cannot be changed later."
+        >
           <Input
             id="skill-name"
             value={name}
@@ -344,41 +345,29 @@ const CreateSkill = ({
             placeholder="verify"
             className="font-mono"
           />
-          <span className="mt-1 block text-[11px] text-muted-foreground">
-            Lowercase letters, digits and hyphens. This is also the directory name, and
-            agents reference it — it cannot be changed later.
-          </span>
-        </div>
-        <div>
-          <Label htmlFor="skill-title" className="mb-1 block text-xs text-muted-foreground">
-            Title
-          </Label>
+        </Field>
+        <Field label="Title" htmlFor="skill-title" hint="The human name shown in the catalogue.">
           <Input
             id="skill-title"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             placeholder="Verify before claiming done"
           />
-        </div>
-        <div className="sm:col-span-2">
-          <Label htmlFor="skill-desc" className="mb-1 block text-xs text-muted-foreground">
-            When an agent should reach for it
-          </Label>
+        </Field>
+        <Field
+          label="When an agent should reach for it" htmlFor="skill-desc" className="sm:col-span-2"
+          hint="Becomes the description in the file's frontmatter — what the model reads to decide whether the skill applies."
+        >
           <Input
             id="skill-desc"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             placeholder="Use before closing an issue or saying a change is done."
           />
-          <span className="mt-1 block text-[11px] text-muted-foreground">
-            This becomes the description in the file's frontmatter, which is what the model
-            reads to decide whether the skill applies.
-          </span>
-        </div>
+        </Field>
       </div>
 
-      <div className="mt-3">
-        <Label className="mb-1 block text-xs text-muted-foreground">Instructions</Label>
+      <Field label="Instructions" required className="mt-4">
         <MarkdownEditor
           value={body}
           onChange={setBody}
@@ -386,17 +375,21 @@ const CreateSkill = ({
           minRows={12}
           placeholder={"# What this skill teaches\n\nSteps, commands, and the constraints that matter."}
         />
-      </div>
+      </Field>
 
-      <div className="mt-3 flex items-center gap-2">
+      <FormFooter
+        note={
+          !name.trim() ? "Name it first — the name is the file path."
+            : !body.trim() ? "Write the instructions — an empty skill teaches nothing."
+              : "Written to .claude/skills/<name>/SKILL.md, then assign it to the agents that need it."
+        }
+      >
         <Button onClick={() => void submit()} disabled={busy || !name.trim() || !body.trim()}>
+          <Plus className="me-1.5 size-4" />
           {busy ? "Creating…" : "Create skill"}
         </Button>
-        <span className="text-[11px] text-muted-foreground">
-          Written to .claude/skills/&lt;name&gt;/SKILL.md, then assign it to the agents that need it.
-        </span>
-      </div>
-    </div>
+      </FormFooter>
+    </FormCard>
   );
 };
 CreateSkill.displayName = "CreateSkill";
@@ -425,21 +418,14 @@ const ImportSkills = ({ onClose, onDone }: { onClose: () => void; onDone: () => 
   }
 
   return (
-    <div className="rounded-lg border border-border bg-card p-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold">Import from GitHub</h2>
-        <button onClick={onClose} className="text-xs text-muted-foreground hover:underline">
-          Close
-        </button>
-      </div>
+    <FormCard title="Import from GitHub" onClose={onClose} closeLabel="Close">
+      {err && <div className="mb-3"><Callout kind="warn" title="Could not import">{err}</Callout></div>}
 
-      {err && <div className="mt-3"><Callout kind="warn" title="Could not import">{err}</Callout></div>}
-
-      <div className="mt-3 grid gap-3 sm:grid-cols-2">
-        <div>
-          <Label htmlFor="import-repo" className="mb-1 block text-xs text-muted-foreground">
-            Repository
-          </Label>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field
+          label="Repository" htmlFor="import-repo" required
+          hint="owner/name, public. The default branch is what gets read."
+        >
           <Input
             id="import-repo"
             value={repo}
@@ -447,11 +433,11 @@ const ImportSkills = ({ onClose, onDone }: { onClose: () => void; onDone: () => 
             placeholder="anthropics/skills"
             className="font-mono text-xs"
           />
-        </div>
-        <div>
-          <Label htmlFor="import-path" className="mb-1 block text-xs text-muted-foreground">
-            Folder inside it — optional
-          </Label>
+        </Field>
+        <Field
+          label="Folder inside it" htmlFor="import-path"
+          hint="Limits the search to one directory. Blank scans the whole repository."
+        >
           <Input
             id="import-path"
             value={path}
@@ -459,18 +445,21 @@ const ImportSkills = ({ onClose, onDone }: { onClose: () => void; onDone: () => 
             placeholder=".claude/skills"
             className="font-mono text-xs"
           />
-        </div>
+        </Field>
       </div>
 
-      <div className="mt-3 flex items-center gap-2">
+      <FormFooter
+        note={
+          !repo.trim()
+            ? "Name a repository first."
+            : "Every directory holding a SKILL.md becomes a skill, up to 50 per import."
+        }
+      >
         <Button onClick={() => void run()} disabled={busy || !repo.trim()}>
           <Download className="me-1.5 size-4" />
           {busy ? "Downloading…" : "Import"}
         </Button>
-        <span className="text-[11px] text-muted-foreground">
-          Public repositories only. Every directory holding a SKILL.md becomes a skill, up to 50 per import.
-        </span>
-      </div>
+      </FormFooter>
 
       {result && (
         <div className="mt-4">
@@ -483,7 +472,7 @@ const ImportSkills = ({ onClose, onDone }: { onClose: () => void; onDone: () => 
           />
         </div>
       )}
-    </div>
+    </FormCard>
   );
 };
 ImportSkills.displayName = "ImportSkills";

@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
-import { LayoutGrid, List, Plus } from "lucide-react";
+import { LayoutGrid, List, MessageSquare, Plus, RotateCw, SquareKanban } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import {
-  Button, Callout, Checkbox, Dialog, DialogContent, DialogHeader, DialogTitle, EmptyState, Input, Label, MarkdownEditor, PageHeader, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, StatCard, StatusBadge, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, ToggleGroup, ToggleGroupItem,
+  Button, Callout, Checkbox, Dialog, DialogContent, DialogHeader, DialogTitle, EmptyState, Input, Label, MarkdownEditor, PageHeader, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Skeleton, StatCard, StatusBadge, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, ToggleGroup, ToggleGroupItem,
 } from "@togo-framework/ui";
+import { PageShell, StatRow } from "../components/page-shell";
 import {
   COLUMN_LABEL, TRANSITIONS, ago, createIssue, fetchBoard, patchIssue,
   type Board, type Card, type IssueStatus, type IssueType, type Priority,
@@ -88,10 +89,30 @@ export function Issues() {
   }
 
   if (!board) {
+    // A skeleton in the board's own shape, not "Loading…" — the columns are
+    // where the eye will land, so that is where the promise of content goes.
     return (
-      <div className="p-6">
-        <PageHeader title="Issues" description="Loading the board…" />
-      </div>
+      <PageShell width="wide" fill>
+        <PageHeader
+          title="Issues"
+          icon={<SquareKanban className="size-5" />}
+          description="Reported from the feedback widget or filed by hand."
+        />
+        <StatRow>
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Skeleton key={i} className="h-[74px] rounded-lg" />
+          ))}
+        </StatRow>
+        <div className="flex flex-1 gap-4 overflow-hidden" aria-hidden="true">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="flex w-72 shrink-0 flex-col gap-2">
+              <Skeleton className="h-8 rounded-md" />
+              <Skeleton className="h-28 rounded-lg" />
+              <Skeleton className="h-28 rounded-lg" />
+            </div>
+          ))}
+        </div>
+      </PageShell>
     );
   }
 
@@ -107,9 +128,10 @@ export function Issues() {
   const blocked = board.cards.blocked?.length ?? 0;
 
   return (
-    <div className="flex h-full flex-col gap-4 p-6">
+    <PageShell width="wide" fill className="gap-4">
       <PageHeader
         title="Issues"
+        icon={<SquareKanban className="size-5" />}
         description="Reported from the feedback widget or filed by hand. Drag a card, or use its status menu."
         actions={
           <div className="flex items-center gap-2">
@@ -150,12 +172,12 @@ export function Issues() {
         />
       )}
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <StatRow>
         <StatCard label="Total" value={String(all.length)} />
         <StatCard label="Ready" value={String(board.cards.ready?.length ?? 0)} tone="info" />
         <StatCard label="Agents working" value={String(working)} tone={(working ? "success" : "muted") as CardTone} />
         <StatCard label="Blocked" value={String(blocked)} tone={(blocked ? "warning" : "muted") as CardTone} />
-      </div>
+      </StatRow>
 
       {err && <Callout kind="warn" title="Something went wrong">{err}</Callout>}
 
@@ -239,8 +261,18 @@ export function Issues() {
                         <span className="rounded bg-muted px-1.5 py-0.5">feedback</span>
                       )}
                       {c.area && <span className="rounded bg-muted px-1.5 py-0.5">{c.area}</span>}
-                      {c.commentCount > 0 && <span>💬 {c.commentCount}</span>}
-                      {c.attempts > 0 && <span title="Agent attempts">↻ {c.attempts}</span>}
+                      {c.commentCount > 0 && (
+                        <span className="inline-flex items-center gap-0.5">
+                          <MessageSquare className="size-3" />
+                          {c.commentCount}
+                        </span>
+                      )}
+                      {c.attempts > 0 && (
+                        <span className="inline-flex items-center gap-0.5" title="Agent attempts">
+                          <RotateCw className="size-3" />
+                          {c.attempts}
+                        </span>
+                      )}
                       {c.busy && (
                         <span className="text-emerald-600" title="An agent holds a lease on this issue">
                           ● working
@@ -291,7 +323,7 @@ export function Issues() {
           description="Click the feedback button on any page to file the first one."
         />
       )}
-    </div>
+    </PageShell>
   );
 }
 

@@ -7,13 +7,16 @@ import {
   type ProjectBrain, type ProjectEntity, type ProjectMemory,
 } from "../lib/brainproject";
 import type { BrainGraphNode } from "../lib/agents";
+import {
+  FilterChip, ListSkeleton, MonoBadge, PageShell, Section, StatRow,
+} from "../components/page-shell";
 
 /** A memory with where it came from. Provenance is the point of this screen. */
 const MemoryCard = ({ m }: { m: ProjectMemory }) => (
   <div className="rounded-lg border border-border bg-card p-3">
     <p className="whitespace-pre-wrap text-sm">{m.content}</p>
     <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-      <span className="rounded bg-muted px-1.5 py-0.5 font-mono">{m.from.kind}</span>
+      <MonoBadge>{m.from.kind}</MonoBadge>
       <span className="break-all">{m.from.label}</span>
     </div>
   </div>
@@ -40,64 +43,52 @@ export const Brain = () => {
   };
 
   return (
-    <div className="mx-auto w-full max-w-6xl p-6">
+    <PageShell>
       <PageHeader
         title="Project brain"
+        icon={<BrainIcon className="size-5" />}
         description="What this project knows, and where each piece of it came from. Every agent reads this; every source writes into it."
       />
 
-      {err && <Callout kind="warn" className="mt-4">{err}</Callout>}
+      {err && <Callout kind="warn">{err}</Callout>}
 
       {/* Said plainly. A graph rendered over keyword overlap invites trust it
           has not earned, and the operator cannot tell by looking. */}
       {b && !b.semantic && (
-        <Callout kind="warn" className="mt-4" title="Recall here is keyword-only">
+        <Callout kind="warn" title="Recall here is keyword-only">
           The embedder is <code>{b.embedder}</code>, a hashed bag of words with no semantic
           content: “the login button is broken” and “authentication fails” score as unrelated.
           Set <code>BUILDER_EMBED_URL</code> to an embeddings endpoint for real recall.
         </Callout>
       )}
 
-      <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4">
+      <StatRow>
         <StatCard label="Memories" value={String(b?.memories ?? 0)} />
         <StatCard label="Entities" value={String(b?.entities ?? 0)} />
         <StatCard label="Connections" value={String(b?.edges ?? 0)} />
         <StatCard label="Namespace" value={b?.namespace ?? "—"} />
-      </div>
+      </StatRow>
 
       {/* Built from what is actually in the brain, so a deleted source still
           explains the memories it left behind. */}
       {b && b.sources.length > 0 && (
-        <div className="mt-4 flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={() => setFilter("")}
-            className={`rounded-full border px-3 py-1 text-xs ${
-              filter === "" ? "border-primary bg-primary/10 text-foreground" : "border-border text-muted-foreground"
-            }`}
-          >
+        <div className="flex flex-wrap gap-2">
+          <FilterChip active={filter === ""} onClick={() => setFilter("")}>
             Everything
-          </button>
+          </FilterChip>
           {b.sources.map((s) => {
             const key = s.kind === "document" ? `doc:${s.source}` : `source:${s.kind}:${s.source}`;
             return (
-              <button
-                key={s.label}
-                type="button"
-                onClick={() => setFilter(key)}
-                className={`rounded-full border px-3 py-1 text-xs ${
-                  filter === key ? "border-primary bg-primary/10 text-foreground" : "border-border text-muted-foreground"
-                }`}
-              >
+              <FilterChip key={s.label} active={filter === key} onClick={() => setFilter(key)}>
                 {s.label} <span className="tabular-nums opacity-70">{s.memories}</span>
-              </button>
+              </FilterChip>
             );
           })}
         </div>
       )}
 
       {b && b.graph.nodes.length > 0 && (
-        <div className="mt-4 rounded-lg border border-border bg-card p-2">
+        <div className="rounded-lg border border-border bg-card p-2">
           <BrainGraph
             nodes={b.graph.nodes}
             edges={b.graph.edges}
@@ -108,7 +99,7 @@ export const Brain = () => {
       )}
 
       {selected && (
-        <div className="mt-4 rounded-lg border border-border bg-card p-4">
+        <div className="rounded-lg border border-border bg-card p-4">
           <div className="flex items-start justify-between gap-3">
             <div>
               <h3 className="font-medium">{selected.name}</h3>
@@ -122,7 +113,7 @@ export const Brain = () => {
             </Button>
           </div>
           <div className="mt-3 space-y-2">
-            {!entity && <p className="text-sm text-muted-foreground">Loading…</p>}
+            {!entity && <ListSkeleton rows={2} />}
             {entity?.memories.map((m) => <MemoryCard key={m.id} m={m} />)}
             {entity?.memories.length === 0 && (
               <p className="text-sm text-muted-foreground">No memories reference this yet.</p>
@@ -131,11 +122,11 @@ export const Brain = () => {
         </div>
       )}
 
-      <h2 className="mt-6 text-sm font-medium text-muted-foreground">
-        {filter ? "Filtered memories" : "Most recent"}
-      </h2>
-      <div className="mt-2 space-y-2">
-        {b === null && <p className="text-sm text-muted-foreground">Loading…</p>}
+      <Section
+        title={filter ? "Filtered memories" : "Most recent"}
+        count={b?.recent.length}
+      >
+        {b === null && <ListSkeleton rows={3} />}
         {b?.recent.length === 0 && (
           <EmptyState
             icon={<BrainIcon className="size-6" />}
@@ -143,9 +134,13 @@ export const Brain = () => {
             description="Add a source or upload a document and the brain fills itself."
           />
         )}
-        {b?.recent.map((m) => <MemoryCard key={m.id} m={m} />)}
-      </div>
-    </div>
+        {b && b.recent.length > 0 && (
+          <div className="flex flex-col gap-2">
+            {b.recent.map((m) => <MemoryCard key={m.id} m={m} />)}
+          </div>
+        )}
+      </Section>
+    </PageShell>
   );
 };
 Brain.displayName = "Brain";

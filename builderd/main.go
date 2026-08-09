@@ -34,7 +34,9 @@ package main
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/togo-framework/togo"
@@ -92,9 +94,65 @@ func main() {
 		"    <script src=\"%s/sdk/builder-sdk.js\"></script>\n"+
 		"    <script>BuilderIssues.mount({ apiBase: \"%s\" })</script>\n\n", origin, origin)
 
+	// The dashboard itself, served by the daemon.
+	//
+	// Without this the daemon keeps the DATA alive and gives you nowhere to
+	// look at it: the product's frontend is what serves /issues, so when it is
+	// down the browser gets a connection refusal and there is no page for the
+	// widget to sit on. Surviving the product means serving the pages too.
+	serveWeb(k)
+
 	if err := k.Serve(context.Background()); err != nil {
 		panic(err)
 	}
+}
+
+// serveWeb mounts the dashboard, with an SPA fallback.
+//
+// A directory rather than an embedded bundle, for now: the UI is built from
+// the app repository and embedding it here would make every plugin release
+// carry a megabyte of somebody else's compiled JavaScript. BUILDER_WEB_DIR
+// points at the built dist.
+//
+// The fallback is the whole trick with a client-routed app: /issues exists
+// only in the browser's router, so a request for it must return index.html and
+// let the router resolve it. Returning 404 — which a plain file server does —
+// means every deep link and every refresh lands on nothing.
+func serveWeb(k *togo.Kernel) {
+	dir := strings.TrimSpace(os.Getenv("BUILDER_WEB_DIR"))
+	if dir == "" {
+		fmt.Print("  dashboard not served — set BUILDER_WEB_DIR to the built web/dist\n")
+		return
+	}
+	index := filepath.Join(dir, "index.html")
+	if _, err := os.Stat(index); err != nil {
+		fmt.Printf("  ! BUILDER_WEB_DIR has no index.html: %s\n", dir)
+		return
+	}
+
+	files := http.FileServer(http.Dir(dir))
+	k.Router.NotFound(func(w http.ResponseWriter, r *http.Request) {
+		// The API and the SDK are real routes and must keep their own 404s: a
+		// mistyped endpoint answering with a page of HTML is a debugging
+		// session nobody needs.
+		if strings.HasPrefix(r.URL.Path, "/api/") || strings.HasPrefix(r.URL.Path, "/sdk/") {
+			http.NotFound(w, r)
+			return
+		}
+		// A real file wins; anything else is a client route.
+		if p := filepath.Join(dir, filepath.Clean(r.URL.Path)); r.URL.Path != "/" {
+			if st, err := os.Stat(p); err == nil && !st.IsDir() {
+				files.ServeHTTP(w, r)
+				return
+			}
+		}
+		// No-store on the shell only. The hashed assets beside it are
+		// immutable and cached by the file server above; the shell is what
+		// must not go stale after a deploy.
+		w.Header().Set("Cache-Control", "no-store")
+		http.ServeFile(w, r, index)
+	})
+	fmt.Printf("  dashboard %s\n", dir)
 }
 
 func setDefault(key, val string) {
@@ -143,6 +201,7 @@ the board is what you reach for when the product is broken.
   BUILDER_WORKDIR  the repository agents work in
   BUILDER_VAULT_KEY  required for the secrets vault
   BUILDER_RUNNER=1   start the agent loop (off by default: it spends money)
+  BUILDER_WEB_DIR    the built dashboard (web/dist) — without it there are no pages to look at
 
 Embed in any product, on any stack:
 

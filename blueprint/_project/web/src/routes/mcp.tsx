@@ -1,13 +1,16 @@
 import { useEffect, useState } from "react";
 import {
-  Button, Callout, EmptyState, Input, Label, PageHeader, Select, SelectContent,
+  Button, Callout, EmptyState, Input, PageHeader, Select, SelectContent,
   SelectItem, SelectTrigger, SelectValue, StatusBadge,
 } from "@togo-framework/ui";
-import { Check, Copy, Plus, Trash2 } from "lucide-react";
+import { Check, Copy, KeyRound, Plug, Plus, Trash2 } from "lucide-react";
 import {
   claudeCodeCommand, createMcpToken, listMcpTokens, mcpConfigJSON, mcpUrl,
   revokeMcpToken, type McpScope, type McpToken, type MintedToken,
 } from "../lib/mcp";
+import {
+  Field, FormCard, FormFooter, ListSkeleton, PageShell, Row, RowTitle, Section,
+} from "../components/page-shell";
 
 const ago = (iso: string) => {
   const s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
@@ -60,7 +63,7 @@ CopyButton.displayName = "CopyButton";
  * are handing over.
  */
 export const Mcp = () => {
-  const [tokens, setTokens] = useState<McpToken[]>([]);
+  const [tokens, setTokens] = useState<McpToken[] | null>(null);
   const [err, setErr] = useState("");
   const [name, setName] = useState("");
   const [scope, setScope] = useState<McpScope>("feedback");
@@ -76,10 +79,7 @@ export const Mcp = () => {
 
   async function mint() {
     const n = name.trim();
-    if (!n) {
-      setErr("Name the token, so you know which one to revoke later.");
-      return;
-    }
+    if (!n) return;
     setBusy(true);
     setErr("");
     try {
@@ -107,16 +107,17 @@ export const Mcp = () => {
   const server = minted?.scope === "agents" ? "agents" : "feedback";
 
   return (
-    <div className="mx-auto flex min-w-0 max-w-4xl flex-col gap-5 p-6">
+    <PageShell width="narrow">
       <PageHeader
         title="MCP"
+        icon={<Plug className="size-5" />}
         description="Connect Claude Code, Codex or any MCP client to this builder — read the board, file issues, and talk to the fleet and its memory."
       />
 
       {err && <Callout kind="warn" title="Something went wrong">{err}</Callout>}
 
       <section className="grid gap-3 sm:grid-cols-2">
-        <div className="rounded-xl border border-border bg-card p-4">
+        <div className="rounded-lg border border-border bg-card p-4">
           <div className="flex items-center gap-2">
             <h2 className="font-mono text-sm font-semibold">feedback</h2>
             <StatusBadge tone="neutral">issue board</StatusBadge>
@@ -130,7 +131,7 @@ export const Mcp = () => {
           </ul>
         </div>
 
-        <div className="rounded-xl border border-border bg-card p-4">
+        <div className="rounded-lg border border-border bg-card p-4">
           <div className="flex items-center gap-2">
             <h2 className="font-mono text-sm font-semibold">agents</h2>
             <StatusBadge tone="warning">fleet & memory</StatusBadge>
@@ -153,42 +154,48 @@ export const Mcp = () => {
         screen, where every read is recorded.
       </Callout>
 
-      <section className="rounded-xl border border-border bg-card p-4">
-        <h2 className="mb-3 text-sm font-semibold">New token</h2>
-        <div className="grid gap-3 sm:grid-cols-[1fr_auto_auto] sm:items-end">
-          <div>
-            <Label htmlFor="mcp-name" className="mb-1 block text-xs text-muted-foreground">
-              What is it for?
-            </Label>
+      <FormCard title="New token">
+        <div className="grid gap-4 sm:grid-cols-[1fr_auto] sm:items-start">
+          <Field
+            label="What is it for?" htmlFor="mcp-name" required
+            hint="Names are how you find the right one to revoke — 'my laptop', 'Codex', 'CI'."
+          >
             <Input
               id="mcp-name"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="my laptop, Codex, CI…"
+              placeholder="my laptop"
               onKeyDown={(e) => e.key === "Enter" && void mint()}
             />
-          </div>
-          <div>
-            <Label className="mb-1 block text-xs text-muted-foreground">Reaches</Label>
+          </Field>
+          <Field
+            label="Reaches" htmlFor="mcp-scope"
+            hint="Grant the least the client needs — a board-only token cannot touch the fleet."
+          >
             <Select value={scope} onValueChange={(v) => setScope(v as McpScope)}>
-              <SelectTrigger className="w-56"><SelectValue /></SelectTrigger>
+              <SelectTrigger id="mcp-scope" className="w-full sm:w-64"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="feedback">{SCOPE_LABEL.feedback}</SelectItem>
                 <SelectItem value="agents">{SCOPE_LABEL.agents}</SelectItem>
                 <SelectItem value="all">{SCOPE_LABEL.all}</SelectItem>
               </SelectContent>
             </Select>
-          </div>
+          </Field>
+        </div>
+        <FormFooter
+          note={name.trim() ? "Shown once, stored hashed." : "Name the token, so you know which one to revoke later."}
+        >
           <Button onClick={() => void mint()} disabled={busy || !name.trim()}>
             <Plus className="me-1.5 size-4" />
-            {busy ? "Creating…" : "Create"}
+            {busy ? "Creating…" : "Create token"}
           </Button>
-        </div>
-      </section>
+        </FormFooter>
+      </FormCard>
 
       {minted && (
-        <section className="rounded-xl border border-emerald-500/40 bg-emerald-500/5 p-4">
-          <h2 className="text-sm font-semibold">
+        <section className="rounded-lg border border-emerald-500/40 bg-emerald-500/5 p-4">
+          <h2 className="flex items-center gap-1.5 text-sm font-semibold">
+            <KeyRound className="size-4" />
             {minted.name} — copy it now
           </h2>
           {/* The one thing that must be unmissable: it is not recoverable. */}
@@ -238,49 +245,50 @@ export const Mcp = () => {
         </section>
       )}
 
-      <section>
-        <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-          Tokens
-        </h2>
-        {tokens.length === 0 ? (
+      <Section title="Tokens" count={tokens?.length}>
+        {tokens === null && <ListSkeleton rows={2} />}
+        {tokens?.length === 0 && (
           <EmptyState
+            icon={<KeyRound className="size-6" />}
             title="No tokens yet"
             description="Create one above to connect a client."
           />
-        ) : (
+        )}
+        {tokens && tokens.length > 0 && (
           <div className="flex flex-col gap-2">
             {tokens.map((t) => (
-              <div
+              <Row
                 key={t.id}
-                className="flex min-w-0 flex-wrap items-center gap-3 rounded-lg border border-border p-3"
+                trailing={
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                    onClick={() => void revoke(t.id)}
+                  >
+                    <Trash2 className="me-1.5 size-4" />
+                    Revoke
+                  </Button>
+                }
               >
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-medium">{t.name}</p>
-                  <p className="truncate font-mono text-[11px] text-muted-foreground">
-                    {t.prefix}… · created {ago(t.createdAt)}
-                    {/* "Never used" is the fact that makes a token safe to
-                        revoke without asking anyone. */}
-                    {t.lastUsedAt
-                      ? ` · last used ${ago(t.lastUsedAt)}`
-                      : " · never used"}
-                  </p>
-                </div>
-                <StatusBadge tone={SCOPE_TONE[t.scope]}>{SCOPE_LABEL[t.scope]}</StatusBadge>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="ms-auto text-red-600 hover:bg-red-500/10 hover:text-red-600"
-                  onClick={() => void revoke(t.id)}
-                >
-                  <Trash2 className="me-1.5 size-4" />
-                  Revoke
-                </Button>
-              </div>
+                <RowTitle>
+                  <span className="truncate text-sm font-medium">{t.name}</span>
+                  <StatusBadge tone={SCOPE_TONE[t.scope]}>{SCOPE_LABEL[t.scope]}</StatusBadge>
+                </RowTitle>
+                <p className="mt-1 truncate font-mono text-[11px] text-muted-foreground">
+                  {t.prefix}… · created {ago(t.createdAt)}
+                  {/* "Never used" is the fact that makes a token safe to
+                      revoke without asking anyone. */}
+                  {t.lastUsedAt
+                    ? ` · last used ${ago(t.lastUsedAt)}`
+                    : " · never used"}
+                </p>
+              </Row>
             ))}
           </div>
         )}
-      </section>
-    </div>
+      </Section>
+    </PageShell>
   );
 };
 Mcp.displayName = "Mcp";

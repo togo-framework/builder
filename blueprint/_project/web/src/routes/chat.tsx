@@ -1,10 +1,14 @@
 import { useEffect, useRef, useState } from "react";
-import { Button, Callout, Input, MarkdownRenderer, PageHeader } from "@togo-framework/ui";
-import { MessageSquarePlus, Send, Trash2 } from "lucide-react";
+import {
+  Button, Callout, Input, MarkdownRenderer, PageHeader, Select, SelectContent,
+  SelectItem, SelectTrigger, SelectValue,
+} from "@togo-framework/ui";
+import { LoaderCircle, MessageSquarePlus, MessagesSquare, Send, Trash2 } from "lucide-react";
 import {
   ask, deleteSession, fetchSession, listChatAgents, listSessions,
   type ChatAgent, type SessionSummary, type Turn,
 } from "../lib/chat";
+import { PageShell } from "../components/page-shell";
 
 export const Chat = () => {
   const [agents, setAgents] = useState<ChatAgent[]>([]);
@@ -93,20 +97,29 @@ export const Chat = () => {
   const current = agents.find((a) => a.slug === agent);
 
   return (
-    <div className="mx-auto flex h-full w-full max-w-4xl flex-col p-6">
+    // Tighter page gap than the record pages: a chat is one continuous surface,
+    // and document-scale gaps between its controls read as separate widgets.
+    <PageShell width="narrow" fill className="gap-3">
       <PageHeader
         title="Chat"
+        icon={<MessagesSquare className="size-5" />}
         description="Ask any agent on the fleet. Answers come from the project brain, with what they used shown underneath."
       />
 
-      <div className="mt-4 flex flex-wrap items-center gap-2">
-        <select
+      <div className="flex flex-wrap items-center gap-2">
+        <Select
           value={agent}
-          onChange={(e) => { setAgent(e.target.value); handleNew(); }}
-          className="rounded-md border border-border bg-background px-3 py-2 text-sm"
+          onValueChange={(v) => { setAgent(v); handleNew(); }}
         >
-          {agents.map((a) => <option key={a.slug} value={a.slug}>{a.displayName}</option>)}
-        </select>
+          <SelectTrigger className="h-9 w-56">
+            <SelectValue placeholder="Pick an agent" />
+          </SelectTrigger>
+          <SelectContent>
+            {agents.map((a) => (
+              <SelectItem key={a.slug} value={a.slug}>{a.displayName}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         {current && (
           <span className="text-xs text-muted-foreground">
             {current.role} · {current.model}
@@ -116,7 +129,7 @@ export const Chat = () => {
             look like the history was lost. */}
         {turns.length > 0 && (
           <Button variant="ghost" size="sm" onClick={handleNew}>
-            <MessageSquarePlus className="size-4" />
+            <MessageSquarePlus className="me-1.5 size-4" />
             New
           </Button>
         )}
@@ -126,12 +139,17 @@ export const Chat = () => {
           keep disappears when the tab closes, and the same question is asked
           and billed again an hour later. */}
       {sessions.length > 0 && (
-        <div className="mt-3 flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2">
           {sessions.slice(0, 8).map((s) => (
             <span
               key={s.id}
-              className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs ${
-                s.id === session ? "border-primary bg-primary/10" : "border-border"
+              // Not FilterChip: a chip is ONE button, and this pill carries two
+              // actions (open, delete). Nested buttons are invalid HTML, so the
+              // pill is a span styled to match the chip family.
+              className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs transition-colors ${
+                s.id === session
+                  ? "border-primary bg-primary/10"
+                  : "border-border hover:border-primary/40"
               }`}
             >
               <button
@@ -146,7 +164,7 @@ export const Chat = () => {
                 type="button"
                 onClick={() => handleDelete(s.id)}
                 aria-label="Delete this conversation"
-                className="text-muted-foreground hover:text-destructive"
+                className="text-muted-foreground transition-colors hover:text-destructive"
               >
                 <Trash2 className="size-3" />
               </button>
@@ -155,9 +173,9 @@ export const Chat = () => {
         </div>
       )}
 
-      {err && <Callout kind="warn" className="mt-4">{err}</Callout>}
+      {err && <Callout kind="warn">{err}</Callout>}
 
-      <div className="mt-4 min-h-0 flex-1 space-y-3 overflow-y-auto">
+      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto">
         {turns.length === 0 && (
           <p className="text-sm text-muted-foreground">
             {current?.description || "Pick an agent and ask something about this project."}
@@ -201,11 +219,16 @@ export const Chat = () => {
             </div>
           </div>
         ))}
-        {busy && <p className="text-sm text-muted-foreground">Thinking…</p>}
+        {busy && (
+          <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
+            <LoaderCircle className="size-4 animate-spin motion-reduce:animate-none" />
+            Thinking…
+          </p>
+        )}
         <div ref={endRef} />
       </div>
 
-      <form onSubmit={handleAsk} className="mt-3 flex shrink-0 gap-2">
+      <form onSubmit={handleAsk} className="flex shrink-0 gap-2">
         <Input
           value={q}
           onChange={(e) => setQ(e.target.value)}
@@ -213,11 +236,11 @@ export const Chat = () => {
           disabled={busy || agents.length === 0}
         />
         <Button type="submit" disabled={busy || !q.trim()}>
-          <Send className="size-4" />
+          <Send className="me-1.5 size-4" />
           Ask
         </Button>
       </form>
-    </div>
+    </PageShell>
   );
 };
 Chat.displayName = "Chat";

@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import {
-  Callout, EmptyState, Input, MarkdownEditor, PageHeader, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, StatCard, StatusBadge,
+  Button, Callout, EmptyState, Input, MarkdownEditor, PageHeader, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, StatCard, StatusBadge,
 } from "@togo-framework/ui";
-import { Sparkles, UserPlus } from "lucide-react";
+import { Sparkles, UserPlus, Users } from "lucide-react";
 import { agentColor, draftPersona, hireAgent, initials, listAgents, type Agent } from "../lib/agents";
+import { Field, FormCard, FormFooter, GridSkeleton, PageShell, StatRow } from "../components/page-shell";
 
 /** Avatar: the picture if there is one, otherwise initials on the agent's colour. */
 const AgentAvatar = ({ a, size = 40 }: { a: Agent; size?: number }) => {
@@ -47,7 +48,9 @@ const statusOf = (a: Agent): { label: string; tone: "success" | "info" | "neutra
 };
 
 export const Agents = () => {
-  const [agents, setAgents] = useState<Agent[]>([]);
+  // null = not loaded yet. Starting from [] made the first paint claim
+  // "No agents yet" to an operator with a full fleet on a slow link.
+  const [agents, setAgents] = useState<Agent[] | null>(null);
   const [err, setErr] = useState("");
   const [q, setQ] = useState("");
   const [hiring, setHiring] = useState(false);
@@ -72,15 +75,17 @@ export const Agents = () => {
     );
   };
 
-  const shown = agents.filter(match);
-  const working = agents.filter((a) => a.busy).length;
-  const enabled = agents.filter((a) => a.enabled).length;
-  const covered = new Set(agents.filter((a) => a.enabled).flatMap((a) => a.areas)).size;
+  const fleet = agents ?? [];
+  const shown = fleet.filter(match);
+  const working = fleet.filter((a) => a.busy).length;
+  const enabled = fleet.filter((a) => a.enabled).length;
+  const covered = new Set(fleet.filter((a) => a.enabled).flatMap((a) => a.areas)).size;
 
   return (
-    <div className="mx-auto flex max-w-6xl flex-col gap-4 p-6">
+    <PageShell>
       <PageHeader
         title="Agents"
+        icon={<Users className="size-5" />}
         description="The fleet that works your issue board. Only enabled agents can claim work, and an agent only takes issues in an area it owns."
         actions={
           <div className="flex items-center gap-2">
@@ -90,23 +95,20 @@ export const Agents = () => {
               placeholder="Search agents…"
               className="h-9 w-64"
             />
-            <button
-              onClick={() => setHiring(true)}
-              className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground"
-            >
-              <UserPlus className="size-4" />
+            <Button onClick={() => setHiring(true)}>
+              <UserPlus className="me-1.5 size-4" />
               Hire an agent
-            </button>
+            </Button>
           </div>
         }
       />
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <StatCard label="Agents" value={String(agents.length)} />
+      <StatRow>
+        <StatCard label="Agents" value={String(fleet.length)} />
         <StatCard label="Enabled" value={String(enabled)} tone="info" />
         <StatCard label="Working now" value={String(working)} tone={working ? "success" : "muted"} />
         <StatCard label="Areas covered" value={String(covered)} />
-      </div>
+      </StatRow>
 
       {err && <Callout kind="warn" title="Could not load the fleet">{err}</Callout>}
 
@@ -120,11 +122,13 @@ export const Agents = () => {
         />
       )}
 
-      {shown.length === 0 ? (
+      {agents === null ? (
+        <GridSkeleton count={6} />
+      ) : shown.length === 0 ? (
         <EmptyState
-          title={agents.length ? "No agents match" : "No agents yet"}
+          title={fleet.length ? "No agents match" : "No agents yet"}
           description={
-            agents.length
+            fleet.length
               ? "Try a different search."
               : "Run the setup wizard to generate the fleet."
           }
@@ -208,7 +212,7 @@ export const Agents = () => {
           })}
         </div>
       )}
-    </div>
+    </PageShell>
   );
 };
 Agents.displayName = "Agents";
@@ -283,63 +287,59 @@ const HireForm = ({ onClose, onHired }: { onClose: () => void; onHired: () => vo
   }
 
   return (
-    <div className="rounded-lg border border-border bg-card p-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold">Hire an agent</h2>
-        <button onClick={onClose} className="text-xs text-muted-foreground hover:underline">
-          Cancel
-        </button>
-      </div>
+    <FormCard title="Hire an agent" onClose={onClose}>
+      {err && <div className="mb-3"><Callout kind="warn" title="Could not hire">{err}</Callout></div>}
 
-      {err && <div className="mt-3"><Callout kind="warn" title="Could not hire">{err}</Callout></div>}
-
-      <div className="mt-3 grid gap-3 sm:grid-cols-2">
-        <label className="text-sm">
-          <span className="mb-1 block text-xs font-medium text-muted-foreground">Slug</span>
-          <Input value={f.slug} onChange={(e) => setF({ ...f, slug: e.target.value })}
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field
+          label="Slug" htmlFor="hire-slug" required
+          hint="The permanent machine name — it goes into file paths and cannot change."
+        >
+          <Input id="hire-slug" value={f.slug} onChange={(e) => setF({ ...f, slug: e.target.value })}
             placeholder="db-engineer" className="font-mono" />
-        </label>
-        <label className="text-sm">
-          <span className="mb-1 block text-xs font-medium text-muted-foreground">Name</span>
-          <Input value={f.displayName} onChange={(e) => setF({ ...f, displayName: e.target.value })}
+        </Field>
+        <Field
+          label="Name" htmlFor="hire-name"
+          hint="What the dashboard and the board call it."
+        >
+          <Input id="hire-name" value={f.displayName} onChange={(e) => setF({ ...f, displayName: e.target.value })}
             placeholder="DB Engineer" />
-        </label>
-        <label className="text-sm sm:col-span-2">
-          <span className="mb-1 block text-xs font-medium text-muted-foreground">
-            Areas it owns — comma separated
-          </span>
-          <Input value={f.areas} onChange={(e) => setF({ ...f, areas: e.target.value })}
+        </Field>
+        <Field
+          label="Areas it owns" htmlFor="hire-areas" required className="sm:col-span-2"
+          hint="Comma separated. An agent that owns no area can never claim work."
+        >
+          <Input id="hire-areas" value={f.areas} onChange={(e) => setF({ ...f, areas: e.target.value })}
             placeholder="db, schema, migration" className="font-mono text-xs" />
-          <span className="mt-1 block text-[11px] text-muted-foreground">
-            Required. An agent that owns no area can never claim work.
-          </span>
-        </label>
-        <label className="text-sm sm:col-span-2">
-          <span className="mb-1 block text-xs font-medium text-muted-foreground">
-            What it does — this is what routing reads to decide who owns a report
-          </span>
-          <Input value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })}
+        </Field>
+        <Field
+          label="What it does" htmlFor="hire-desc" className="sm:col-span-2"
+          hint="This is what routing reads to decide who owns a report — write it for the router, not for a bio."
+        >
+          <Input id="hire-desc" value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })}
             placeholder="Owns migrations, schema changes and query performance." />
-        </label>
-        <label className="text-sm">
-          <span className="mb-1 block text-xs font-medium text-muted-foreground">Model</span>
+        </Field>
+        <Field
+          label="Model" htmlFor="hire-model"
+          hint="Haiku is cheap triage, opus is expensive depth — sonnet is the fleet default."
+        >
           <Select value={f.model} onValueChange={(v) => setF({ ...f, model: v })}>
-            <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+            <SelectTrigger id="hire-model" className="w-full"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="haiku">haiku</SelectItem>
               <SelectItem value="sonnet">sonnet</SelectItem>
               <SelectItem value="opus">opus</SelectItem>
             </SelectContent>
           </Select>
-        </label>
-        <label className="text-sm">
-          <span className="mb-1 block text-xs font-medium text-muted-foreground">
-            Working directory
-          </span>
-          <Input value={f.workdir} onChange={(e) => setF({ ...f, workdir: e.target.value })}
-            placeholder="/absolute/path — blank uses the fleet default"
+        </Field>
+        <Field
+          label="Working directory" htmlFor="hire-workdir"
+          hint="Where its shell starts. Blank uses the fleet default."
+        >
+          <Input id="hire-workdir" value={f.workdir} onChange={(e) => setF({ ...f, workdir: e.target.value })}
+            placeholder="/absolute/path"
             className="font-mono text-xs" />
-        </label>
+        </Field>
       </div>
 
       {/* The persona IS the system prompt the agent runs with, so it is drafted
@@ -347,14 +347,14 @@ const HireForm = ({ onClose, onHired }: { onClose: () => void; onHired: () => vo
       <div className="mt-4 border-t border-border/60 pt-3">
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-xs font-medium text-muted-foreground">Persona</span>
-          <button
+          <Button
+            variant="outline" size="sm"
             onClick={() => void draft()}
             disabled={drafting || !canDraft}
-            className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium disabled:opacity-50"
           >
-            <Sparkles className="size-3.5" />
+            <Sparkles className="me-1.5 size-3.5" />
             {drafting ? "Drafting…" : persona ? "Draft again" : "Draft with AI"}
-          </button>
+          </Button>
           <span className="min-w-0 text-[11px] text-muted-foreground">
             {drafting
               ? "Claude Code is reading the repository. This takes up to a minute."
@@ -385,16 +385,22 @@ const HireForm = ({ onClose, onHired }: { onClose: () => void; onHired: () => vo
         )}
       </div>
 
-      <div className="mt-3 flex items-center gap-2">
-        <button onClick={() => void submit()} disabled={busy || drafting || !f.slug.trim() || !f.areas.trim()}
-          className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50">
+      <FormFooter
+        note={
+          !f.slug.trim() ? "Give it a slug first."
+            : !f.areas.trim() ? "Give it at least one area — otherwise it can never claim work."
+              : "Created with its own brain, disabled — read the persona, then enable it."
+        }
+      >
+        <Button
+          onClick={() => void submit()}
+          disabled={busy || drafting || !f.slug.trim() || !f.areas.trim()}
+        >
+          <UserPlus className="me-1.5 size-4" />
           {busy ? "Hiring…" : "Hire"}
-        </button>
-        <span className="min-w-0 text-[11px] text-muted-foreground">
-          Created with its own brain, disabled — read the persona, then enable it.
-        </span>
-      </div>
-    </div>
+        </Button>
+      </FormFooter>
+    </FormCard>
   );
 };
 HireForm.displayName = "HireForm";
