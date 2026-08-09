@@ -103,9 +103,21 @@ paths:
     - "**/*.pem"
     - "**/*.key"
     - "{{iac_dir}}/**"              # Rule 24 — IaC is human-reviewed (empty when no IaC)
-    - "db/migrations/**"            # Rule 23 — never HAND-AUTHOR a migration; the
-                                    #           generator writes these, and applying
-                                    #           them is a must_ask
+    # db/migrations/** is deliberately NOT denied. Writing one is allowed;
+    # APPLYING it is not.
+    #
+    # This entry used to deny writes, on the grounds that "the generator writes
+    # these". In a fresh project that is false in a dangerous way: the generator
+    # is Atlas reading db/atlas/schema/schema.hcl, which starts out declaring an
+    # empty schema. An agent told to use the generator instead of writing a
+    # migration would run a declarative diff against that empty file and produce
+    # a migration that drops every table in the database.
+    #
+    # The distinction that matters is not who writes the file. A .sql file in the
+    # working tree is reversible with `git checkout`; running it against a
+    # database is not. So writing stays allowed and
+    # `migration_apply_to_shared_env` stays in must_ask above — which is where
+    # the irreversibility actually lives, and what Rule 27 is really protecting.
 
 # ---------------------------------------------------------------------------
 # BLAST RADIUS — per-run ceilings (Rule 35). Exceeding a cap is NOT a failure:
