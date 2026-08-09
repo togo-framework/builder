@@ -251,11 +251,27 @@ func (r *rssSource) Fetch(ctx context.Context, cursor string) (Batch, error) {
 	// Trusted as given rather than re-sorted: "newest first" is a near
 	// universal feed convention, but nothing here guarantees every entry has
 	// a comparable date, so there is no reliable key to re-sort by anyway.
+	batch := Batch{}
+
+	// Truncation loses entries permanently, so it is reported rather than done
+	// quietly.
+	//
+	// The newest MaxEntries are kept, because fresh content is what a feed is
+	// for. But the cursor below advances to the newest date read, so the older
+	// entries dropped here are behind it on the next run and will never be
+	// collected. That only bites when a feed publishes more than MaxEntries
+	// between two runs — and when it does, the operator needs to know their
+	// window is too small, not discover a hole months later.
 	if len(all) > r.cfg.MaxEntries {
+		dropped := len(all) - r.cfg.MaxEntries
+		batch.Skipped = append(batch.Skipped, Skip{
+			Ref: "(older entries)",
+			Reason: fmt.Sprintf(
+				"%d entries beyond the maxEntries limit of %d were not read, and the cursor moves past them — raise maxEntries or shorten the schedule",
+				dropped, r.cfg.MaxEntries),
+		})
 		all = all[:r.cfg.MaxEntries]
 	}
-
-	batch := Batch{}
 
 	usable := make([]rssEntry, 0, len(all))
 	for _, e := range all {
