@@ -116,10 +116,26 @@ func (o *Orchestrator) sweepStaleRuns(ctx context.Context) {
 // assignee_agent_id is deliberately preserved — operators now set it by hand,
 // and the lease reaper wiping it silently undid their routing.
 func (o *Orchestrator) releaseOrphanedIssue(ctx context.Context, issueID, runID string) {
+	// The attempt is REFUNDED. It is charged at claim time, which is right when
+	// an agent gets its turn and fails — and wrong when the process was killed
+	// out from under it. The agent never ran; it did not get a turn to fail.
+	//
+	// Without this, every restart of the API silently spends one attempt on
+	// every in-flight issue, and three restarts exhaust an issue that has never
+	// once been worked on. Issue #37 died exactly that way: three "starting
+	// work" comments, zero files changed, two runs closed as "the owning process
+	// is gone", and then "this issue has used every attempt (3 of 3)" — advising
+	// a human to re-specify an issue whose agent had never finished a sentence.
+	//
+	// Safe against a poison-pill loop: a subagent runs in a child process and
+	// cannot kill this one, so a run only lands here when the operator or the
+	// host stopped us — and a host that restarts in a loop is a problem the
+	// warning below is for, not one to hide by burning issue attempts.
 	_, err := o.db.ExecContext(ctx,
 		`UPDATE builder_issues
 		    SET status = 'ready', claim_token = NULL, claimed_by_run_id = NULL,
-		        lease_expires_at = NULL, status_entered_at = now(), updated_at = now()
+		        lease_expires_at = NULL, attempt_count = GREATEST(attempt_count - 1, 0),
+		        status_entered_at = now(), updated_at = now()
 		  WHERE id = $1 AND claimed_by_run_id = $2 AND status = 'in_progress'`,
 		issueID, runID)
 	if err != nil {
