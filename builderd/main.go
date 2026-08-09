@@ -101,6 +101,8 @@ func main() {
 	// down the browser gets a connection refusal and there is no page for the
 	// widget to sit on. Surviving the product means serving the pages too.
 	serveWeb(k)
+	// Your product, framed, with the builder outside it.
+	serveShell(k)
 
 	if err := k.Serve(context.Background()); err != nil {
 		panic(err)
@@ -202,6 +204,7 @@ the board is what you reach for when the product is broken.
   BUILDER_VAULT_KEY  required for the secrets vault
   BUILDER_RUNNER=1   start the agent loop (off by default: it spends money)
   BUILDER_WEB_DIR    the built dashboard (web/dist) — without it there are no pages to look at
+  BUILDER_TARGET     the product to frame at /shell (default: http://localhost:3000)
 
 Embed in any product, on any stack:
 
