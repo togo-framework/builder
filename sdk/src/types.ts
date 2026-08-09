@@ -95,6 +95,19 @@ export interface MountOptions {
   position?: { right: number; bottom: number };
   /** Override the transport — used by the host app to inject session auth. */
   transport?: Transport;
+  /**
+   * The page this widget sits on is a shell framing another origin.
+   *
+   * Pinning and screenshots both read the DOM, and a cross-origin iframe is
+   * opaque to both: the picker sees one element it cannot look inside, and
+   * html-to-image serialises the frame as a blank rectangle — which on a shell
+   * page, where the frame IS the page, is a black image.
+   *
+   * So the controls are disabled and say why. A button that produces a black
+   * screenshot is worse than no button: it looks like a bug in the tool and it
+   * costs the operator the time to find out otherwise.
+   */
+  framedHost?: boolean;
   /** Called after an issue is created. */
   onCreated?: (r: { id: string; number: number }) => void;
 }

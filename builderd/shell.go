@@ -130,7 +130,10 @@ var shellTmpl = template.Must(template.New("shell").Parse(`<!doctype html>
 <script>
   // apiBase empty: the SDK is served by this daemon and talks to it
   // same-origin, so no CORS is involved and the session cookie applies.
-  BuilderIssues.mount({});
+  // framedHost: pinning and screenshots read the DOM, and the product's DOM is
+  // on another origin. Telling the SDK so is what stops it offering a
+  // screenshot button that returns a black image.
+  BuilderIssues.mount({ framedHost: true });
 
   var f = document.getElementById('f'), s = document.getElementById('s');
   var target = {{.Target}};

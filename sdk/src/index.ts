@@ -178,6 +178,20 @@ export function mount(opts: MountOptions = {}): Handle {
   const bodyIn = $<HTMLTextAreaElement>('textarea[name="body"]');
   const urlIn = $<HTMLInputElement>('input[name="url"]');
   const pinBtn = $<HTMLButtonElement>(".pin");
+  // See MountOptions.framedHost. Both of these read the DOM, and the DOM of a
+  // framed product is not ours to read.
+  if (opts.framedHost) {
+    const why =
+      "Not available here: this page frames your product on another origin, " +
+      "and the browser will not let one origin read another's pixels or elements. " +
+      "Load the widget inside the product for pinning and screenshots.";
+    for (const sel of [".pin", ".shot"]) {
+      const b = $<HTMLButtonElement>(sel);
+      b.disabled = true;
+      b.title = why;
+      b.setAttribute("aria-disabled", "true");
+    }
+  }
   const clearPinBtn = $<HTMLButtonElement>(".clearpin");
   const pinPreview = $<HTMLElement>(".pin-preview");
   const sendBtn = $<HTMLButtonElement>(".send");
