@@ -248,6 +248,36 @@ func (c *crawlSource) Fetch(ctx context.Context, cursor string) (Batch, error) {
 		item := queue[0]
 		queue = queue[1:]
 
+		// The private-address guard again, on every URL and not just the start.
+		//
+		// It used to run once, in newCrawl. With sameOriginOnly disabled, any
+		// <a href="http://169.254.169.254/..."> on a crawled page was queued
+		// and fetched server-side, and its body retained as a memory — against
+		// exactly the host newCrawl had just refused. A guard that only checks
+		// the address an operator typed does not defend against the addresses a
+		// stranger's page supplies.
+		if !allowPrivateCrawlHosts && disallowedCrawlHost(item.u.Hostname()) {
+			batch.Skipped = append(batch.Skipped, Skip{
+				Ref:    item.u.Host,
+				Reason: "refused: a loopback, private or link-local address",
+			})
+			continue
+		}
+
+		// robots.txt is per HOST. Applying the start host's rules to a
+		// different host is both wrong directions at once: it can permit what
+		// that host forbade, and forbid what it allowed. Rather than fetch a
+		// second robots.txt mid-run, off-origin pages are skipped — this
+		// connector's job is a site, and following links off it was never the
+		// documented behaviour.
+		if item.u.Host != c.start.Host {
+			batch.Skipped = append(batch.Skipped, Skip{
+				Ref:    item.u.Host,
+				Reason: "off-origin: this crawl only holds robots.txt for " + c.start.Host,
+			})
+			continue
+		}
+
 		if !c.robots.allowed(item.u.Path) {
 			batch.Skipped = append(batch.Skipped, Skip{
 				Ref: item.u.Path, Reason: "disallowed by robots.txt",
@@ -473,7 +503,16 @@ func parseRobots(body, agent string) *robotsRules {
 			// Consecutive User-agent lines share one group, so a new one only
 			// resets the target when directives have been seen since.
 			toStar = ua == "*"
-			toMine = ua != "*" && strings.Contains(agentToken, ua)
+			// An EMPTY value must match nothing. strings.Contains(x, "") is
+			// true, so a blank "User-agent:" line — which real robots.txt
+			// files contain — claimed our group and threw away every rule
+			// from the "*" group with it. The one rule this connector calls
+			// non-negotiable failed open on ordinary formatting.
+			//
+			// The match is also anchored now. Substring matching let a group
+			// named "crawler" or "builder" capture "togo-builder-crawler",
+			// so a site's rules for somebody else's bot silently became ours.
+			toMine = ua != "" && ua != "*" && agentToken == ua
 			if toStar {
 				starHit = true
 			}

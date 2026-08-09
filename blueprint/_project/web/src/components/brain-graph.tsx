@@ -1,5 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Minus, Plus, Maximize2 } from "lucide-react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from "react";
+import { ListFilter, Maximize2, Minimize2, RotateCcw, ZoomIn, ZoomOut } from "lucide-react";
 import type { BrainGraphEdge, BrainGraphNode } from "../lib/agents";
 
 /**
@@ -17,6 +23,12 @@ import type { BrainGraphEdge, BrainGraphNode } from "../lib/agents";
  * render re-seeded the layout, which called force(), which re-rendered — a
  * permanent animation and a permanent render loop, from a `??`. They key on a
  * content signature now, so the sim restarts only when the graph really changes.
+ *
+ * Fullscreen is the real thing (Fullscreen API on the wrapper, so the toolbar
+ * comes along), with a position:fixed overlay fallback for contexts that refuse
+ * the API — an iframe without allowfullscreen, older Safari. The previous
+ * toolbar had a Maximize2 button that only reset the zoom; a control that looks
+ * like fullscreen and isn't is the operator complaint this replaces.
  */
 const KIND_COLOR: Record<string, string> = {
   file: "#38bdf8",
@@ -30,8 +42,27 @@ const KIND_COLOR: Record<string, string> = {
 const SIZE = 480;
 const MIN_ZOOM = 0.4;
 const MAX_ZOOM = 4;
+// Below this zoom only the busiest nodes are labelled (plus anything hovered,
+// focused, selected or adjacent to the selection). Zoom-gating was chosen over
+// a collision layout: a collision pass re-solves against the live simulation on
+// every tick, so labels jitter while the graph settles, and it costs O(n²) per
+// frame. Gating is stable and cheap, and every hidden label stays reachable —
+// hover it, Tab to it, or zoom in.
+const LABEL_ALL_ZOOM = 1.5;
+const LABEL_BUDGET = 8;
 
 type P = { x: number; y: number; vx: number; vy: number; n: BrainGraphNode };
+type FsMode = "off" | "native" | "css";
+type FsHost = HTMLDivElement & { webkitRequestFullscreen?: () => void };
+type FsDoc = Document & {
+  webkitExitFullscreen?: () => void;
+  webkitFullscreenElement?: Element | null;
+};
+
+const CTL_BTN =
+  "p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground " +
+  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary " +
+  "disabled:pointer-events-none disabled:opacity-40";
 
 export const BrainGraph = ({
   nodes,
@@ -49,10 +80,14 @@ export const BrainGraph = ({
   const drag = useRef<{ id: string; dx: number; dy: number } | null>(null);
   const pan = useRef<{ x: number; y: number; ox: number; oy: number } | null>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
+  const wrapRef = useRef<HTMLDivElement | null>(null);
 
   const [zoom, setZoom] = useState(1);
   const [off, setOff] = useState({ x: 0, y: 0 });
   const [hidden, setHidden] = useState<Set<string>>(new Set());
+  const [fs, setFs] = useState<FsMode>("off");
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const [focusedId, setFocusedId] = useState<string | null>(null);
 
   // The kinds actually present, so the filter never offers an empty category.
   const kinds = useMemo(
@@ -60,6 +95,11 @@ export const BrainGraph = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [nodes.map((n) => n.kind).join(",")],
   );
+  const kindCounts = useMemo(() => {
+    const c: Record<string, number> = {};
+    for (const n of nodes) c[n.kind] = (c[n.kind] ?? 0) + 1;
+    return c;
+  }, [nodes]);
 
   const shownNodes = useMemo(
     () => nodes.filter((n) => !hidden.has(n.kind)),
@@ -87,6 +127,32 @@ export const BrainGraph = ({
   const maxWeight = useMemo(
     () => Math.max(1, ...shownEdges.map((e) => e.weight)),
     [shownEdges],
+  );
+
+  // Direct neighbours of the selection: they stay lit while everything else
+  // dims, so "what does the agent associate with this?" is answerable at a
+  // glance instead of by tracing edges.
+  const neighborIds = useMemo(() => {
+    const s = new Set<string>();
+    if (!selectedId) return s;
+    for (const e of shownEdges) {
+      if (e.from === selectedId) s.add(e.to);
+      else if (e.to === selectedId) s.add(e.from);
+    }
+    return s;
+  }, [selectedId, shownEdges]);
+
+  // The nodes that keep their labels at default zoom — the busiest ones, which
+  // are also the ones a reader orients by.
+  const alwaysLabeled = useMemo(
+    () =>
+      new Set(
+        [...shownNodes]
+          .sort((a, b) => b.mentions - a.mentions)
+          .slice(0, LABEL_BUDGET)
+          .map((n) => n.id),
+      ),
+    [shownNodes],
   );
 
   // Seed on a ring, then let the simulation sort it out. Seeding at the centre
@@ -182,13 +248,84 @@ export const BrainGraph = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nodeSig, edgeSig, maxWeight]);
 
+  // Native fullscreen state lives in the document, not in React — the operator
+  // can leave via Escape or the browser UI without touching our buttons, so the
+  // change event is the source of truth and the button state follows it.
+  useEffect(() => {
+    const sync = () => {
+      const doc = document as FsDoc;
+      const active = document.fullscreenElement ?? doc.webkitFullscreenElement ?? null;
+      setFs((cur) =>
+        active === wrapRef.current ? "native" : cur === "native" ? "off" : cur,
+      );
+    };
+    document.addEventListener("fullscreenchange", sync);
+    document.addEventListener("webkitfullscreenchange", sync);
+    return () => {
+      document.removeEventListener("fullscreenchange", sync);
+      document.removeEventListener("webkitfullscreenchange", sync);
+    };
+  }, []);
+
+  // The CSS-overlay fallback has no browser chrome managing it, so Escape and
+  // the scroll lock are ours to provide — without the lock the page scrolls
+  // underneath the overlay on wheel-zoom overshoot.
+  useEffect(() => {
+    if (fs !== "css") return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setFs("off");
+    };
+    window.addEventListener("keydown", onKey);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [fs]);
+
+  const toggleFullscreen = () => {
+    if (fs !== "off") {
+      if (fs === "native") {
+        const doc = document as FsDoc;
+        if (document.exitFullscreen) void document.exitFullscreen().catch(() => undefined);
+        else doc.webkitExitFullscreen?.();
+      }
+      setFs("off");
+      return;
+    }
+    const el = wrapRef.current as FsHost | null;
+    if (!el) return;
+    if (el.requestFullscreen) {
+      // Refusal (iframe without allowfullscreen, permission policy) rejects the
+      // promise — fall back to the fixed overlay so the control always works.
+      el.requestFullscreen().then(() => setFs("native")).catch(() => setFs("css"));
+    } else if (el.webkitRequestFullscreen) {
+      // Legacy Safari: no promise, no rejection. Ask, then check whether it
+      // actually took effect; if not, the overlay covers it.
+      el.webkitRequestFullscreen();
+      window.setTimeout(() => {
+        const doc = document as FsDoc;
+        const active = document.fullscreenElement ?? doc.webkitFullscreenElement ?? null;
+        setFs(active === el ? "native" : "css");
+      }, 120);
+    } else {
+      setFs("css");
+    }
+  };
+
   // Pointer coordinates have to be mapped through the viewBox, or dragging
   // drifts on any screen where the SVG is not rendered at exactly SIZE px.
+  // In fullscreen the rect is no longer square: preserveAspectRatio "meet"
+  // letterboxes the square viewBox inside it, so the mapping must go through
+  // the rendered square, not the rect — or every drag drifts sideways by half
+  // the letterbox width.
   const toLocal = (e: { clientX: number; clientY: number }) => {
     const r = svgRef.current?.getBoundingClientRect();
     if (!r) return { x: 0, y: 0 };
-    const vx = ((e.clientX - r.left) / r.width) * (SIZE / zoom) + off.x;
-    const vy = ((e.clientY - r.top) / r.height) * (SIZE / zoom) + off.y;
+    const s = Math.min(r.width, r.height);
+    const vx = ((e.clientX - r.left - (r.width - s) / 2) / s) * (SIZE / zoom) + off.x;
+    const vy = ((e.clientY - r.top - (r.height - s) / 2) / s) * (SIZE / zoom) + off.y;
     return { x: vx, y: vy };
   };
 
@@ -211,6 +348,24 @@ export const BrainGraph = ({
     setOff({ x: 0, y: 0 });
   };
 
+  // The whole view is drivable from the SVG itself: arrows pan, +/- zoom,
+  // 0 resets, F toggles fullscreen. Nodes are separate tab stops (below), so
+  // this handler also receives their bubbled arrow presses — which is wanted:
+  // panning while a node is focused keeps it in view.
+  const handleGraphKey = (e: ReactKeyboardEvent<SVGSVGElement>) => {
+    const step = 48 / zoom;
+    if (e.key === "ArrowUp") setOff((o) => ({ ...o, y: o.y - step }));
+    else if (e.key === "ArrowDown") setOff((o) => ({ ...o, y: o.y + step }));
+    else if (e.key === "ArrowLeft") setOff((o) => ({ ...o, x: o.x - step }));
+    else if (e.key === "ArrowRight") setOff((o) => ({ ...o, x: o.x + step }));
+    else if (e.key === "+" || e.key === "=") zoomBy(1.3);
+    else if (e.key === "-" || e.key === "_") zoomBy(1 / 1.3);
+    else if (e.key === "0") reset();
+    else if (e.key === "f" || e.key === "F") toggleFullscreen();
+    else return;
+    e.preventDefault();
+  };
+
   if (nodes.length === 0) {
     return (
       <p className="py-8 text-center text-xs text-muted-foreground">
@@ -221,81 +376,127 @@ export const BrainGraph = ({
 
   const m = pts.current;
   const view = `${off.x} ${off.y} ${SIZE / zoom} ${SIZE / zoom}`;
+  const isFs = fs !== "off";
 
   return (
-    <div className="flex flex-col gap-2">
-      <div className="flex flex-wrap items-center gap-1.5">
+    <div
+      ref={wrapRef}
+      className={`flex flex-col gap-2 ${
+        fs === "css"
+          ? "fixed inset-0 z-50 bg-background p-4"
+          : fs === "native"
+            ? "h-full bg-background p-4"
+            : ""
+      }`}
+    >
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         {/* Filter by kind. Toggling off a noisy category ("term" is usually the
             noisiest) is the fastest way to make a dense graph readable. */}
-        {kinds.map((k) => {
-          const on = !hidden.has(k);
-          return (
-            <button
-              key={k}
-              type="button"
-              aria-pressed={on}
-              onClick={() =>
-                setHidden((prev) => {
-                  const next = new Set(prev);
-                  if (next.has(k)) next.delete(k);
-                  else next.add(k);
-                  return next;
-                })
-              }
-              className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px]
-                          transition-colors ${
-                            on
-                              ? "border-border text-foreground"
-                              : "border-transparent text-muted-foreground/50 line-through"
-                          }`}
-            >
-              <span
-                className="inline-block size-2 rounded-full"
-                style={{ background: on ? (KIND_COLOR[k] ?? KIND_COLOR.term) : "currentColor" }}
-              />
-              {k}
-            </button>
-          );
-        })}
+        <div
+          role="group"
+          aria-label="Filter nodes by kind"
+          className="flex min-w-0 flex-wrap items-center gap-1.5"
+        >
+          <ListFilter aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
+          {kinds.map((k) => {
+            const on = !hidden.has(k);
+            return (
+              <button
+                key={k}
+                type="button"
+                aria-pressed={on}
+                onClick={() =>
+                  setHidden((prev) => {
+                    const next = new Set(prev);
+                    if (next.has(k)) next.delete(k);
+                    else next.add(k);
+                    return next;
+                  })
+                }
+                className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px]
+                            transition-colors focus-visible:outline-none focus-visible:ring-2
+                            focus-visible:ring-primary ${
+                              on
+                                ? "border-border bg-card text-foreground hover:bg-muted"
+                                : "border-dashed border-border text-muted-foreground/60 hover:text-muted-foreground"
+                            }`}
+              >
+                <span
+                  className="inline-block size-2 rounded-full"
+                  style={{ background: on ? (KIND_COLOR[k] ?? KIND_COLOR.term) : "currentColor" }}
+                />
+                {k}
+                <span className="tabular-nums text-muted-foreground">{kindCounts[k]}</span>
+              </button>
+            );
+          })}
+        </div>
 
-        <div className="ms-auto flex items-center gap-1">
-          <button
-            type="button"
-            onClick={() => zoomBy(1 / 1.3)}
-            disabled={zoom <= MIN_ZOOM}
-            aria-label="Zoom out"
-            className="rounded-md border border-border p-1 text-muted-foreground hover:text-foreground disabled:opacity-40"
+        <div className="ms-auto flex items-center gap-1.5">
+          <div
+            role="group"
+            aria-label="Zoom"
+            className="flex items-center overflow-hidden rounded-md border border-border"
           >
-            <Minus className="size-3.5" />
-          </button>
-          <span className="w-10 text-center font-mono text-[11px] text-muted-foreground">
-            {Math.round(zoom * 100)}%
-          </span>
-          <button
-            type="button"
-            onClick={() => zoomBy(1.3)}
-            disabled={zoom >= MAX_ZOOM}
-            aria-label="Zoom in"
-            className="rounded-md border border-border p-1 text-muted-foreground hover:text-foreground disabled:opacity-40"
-          >
-            <Plus className="size-3.5" />
-          </button>
+            <button
+              type="button"
+              onClick={() => zoomBy(1 / 1.3)}
+              disabled={zoom <= MIN_ZOOM}
+              aria-label="Zoom out"
+              className={CTL_BTN}
+            >
+              <ZoomOut className="size-3.5" />
+            </button>
+            <span className="w-12 border-x border-border px-1 text-center font-mono text-[11px] tabular-nums text-muted-foreground">
+              {Math.round(zoom * 100)}%
+            </span>
+            <button
+              type="button"
+              onClick={() => zoomBy(1.3)}
+              disabled={zoom >= MAX_ZOOM}
+              aria-label="Zoom in"
+              className={CTL_BTN}
+            >
+              <ZoomIn className="size-3.5" />
+            </button>
+          </div>
           <button
             type="button"
             onClick={reset}
             aria-label="Reset the view"
-            className="rounded-md border border-border p-1 text-muted-foreground hover:text-foreground"
+            title="Reset view (0)"
+            className={`rounded-md border border-border ${CTL_BTN}`}
           >
-            <Maximize2 className="size-3.5" />
+            <RotateCcw className="size-3.5" />
+          </button>
+          <button
+            type="button"
+            onClick={toggleFullscreen}
+            aria-label={isFs ? "Exit fullscreen" : "Enter fullscreen"}
+            title={isFs ? "Exit fullscreen (Esc)" : "Fullscreen (F)"}
+            className={`rounded-md border border-border ${CTL_BTN}`}
+          >
+            {isFs ? <Minimize2 className="size-3.5" /> : <Maximize2 className="size-3.5" />}
           </button>
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-lg border border-border">
+      <div
+        className={`overflow-hidden rounded-lg border border-border ${
+          isFs ? "min-h-0 flex-1" : ""
+        }`}
+      >
         <svg
           ref={svgRef}
           viewBox={view}
-          className="mx-auto block aspect-square w-full max-w-[480px] touch-none select-none"
+          role="application"
+          tabIndex={0}
+          aria-label="Entity graph. Tab reaches nodes and Enter selects one. Arrow keys pan, plus and minus zoom, 0 resets the view, F toggles fullscreen."
+          onKeyDown={handleGraphKey}
+          className={`mx-auto block touch-none select-none focus-visible:outline-none
+                      focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary ${
+                        isFs ? "h-full w-full" : "aspect-square w-full max-w-[560px]"
+                      }`}
           onWheel={(e) => {
             // No preventDefault: React attaches wheel passively, and calling it
             // throws. Zoom still works; the page may also scroll, which is the
@@ -320,7 +521,9 @@ export const BrainGraph = ({
             if (pan.current) {
               const r = svgRef.current?.getBoundingClientRect();
               if (!r) return;
-              const k = SIZE / zoom / r.width;
+              // Same letterbox correction as toLocal: scale by the rendered
+              // square, not the rect, or panning lags the pointer in fullscreen.
+              const k = SIZE / zoom / Math.min(r.width, r.height);
               setOff({
                 x: pan.current.ox - (e.clientX - pan.current.x) * k,
                 y: pan.current.oy - (e.clientY - pan.current.y) * k,
@@ -334,42 +537,92 @@ export const BrainGraph = ({
             const a = m.get(e.from), b = m.get(e.to);
             if (!a || !b) return null;
             const lit = selectedId === e.from || selectedId === e.to;
+            // With a selection active, unrelated edges drop to near-invisible so
+            // the selected node's connections are the only structure on screen.
+            const faded = selectedId != null && !lit;
             return (
               <line
                 key={i}
                 x1={a.x} y1={a.y} x2={b.x} y2={b.y}
                 stroke="currentColor"
-                strokeOpacity={lit ? 0.7 : 0.08 + (e.weight / maxWeight) * 0.32}
+                strokeOpacity={lit ? 0.8 : faded ? 0.04 : 0.08 + (e.weight / maxWeight) * 0.32}
                 strokeWidth={(0.5 + (e.weight / maxWeight) * 2) / Math.sqrt(zoom)}
                 className={lit ? "text-primary" : "text-muted-foreground"}
               />
             );
           })}
           {[...m.values()].map((p) => {
+            const id = p.n.id;
             const rad = 4 + (p.n.mentions / maxMentions) * 9;
-            const sel = selectedId === p.n.id;
+            const sel = selectedId === id;
+            const neighbor = neighborIds.has(id);
+            const dimmed = selectedId != null && !sel && !neighbor;
+            const revealed = sel || neighbor || hoveredId === id || focusedId === id;
+            const labeled = revealed || zoom >= LABEL_ALL_ZOOM || alwaysLabeled.has(id);
+            const iw = 1 / Math.sqrt(zoom); // keep stroke/label sizes constant on screen
             return (
               <g
-                key={p.n.id}
-                className="cursor-grab active:cursor-grabbing"
+                key={id}
+                role="button"
+                tabIndex={0}
+                aria-label={`${p.n.name}, ${p.n.kind}, ${p.n.mentions} mention${p.n.mentions === 1 ? "" : "s"}`}
+                aria-pressed={sel}
+                opacity={dimmed ? 0.3 : 1}
+                className="cursor-grab outline-none transition-opacity active:cursor-grabbing"
                 onPointerDown={(e) => {
                   // Stop the background pan from also starting.
                   e.stopPropagation();
                   (e.target as Element).setPointerCapture?.(e.pointerId);
                   const l = toLocal(e);
-                  drag.current = { id: p.n.id, dx: p.x - l.x, dy: p.y - l.y };
+                  drag.current = { id, dx: p.x - l.x, dy: p.y - l.y };
                 }}
+                onPointerEnter={() => setHoveredId(id)}
+                onPointerLeave={() => setHoveredId((h) => (h === id ? null : h))}
+                onFocus={() => setFocusedId(id)}
+                onBlur={() => setFocusedId((f) => (f === id ? null : f))}
                 onClick={(e) => {
                   e.stopPropagation();
                   onSelect?.(p.n);
                 }}
+                onKeyDown={(e) => {
+                  // role="button" on SVG does not synthesise click from the
+                  // keyboard the way a native button does — do it ourselves.
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onSelect?.(p.n);
+                  }
+                }}
               >
                 {/* A wide invisible target: an 8px circle is very hard to grab. */}
-                <circle cx={p.x} cy={p.y} r={Math.max(rad + 10, 16) / Math.sqrt(zoom)} fill="transparent" />
+                <circle cx={p.x} cy={p.y} r={Math.max(rad + 10, 16) * iw} fill="transparent" />
                 {sel && (
                   <circle
-                    cx={p.x} cy={p.y} r={rad + 5 / Math.sqrt(zoom)}
-                    fill="none" stroke="currentColor" strokeWidth={2 / Math.sqrt(zoom)}
+                    cx={p.x} cy={p.y} r={rad + 10 * iw}
+                    fill="currentColor" opacity={0.12}
+                    className="text-primary"
+                  />
+                )}
+                {sel && (
+                  <circle
+                    cx={p.x} cy={p.y} r={rad + 5 * iw}
+                    fill="none" stroke="currentColor" strokeWidth={2.5 * iw}
+                    className="text-primary"
+                  />
+                )}
+                {!sel && neighbor && (
+                  <circle
+                    cx={p.x} cy={p.y} r={rad + 3.5 * iw}
+                    fill="none" stroke="currentColor" strokeWidth={1.5 * iw}
+                    strokeOpacity={0.55}
+                    className="text-primary"
+                  />
+                )}
+                {focusedId === id && !sel && (
+                  <circle
+                    cx={p.x} cy={p.y} r={rad + 6 * iw}
+                    fill="none" stroke="currentColor" strokeWidth={1.5 * iw}
+                    strokeDasharray={`${3 * iw} ${2 * iw}`}
                     className="text-primary"
                   />
                 )}
@@ -378,14 +631,18 @@ export const BrainGraph = ({
                   fill={KIND_COLOR[p.n.kind] ?? KIND_COLOR.term}
                 />
                 <title>{`${p.n.name} — ${p.n.kind}, mentioned ${p.n.mentions}×`}</title>
-                <text
-                  x={p.x} y={p.y - rad - 4}
-                  textAnchor="middle"
-                  className="pointer-events-none fill-current text-muted-foreground"
-                  style={{ fontSize: `${9 / Math.sqrt(zoom)}px` }}
-                >
-                  {p.n.name.length > 22 ? p.n.name.slice(0, 21) + "…" : p.n.name}
-                </text>
+                {labeled && (
+                  <text
+                    x={p.x} y={p.y - rad - 5 * iw}
+                    textAnchor="middle"
+                    className={`pointer-events-none fill-current ${
+                      revealed ? "font-medium text-foreground" : "text-muted-foreground"
+                    }`}
+                    style={{ fontSize: `${9 * iw}px` }}
+                  >
+                    {p.n.name.length > 22 ? p.n.name.slice(0, 21) + "…" : p.n.name}
+                  </text>
+                )}
               </g>
             );
           })}
@@ -393,8 +650,9 @@ export const BrainGraph = ({
       </div>
 
       <p className="text-center text-[11px] text-muted-foreground">
-        Click a node to read its memories · drag to move it · drag the background
-        to pan · scroll to zoom
+        Click or press Enter on a node to read its memories · drag to move it · drag
+        the background to pan · scroll or +/− to zoom · F for fullscreen
+        {isFs && " · Esc exits"}
       </p>
     </div>
   );
