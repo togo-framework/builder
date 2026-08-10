@@ -11,8 +11,10 @@ import {
   type ChatAgent, type SessionSummary, type Turn,
 } from "../lib/chat";
 import { PageShell } from "../components/page-shell";
+import { useStrings } from "../lib/i18n";
 
 export const Chat = () => {
+  const { S } = useStrings();
   const [agents, setAgents] = useState<ChatAgent[]>([]);
   const [agent, setAgent] = useState("");
   const [turns, setTurns] = useState<Turn[]>([]);
@@ -54,7 +56,7 @@ export const Chat = () => {
   };
 
   const handleDelete = async (id: string) => {
-    if (!window.confirm("Delete this conversation? Nothing was retained in the brain from it.")) return;
+    if (!window.confirm(S.chat.confirmDelete)) return;
     try {
       await deleteSession(id);
       if (id === session) handleNew();
@@ -103,9 +105,9 @@ export const Chat = () => {
     // and document-scale gaps between its controls read as separate widgets.
     <PageShell width="narrow" fill className="gap-3">
       <PageHeader
-        title="Chat"
+        title={S.chat.title}
         icon={<MessagesSquare className="size-5" />}
-        description="Ask any agent on the fleet. Answers come from the project brain, with what they used shown underneath."
+        description={S.chat.desc}
       />
 
       <div className="flex flex-wrap items-center gap-2">
@@ -114,7 +116,7 @@ export const Chat = () => {
           onValueChange={(v) => { setAgent(v); handleNew(); }}
         >
           <SelectTrigger className="h-9 w-56">
-            <SelectValue placeholder="Pick an agent" />
+            <SelectValue placeholder={S.chat.pickAgent} />
           </SelectTrigger>
           <SelectContent>
             {agents.map((a) => (
@@ -132,7 +134,7 @@ export const Chat = () => {
         {turns.length > 0 && (
           <Button variant="ghost" size="sm" onClick={handleNew}>
             <MessageSquarePlus className="me-1.5 size-4" />
-            New
+            {S.chat.newChat}
           </Button>
         )}
       </div>
@@ -160,12 +162,14 @@ export const Chat = () => {
                 className="max-w-[22ch] truncate text-muted-foreground hover:text-foreground"
                 title={s.title}
               >
-                {s.title || "(untitled)"}
+                {/* dir="auto": the title is the operator's own first question,
+                    in whatever language they typed it. */}
+                <bdi>{s.title || S.chat.untitled}</bdi>
               </button>
               <button
                 type="button"
                 onClick={() => handleDelete(s.id)}
-                aria-label="Delete this conversation"
+                aria-label={S.chat.deleteAria}
                 className="text-muted-foreground transition-colors hover:text-destructive"
               >
                 <Trash2 className="size-3" />
@@ -187,17 +191,20 @@ export const Chat = () => {
               <MessagesSquare className="size-5" />
             </span>
             <p className="text-sm font-medium">
-              {current ? `Ask ${current.displayName}` : "Pick an agent"}
+              {current ? S.chat.askAgent(current.displayName) : S.chat.pickAgent}
             </p>
             <p className="max-w-sm text-xs text-muted-foreground">
-              {current?.description ||
-                "Answers come from the project brain, with the memories they used shown underneath."}
+              {current?.description || S.chat.emptyDesc}
             </p>
           </div>
         )}
         {turns.map((t, i) => (
           <div key={i} className={t.role === "you" ? "flex justify-end" : ""}>
             <div
+              // dir="auto": questions and answers arrive in either language,
+              // independent of the UI locale — each bubble sets its own base
+              // direction from its own first strong character.
+              dir="auto"
               className={`max-w-[85%] rounded-lg px-3 py-2 ${
                 t.role === "you" ? "bg-primary/10" : "border border-border bg-card"
               }`}
@@ -209,7 +216,7 @@ export const Chat = () => {
               {t.role === "agent" && t.grounded === false && (
                 <p className="mt-2 flex items-start gap-1.5 text-xs text-warning">
                   <TriangleAlert aria-hidden="true" className="mt-px size-3.5 shrink-0" />
-                  Nothing in the project brain matched — this is the model’s own knowledge.
+                  {S.chat.notGrounded}
                 </p>
               )}
 
@@ -218,14 +225,13 @@ export const Chat = () => {
               {t.citations && t.citations.length > 0 && (
                 <details className="mt-2">
                   <summary className="cursor-pointer text-xs text-muted-foreground">
-                    Grounded in {t.citations.length} memor
-                    {t.citations.length === 1 ? "y" : "ies"}
+                    {S.chat.groundedIn(t.citations.length)}
                   </summary>
                   <div className="mt-2 space-y-1">
                     {t.citations.map((c, j) => (
                       <div key={j} className="rounded-md bg-muted/40 p-2 text-xs">
-                        <span className="font-mono text-muted-foreground">{c.from}</span>
-                        <p className="mt-1 line-clamp-3 text-muted-foreground">{c.content}</p>
+                        <span dir="ltr" className="font-mono text-muted-foreground">{c.from}</span>
+                        <p dir="auto" className="mt-1 line-clamp-3 text-muted-foreground">{c.content}</p>
                       </div>
                     ))}
                   </div>
@@ -237,7 +243,7 @@ export const Chat = () => {
         {busy && (
           <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
             <LoaderCircle className="size-4 animate-spin motion-reduce:animate-none" />
-            Thinking…
+            {S.chat.thinking}
           </p>
         )}
         <div ref={endRef} />
@@ -247,12 +253,13 @@ export const Chat = () => {
         <Input
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="Ask about this project…"
+          placeholder={S.chat.inputPlaceholder}
           disabled={busy || agents.length === 0}
         />
         <Button type="submit" disabled={busy || !q.trim()}>
-          <Send className="me-1.5 size-4" />
-          Ask
+          {/* The paper plane flies towards the reading direction. */}
+          <Send className="me-1.5 size-4 rtl:-scale-x-100" />
+          {S.chat.ask}
         </Button>
       </form>
     </PageShell>

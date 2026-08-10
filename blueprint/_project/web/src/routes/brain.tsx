@@ -10,22 +10,26 @@ import type { BrainGraphNode } from "../lib/agents";
 import {
   FilterChip, ListSkeleton, MonoBadge, PageShell, Rows, Section, Stat, StatRow,
 } from "../components/page-shell";
+import { useStrings } from "../lib/i18n";
 
 /** A memory with where it came from. Provenance is the point of this screen.
  *  A row inside a grouped list, not its own card — twenty memories each in a
  *  bordered slab drowned the content in chrome. */
 const MemoryRow = ({ m }: { m: ProjectMemory }) => (
   <div className="px-3 py-2.5 transition-colors hover:bg-muted/40">
-    <p className="whitespace-pre-wrap text-sm">{m.content}</p>
+    {/* dir="auto": memories arrive in whatever language the source wrote —
+        an English memory under the Arabic UI must still read left-to-right. */}
+    <p dir="auto" className="whitespace-pre-wrap text-sm">{m.content}</p>
     <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
       <MonoBadge>{m.from.kind}</MonoBadge>
-      <span className="break-all">{m.from.label}</span>
+      <span dir="auto" className="break-all">{m.from.label}</span>
     </div>
   </div>
 );
 MemoryRow.displayName = "MemoryRow";
 
 export const Brain = () => {
+  const { S } = useStrings();
   const [b, setB] = useState<ProjectBrain | null>(null);
   const [err, setErr] = useState("");
   const [filter, setFilter] = useState("");
@@ -47,28 +51,29 @@ export const Brain = () => {
   return (
     <PageShell>
       <PageHeader
-        title="Project brain"
+        title={S.brain.title}
         icon={<BrainIcon className="size-5" />}
-        description="What this project knows, and where each piece of it came from. Every agent reads this; every source writes into it."
+        description={S.brain.desc}
       />
 
       {err && <Callout kind="warn">{err}</Callout>}
 
       {/* Said plainly. A graph rendered over keyword overlap invites trust it
-          has not earned, and the operator cannot tell by looking. */}
+          has not earned, and the operator cannot tell by looking. The sentence
+          is assembled around its two <code> islands so both languages keep the
+          identifiers verbatim and LTR. */}
       {b && !b.semantic && (
-        <Callout kind="warn" title="Recall here is keyword-only">
-          The embedder is <code>{b.embedder}</code>, a hashed bag of words with no semantic
-          content: “the login button is broken” and “authentication fails” score as unrelated.
-          Set <code>BUILDER_EMBED_URL</code> to an embeddings endpoint for real recall.
+        <Callout kind="warn" title={S.brain.keywordTitle}>
+          {S.brain.kbBefore}<code dir="ltr">{b.embedder}</code>{S.brain.kbMiddle}
+          <code dir="ltr">BUILDER_EMBED_URL</code>{S.brain.kbAfter}
         </Callout>
       )}
 
       <StatRow>
-        <Stat label="Memories" value={b?.memories ?? 0} />
-        <Stat label="Entities" value={b?.entities ?? 0} />
-        <Stat label="Connections" value={b?.edges ?? 0} />
-        <Stat label="Namespace" value={b?.namespace ?? "—"} mono />
+        <Stat label={S.brain.statMemories} value={b?.memories ?? 0} />
+        <Stat label={S.brain.statEntities} value={b?.entities ?? 0} />
+        <Stat label={S.brain.statConnections} value={b?.edges ?? 0} />
+        <Stat label={S.brain.statNamespace} value={b?.namespace ?? "—"} mono />
       </StatRow>
 
       {/* Built from what is actually in the brain, so a deleted source still
@@ -76,7 +81,7 @@ export const Brain = () => {
       {b && b.sources.length > 0 && (
         <div className="flex flex-wrap gap-2">
           <FilterChip active={filter === ""} onClick={() => setFilter("")}>
-            Everything
+            {S.brain.everything}
           </FilterChip>
           {b.sources.map((s) => {
             const key = s.kind === "document" ? `doc:${s.source}` : `source:${s.kind}:${s.source}`;
@@ -104,13 +109,15 @@ export const Brain = () => {
         <div className="rounded-lg border border-border bg-card p-4">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <h3 className="font-medium">{selected.name}</h3>
+              <h3 dir="auto" className="font-medium">{selected.name}</h3>
               <p className="text-xs text-muted-foreground">
-                {selected.kind} · {entity?.mentions ?? selected.mentions} mention
-                {(entity?.mentions ?? selected.mentions) === 1 ? "" : "s"}
+                {selected.kind} · {S.brain.mentions(entity?.mentions ?? selected.mentions)}
               </p>
             </div>
-            <Button variant="ghost" size="sm" onClick={() => { setSelected(null); setEntity(null); }}>
+            <Button
+              variant="ghost" size="sm" aria-label={S.common.close}
+              onClick={() => { setSelected(null); setEntity(null); }}
+            >
               <X className="size-4" />
             </Button>
           </div>
@@ -122,22 +129,22 @@ export const Brain = () => {
               </Rows>
             )}
             {entity?.memories.length === 0 && (
-              <p className="text-sm text-muted-foreground">No memories reference this yet.</p>
+              <p className="text-sm text-muted-foreground">{S.brain.noMemoriesRef}</p>
             )}
           </div>
         </div>
       )}
 
       <Section
-        title={filter ? "Filtered memories" : "Most recent"}
+        title={filter ? S.brain.filtered : S.brain.recent}
         count={b?.recent.length}
       >
         {b === null && <ListSkeleton rows={3} />}
         {b?.recent.length === 0 && (
           <EmptyState
             icon={<BrainIcon className="size-6" />}
-            title="Nothing here yet"
-            description="Add a source or upload a document and the brain fills itself."
+            title={S.brain.emptyTitle}
+            description={S.brain.emptyDesc}
           />
         )}
         {b && b.recent.length > 0 && (

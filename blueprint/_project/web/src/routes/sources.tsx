@@ -4,8 +4,8 @@ import {
   SelectItem, SelectTrigger, SelectValue, StatusBadge, Textarea,
 } from "@togo-framework/ui";
 import {
-  ChevronDown, ChevronRight, CircleCheck, CircleX, History, LoaderCircle, Play,
-  Plus, RefreshCw, Rss, Trash2, X,
+  ChevronDown, ChevronLeft, ChevronRight, CircleCheck, CircleX, History,
+  LoaderCircle, Play, Plus, RefreshCw, Rss, Trash2, X,
 } from "lucide-react";
 import {
   configTemplate, createSource, deleteSource, listKinds, listSources, patchSource,
@@ -15,22 +15,12 @@ import {
   Field, FormCard, FormFooter, ListSkeleton, MonoBadge, PageShell, Row, RowMeta,
   RowTitle, Rows, Section, Stat, StatRow,
 } from "../components/page-shell";
+import { useStrings } from "../lib/i18n";
 
-const ago = (iso: string | null) => {
-  if (!iso) return "—";
-  const ms = Date.now() - new Date(iso).getTime();
-  if (!Number.isFinite(ms)) return "—";
-  const m = Math.round(ms / 60000);
-  if (m < 1) return "just now";
-  if (m < 60) return `${m}m ago`;
-  const h = Math.round(m / 60);
-  if (h < 48) return `${h}h ago`;
-  return `${Math.round(h / 24)}d ago`;
-};
-
-const took = (r: SourceRun) => {
-  if (!r.endedAt) return "running";
-  const ms = new Date(r.endedAt).getTime() - new Date(r.startedAt).getTime();
+/** Wall-clock duration of a finished run — "812ms" / "1.2s". Pure math; the
+ *  "still running" word is language-dependent and supplied at the call site. */
+const tookDuration = (r: SourceRun) => {
+  const ms = new Date(r.endedAt!).getTime() - new Date(r.startedAt).getTime();
   return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`;
 };
 
@@ -41,6 +31,7 @@ const took = (r: SourceRun) => {
  * 04:00 — the success overwrites it, and the night looks clean.
  */
 const RunHistory = ({ id, reloadKey }: { id: string; reloadKey: number }) => {
+  const { S } = useStrings();
   const [runs, setRuns] = useState<SourceRun[] | null>(null);
   const [err, setErr] = useState("");
 
@@ -66,12 +57,12 @@ const RunHistory = ({ id, reloadKey }: { id: string; reloadKey: number }) => {
     return (
       <p className={`${tray} flex items-center gap-1.5 px-4 py-2.5 text-xs text-muted-foreground`}>
         <RefreshCw className="size-3.5 animate-spin motion-reduce:animate-none" />
-        Loading runs…
+        {S.sources.loadingRuns}
       </p>
     );
   }
   if (runs.length === 0) {
-    return <p className={`${tray} px-4 py-2.5 text-xs text-muted-foreground`}>No runs yet.</p>;
+    return <p className={`${tray} px-4 py-2.5 text-xs text-muted-foreground`}>{S.sources.noRuns}</p>;
   }
 
   return (
@@ -81,22 +72,23 @@ const RunHistory = ({ id, reloadKey }: { id: string; reloadKey: number }) => {
           {/* Icon, not a coloured dot: the outcome must survive a monochrome
               screenshot, and a check and a cross differ in shape, not just hue. */}
           {r.status === "ok" ? (
-            <CircleCheck aria-label="succeeded" className="mt-px size-3.5 shrink-0 text-success" />
+            <CircleCheck aria-label={S.sources.runOk} className="mt-px size-3.5 shrink-0 text-success" />
           ) : r.status === "error" ? (
-            <CircleX aria-label="failed" className="mt-px size-3.5 shrink-0 text-destructive" />
+            <CircleX aria-label={S.sources.runFailed} className="mt-px size-3.5 shrink-0 text-destructive" />
           ) : (
             <LoaderCircle
-              aria-label="running"
+              aria-label={S.sources.runningWord}
               className="mt-px size-3.5 shrink-0 animate-spin text-muted-foreground motion-reduce:animate-none"
             />
           )}
-          <span className="w-20 shrink-0 tabular-nums text-muted-foreground">{ago(r.startedAt)}</span>
-          <span className="w-16 shrink-0 text-muted-foreground">{r.trigger}</span>
+          <span className="w-20 shrink-0 tabular-nums text-muted-foreground">{S.sources.ago(r.startedAt)}</span>
+          <span className="w-16 shrink-0 text-muted-foreground">{S.sources.trigger(r.trigger)}</span>
           <span className="w-20 shrink-0 tabular-nums text-muted-foreground">
-            {r.rowsRead} item{r.rowsRead === 1 ? "" : "s"}
-            {r.truncated ? "+" : ""}
+            {S.sources.items(r.rowsRead, r.truncated)}
           </span>
-          <span className="w-14 shrink-0 tabular-nums text-muted-foreground">{took(r)}</span>
+          <span dir="ltr" className="w-14 shrink-0 tabular-nums text-muted-foreground">
+            {r.endedAt ? tookDuration(r) : S.sources.runningWord}
+          </span>
           {r.error && <span className="min-w-0 flex-1 break-words text-destructive">{r.error}</span>}
         </div>
       ))}
@@ -112,6 +104,7 @@ const SourceRow = ({
   onChanged: () => void;
   onError: (m: string) => void;
 }) => {
+  const { S, isRTL } = useStrings();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState("");
   const [result, setResult] = useState("");
@@ -137,7 +130,7 @@ const SourceRow = ({
       // ok:false is the collection failing, not the request. Rendering it as a
       // readable line is the whole point of the button: this is where an
       // operator finds out their config is wrong, instead of at 3am.
-      setResult(r.ok ? "Collected." : r.error || "The refresh failed.");
+      setResult(r.ok ? S.sources.collected : r.error || S.sources.refreshFailed);
       // A failed run is still a run, and its row carries the error in full —
       // so the history is refetched either way, not only on success.
       setRunsKey((n) => n + 1);
@@ -150,10 +143,7 @@ const SourceRow = ({
   };
 
   const handleDelete = async () => {
-    if (!window.confirm(
-      `Delete the source "${s.name}"?\n\nWhat it already collected stays in the brain — ` +
-      `removing the pipe is not a statement that the knowledge was wrong.`,
-    )) return;
+    if (!window.confirm(S.sources.confirmDelete(s.name))) return;
     setBusy("delete");
     try {
       await deleteSource(s.id);
@@ -166,6 +156,10 @@ const SourceRow = ({
   };
 
   const failing = s.lastStatus === "error";
+  // The collapsed chevron points INTO the row's content — rightwards in LTR,
+  // leftwards in RTL. A right-pointing chevron in an RTL list points off the
+  // page edge instead of at what it opens.
+  const ClosedChevron = isRTL ? ChevronLeft : ChevronRight;
 
   return (
     <Row
@@ -174,27 +168,27 @@ const SourceRow = ({
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
-          aria-label={open ? "Hide runs" : "Show runs"}
+          aria-label={open ? S.sources.hideRuns : S.sources.showRuns}
           aria-expanded={open}
           className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
         >
-          {open ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
+          {open ? <ChevronDown className="size-4" /> : <ClosedChevron className="size-4" />}
         </button>
       }
       trailing={
         <>
           <Button
             variant="ghost" size="sm" onClick={handleRefresh} disabled={busy !== ""}
-            title="Run it now and show what happened"
+            title={S.sources.refreshTitle}
           >
             <RefreshCw className={`size-4 ${busy === "refresh" ? "animate-spin" : ""}`} />
           </Button>
           <Button variant="ghost" size="sm" onClick={handleToggle} disabled={busy !== ""}>
-            {s.enabled ? "Disable" : "Enable"}
+            {s.enabled ? S.sources.disable : S.sources.enable}
           </Button>
           <Button
             variant="ghost" size="sm" onClick={handleDelete} disabled={busy !== ""}
-            title="Delete this source"
+            title={S.sources.deleteTitle}
             className="text-destructive hover:bg-destructive/10 hover:text-destructive"
           >
             <Trash2 className="size-4" />
@@ -208,10 +202,10 @@ const SourceRow = ({
         <span className="font-medium">{s.name}</span>
         {/* Disabled is the single most confusing state — a source that
             collects nothing and looks configured — so it is unmissable. */}
-        {!s.enabled && <StatusBadge tone="warning">Off</StatusBadge>}
+        {!s.enabled && <StatusBadge tone="warning">{S.sources.off}</StatusBadge>}
         {failing && (
           <StatusBadge tone="danger">
-            Failing{s.consecutiveFailures > 1 ? ` ×${s.consecutiveFailures}` : ""}
+            {S.sources.failingBadge(s.consecutiveFailures)}
           </StatusBadge>
         )}
       </RowTitle>
@@ -219,13 +213,15 @@ const SourceRow = ({
       <p className="mt-1 text-sm text-muted-foreground">{s.description}</p>
 
       <RowMeta>
-        <span>into <span className="font-mono">{s.namespace}</span></span>
-        <span>every <span className="font-mono">{s.schedule}</span></span>
+        {/* dir="ltr" on the machine values: "@hourly" and "ns:name" carry
+            bidi-neutral leading characters that reorder inside Arabic text. */}
+        <span>{S.sources.into} <span dir="ltr" className="font-mono">{s.namespace}</span></span>
+        <span>{S.sources.every} <span dir="ltr" className="font-mono">{s.schedule}</span></span>
         <span className="inline-flex items-center gap-1">
           <History className="size-3.5" />
-          last run {ago(s.lastRunAt)}
+          {S.sources.lastRun} {S.sources.ago(s.lastRunAt)}
         </span>
-        <span className="tabular-nums">{s.totalRuns} runs</span>
+        <span className="tabular-nums">{S.sources.runsCount(s.totalRuns)}</span>
       </RowMeta>
 
       {s.lastError && (
@@ -256,6 +252,7 @@ const AddSourceForm = ({
   onCreated: () => void;
   onError: (m: string) => void;
 }) => {
+  const { S } = useStrings();
   const [kind, setKind] = useState(kinds[0] ?? "");
   const [name, setName] = useState("");
   const [namespace, setNamespace] = useState("default:project");
@@ -274,14 +271,14 @@ const AddSourceForm = ({
   try {
     JSON.parse(config);
   } catch {
-    jsonError = "This is not valid JSON — check for a trailing comma or a missing quote.";
+    jsonError = S.sources.jsonError;
   }
 
   const canSubmit = !saving && kind !== "" && name.trim() !== "" && jsonError === "";
   const blockedBy =
-    name.trim() === "" ? "Name it first."
-      : jsonError ? "Fix the configuration first."
-        : "Created switched off — enable it when you have run it once.";
+    name.trim() === "" ? S.sources.nameFirst
+      : jsonError ? S.sources.fixConfig
+        : S.sources.createdOff;
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -306,16 +303,16 @@ const AddSourceForm = ({
   };
 
   return (
-    <FormCard title="Add a source" onClose={onClose}>
+    <FormCard title={S.sources.formTitle} onClose={onClose} closeLabel={S.common.cancel}>
       <form onSubmit={handleCreate}>
         <div className="grid gap-4 md:grid-cols-2">
           <Field
-            label="Kind" htmlFor="src-kind" required
-            hint="What system this connects to. Picking one loads its example configuration below."
+            label={S.sources.kindLabel} htmlFor="src-kind" required
+            hint={S.sources.kindHint}
           >
             <Select value={kind} onValueChange={handleKind}>
               <SelectTrigger id="src-kind" className="w-full font-mono text-xs">
-                <SelectValue placeholder="Pick a connector" />
+                <SelectValue placeholder={S.sources.pickConnector} />
               </SelectTrigger>
               <SelectContent>
                 {kinds.map((k) => (
@@ -325,43 +322,45 @@ const AddSourceForm = ({
             </Select>
           </Field>
           <Field
-            label="Name" htmlFor="src-name" required
-            hint="Shown in the list and in every error message — make it the thing you would say out loud."
+            label={S.sources.nameLabel} htmlFor="src-name" required
+            hint={S.sources.nameHint}
           >
             <Input
               id="src-name" value={name} onChange={(e) => setName(e.target.value)}
-              placeholder="Go blog feed"
+              placeholder={S.sources.namePlaceholder}
             />
           </Field>
           <Field
-            label="Collect into" htmlFor="src-ns"
-            hint="The brain namespace the memories land in. The default is the project's own."
+            label={S.sources.collectIntoLabel} htmlFor="src-ns"
+            hint={S.sources.collectIntoHint}
           >
             <Input
               id="src-ns" value={namespace} onChange={(e) => setNamespace(e.target.value)}
-              className="font-mono text-xs"
+              dir="ltr" className="font-mono text-xs"
             />
           </Field>
           <Field
-            label="Schedule" htmlFor="src-sched"
-            hint="How often it runs on its own. @hourly, @daily, or an interval like 30m."
+            label={S.sources.scheduleLabel} htmlFor="src-sched"
+            hint={S.sources.scheduleHint}
           >
             <Input
               id="src-sched" value={schedule} onChange={(e) => setSchedule(e.target.value)}
-              placeholder="@hourly" className="font-mono text-xs"
+              placeholder="@hourly" dir="ltr" className="font-mono text-xs"
             />
           </Field>
         </div>
 
         <Field
-          label="Configuration" htmlFor="src-cfg" className="mt-4"
+          label={S.sources.configLabel} htmlFor="src-cfg" className="mt-4"
           error={jsonError || undefined}
-          hint={`What the ${kind || "connector"} needs to reach its system. Secrets are named here and resolved from the Vault — never pasted in.`}
+          hint={S.sources.configHint(kind)}
         >
+          {/* JSON is source code — it stays LTR even under an RTL page. */}
           <Textarea
             id="src-cfg" value={config} onChange={(e) => setConfig(e.target.value)}
             rows={9} spellCheck={false}
             aria-invalid={jsonError !== ""}
+            dir="ltr"
             className="font-mono text-xs leading-relaxed"
           />
         </Field>
@@ -369,7 +368,7 @@ const AddSourceForm = ({
         <FormFooter note={blockedBy}>
           <Button type="submit" disabled={!canSubmit}>
             <Plus className="me-1.5 size-4" />
-            {saving ? "Saving…" : "Create source"}
+            {saving ? S.sources.saving : S.sources.createSource}
           </Button>
         </FormFooter>
       </form>
@@ -379,6 +378,7 @@ const AddSourceForm = ({
 AddSourceForm.displayName = "AddSourceForm";
 
 export const Sources = () => {
+  const { S } = useStrings();
   const [sources, setSources] = useState<Source[] | null>(null);
   const [kinds, setKinds] = useState<string[]>([]);
   const [err, setErr] = useState("");
@@ -400,25 +400,25 @@ export const Sources = () => {
   return (
     <PageShell>
       <PageHeader
-        title="Sources"
+        title={S.sources.title}
         icon={<Rss className="size-5" />}
-        description="Everything that feeds the project brain on a schedule — repositories, feeds, channels, saved queries."
+        description={S.sources.desc}
         actions={
           <Button onClick={() => setAdding((v) => !v)}>
             {adding ? <X className="me-1.5 size-4" /> : <Plus className="me-1.5 size-4" />}
-            {adding ? "Cancel" : "Add a source"}
+            {adding ? S.common.cancel : S.sources.addSource}
           </Button>
         }
       />
 
       <StatRow>
-        <Stat label="Sources" value={sources?.length ?? 0} />
-        <Stat label="Collecting" value={enabled} tone={enabled ? "success" : "muted"} />
-        <Stat label="Failing" value={failing} tone={failing ? "danger" : "muted"} />
-        <Stat label="Runs" value={collected} />
+        <Stat label={S.sources.statSources} value={sources?.length ?? 0} />
+        <Stat label={S.sources.statCollecting} value={enabled} tone={enabled ? "success" : "muted"} />
+        <Stat label={S.sources.statFailing} value={failing} tone={failing ? "danger" : "muted"} />
+        <Stat label={S.sources.statRuns} value={collected} />
       </StatRow>
 
-      {err && <Callout kind="warn" title="Something went wrong">{err}</Callout>}
+      {err && <Callout kind="warn" title={S.common.somethingWrong}>{err}</Callout>}
 
       {adding && (
         <AddSourceForm
@@ -435,17 +435,17 @@ export const Sources = () => {
         />
       )}
 
-      <Section title="Sources" count={sources?.length}>
+      <Section title={S.sources.title} count={sources?.length}>
         {sources === null && <ListSkeleton rows={3} />}
         {sources?.length === 0 && (
           <EmptyState
             icon={<Play className="size-6" />}
-            title="No sources yet"
-            description="Add a repository, a feed or a saved query and the brain keeps itself current."
+            title={S.sources.emptyTitle}
+            description={S.sources.emptyDesc}
             action={
               <Button onClick={() => setAdding(true)}>
                 <Plus className="me-1.5 size-4" />
-                Add a source
+                {S.sources.addSource}
               </Button>
             }
           />

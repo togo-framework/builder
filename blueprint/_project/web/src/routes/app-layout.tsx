@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Outlet, useNavigate, useRouterState, Link } from "@tanstack/react-router";
-import { LayoutGrid, Table2, User, LogOut, Layers, ChevronDown, X } from "lucide-react";
+import { LayoutGrid, Table2, User, LogOut, Layers, ChevronDown, Languages, X } from "lucide-react";
 import {
   SidebarProvider, Sidebar, SidebarHeader, SidebarContent,
   SidebarGroup, SidebarGroupLabel, SidebarMenu, SidebarMenuItem, SidebarMenuButton,
@@ -33,12 +33,17 @@ const ar_label = (en: string, ar: string, isAr: boolean) => isAr ? ar : en;
 export function AppLayout() {
   const nav = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const { language } = useT();
+  const { language, setLanguage } = useT();
   const [me, setMe] = useState<Me | null>(null);
   const [resources, setResources] = useState<ResourceMeta[]>([]);
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [live, setLive] = useState(false);
   const ar = language === "ar";
+
+  // EN ⇄ AR. setLanguage (LanguageProvider) persists the choice to
+  // localStorage + cookie and sets dir/lang on <html>, so the whole app —
+  // portals included — mirrors without any per-page wiring.
+  const handleToggleLanguage = () => setLanguage(ar ? "en" : "ar");
 
   useEffect(() => {
     // Auth is already guaranteed by the route's beforeLoad guard — just read the cached user.
@@ -142,6 +147,17 @@ export function AppLayout() {
               came from the product, and the launcher gave them no navigation
               to return through. */}
           <div className="flex shrink-0 items-center justify-end border-b border-border px-3 py-2">
+            {/* The label names the language you would switch TO, written in
+                itself — the one string that stays readable from the "wrong"
+                locale. me-auto keeps it on the start edge, Close on the end. */}
+            <button
+              type="button"
+              onClick={handleToggleLanguage}
+              className="me-auto inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            >
+              <Languages className="size-3.5" />
+              {ar ? "English" : "العربية"}
+            </button>
             <button
               type="button"
               onClick={handleClose}
@@ -256,6 +272,17 @@ export function AppLayout() {
             </StatusBadge>
           </div>
           <div className="flex items-center gap-1">
+            {/* Language switcher — labelled with the language it switches TO,
+                in that language. Persisted by the LanguageProvider. */}
+            <button
+              type="button"
+              onClick={handleToggleLanguage}
+              className="inline-flex h-9 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            >
+              <Languages className="size-4" />
+              {ar ? "English" : "العربية"}
+            </button>
+
             {/* Theme picker — cycles through all presets (dark, light, purple, rose, emerald, …) */}
             <ThemePicker size="default" />
 

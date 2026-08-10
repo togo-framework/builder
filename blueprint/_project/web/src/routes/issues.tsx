@@ -6,11 +6,12 @@ import {
 } from "@togo-framework/ui";
 import { DotLabel, PageShell, Stat, StatRow, StatSkeleton } from "../components/page-shell";
 import {
-  COLUMN_LABEL, TRANSITIONS, ago, createIssue, fetchBoard, patchIssue,
+  TRANSITIONS, createIssue, fetchBoard, patchIssue,
   type Board, type Card, type IssueStatus, type IssueType, type Priority,
 } from "../lib/issues";
 import { listAgents, type Agent } from "../lib/agents";
 import { FADE_ONLY } from "../lib/dialog-motion";
+import { useStrings } from "../lib/i18n";
 
 /**
  * The board is built on togo UI primitives — PageHeader, StatusBadge,
@@ -47,18 +48,22 @@ const PRIORITY_TONE: Record<string, BadgeTone> = {
 
 /** The lease indicator: a spinner (the panel's own "agent holds a lease"
  *  mark), so motion + shape carry it, not colour alone. */
-const WorkingMark = ({ className }: { className?: string }) => (
-  <span
-    className={`inline-flex items-center gap-1 text-[11px] font-medium text-success ${className ?? ""}`}
-    title="An agent holds a lease on this issue"
-  >
-    <LoaderCircle aria-hidden="true" className="size-3 animate-spin motion-reduce:animate-none" />
-    working
-  </span>
-);
+const WorkingMark = ({ className }: { className?: string }) => {
+  const { S } = useStrings();
+  return (
+    <span
+      className={`inline-flex items-center gap-1 text-[11px] font-medium text-success ${className ?? ""}`}
+      title={S.issues.workingTitle}
+    >
+      <LoaderCircle aria-hidden="true" className="size-3 animate-spin motion-reduce:animate-none" />
+      {S.issues.working}
+    </span>
+  );
+};
 WorkingMark.displayName = "WorkingMark";
 
 export const Issues = () => {
+  const { S } = useStrings();
   const [board, setBoard] = useState<Board | null>(null);
   const [err, setErr] = useState("");
   const [q, setQ] = useState("");
@@ -107,9 +112,9 @@ export const Issues = () => {
     return (
       <PageShell width="wide" fill>
         <PageHeader
-          title="Issues"
+          title={S.issues.title}
           icon={<SquareKanban className="size-5" />}
-          description="Reported from the feedback widget or filed by hand."
+          description={S.issues.descLoading}
         />
         <StatSkeleton />
         <div className="flex flex-1 gap-4 overflow-hidden" aria-hidden="true">
@@ -139,22 +144,22 @@ export const Issues = () => {
   return (
     <PageShell width="wide" fill className="gap-4">
       <PageHeader
-        title="Issues"
+        title={S.issues.title}
         icon={<SquareKanban className="size-5" />}
-        description="Reported from the feedback widget or filed by hand. Drag a card, or use its status menu."
+        description={S.issues.desc}
         actions={
           <div className="flex items-center gap-2">
             <Input
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              placeholder="Search issues…"
+              placeholder={S.issues.search}
               className="h-9 w-64"
             />
             <ToggleGroup type="single" value={view} onValueChange={setViewMode}>
-              <ToggleGroupItem value="board" aria-label="Board view" title="Board">
+              <ToggleGroupItem value="board" aria-label={S.issues.boardView} title={S.issues.board}>
                 <LayoutGrid className="size-4" />
               </ToggleGroupItem>
-              <ToggleGroupItem value="list" aria-label="List view" title="List">
+              <ToggleGroupItem value="list" aria-label={S.issues.listView} title={S.issues.list}>
                 <List className="size-4" />
               </ToggleGroupItem>
             </ToggleGroup>
@@ -165,7 +170,7 @@ export const Issues = () => {
                 page to complain about. */}
             <Button size="sm" onClick={() => setCreating(true)}>
               <Plus className="me-1.5 size-4" />
-              New issue
+              {S.issues.newIssue}
             </Button>
           </div>
         }
@@ -182,13 +187,13 @@ export const Issues = () => {
       )}
 
       <StatRow>
-        <Stat label="Total" value={all.length} />
-        <Stat label="Ready" value={board.cards.ready?.length ?? 0} tone="info" />
-        <Stat label="Agents working" value={working} tone={working ? "success" : "muted"} />
-        <Stat label="Blocked" value={blocked} tone={blocked ? "warning" : "muted"} />
+        <Stat label={S.issues.statTotal} value={all.length} />
+        <Stat label={S.issues.statReady} value={board.cards.ready?.length ?? 0} tone="info" />
+        <Stat label={S.issues.statWorking} value={working} tone={working ? "success" : "muted"} />
+        <Stat label={S.issues.statBlocked} value={blocked} tone={blocked ? "warning" : "muted"} />
       </StatRow>
 
-      {err && <Callout kind="warn" title="Something went wrong">{err}</Callout>}
+      {err && <Callout kind="warn" title={S.common.somethingWrong}>{err}</Callout>}
 
       {view === "list" ? (
         <IssueTable rows={all.filter(match)} />
@@ -209,14 +214,14 @@ export const Issues = () => {
                 if (card.status === col) return;
                 // The server enforces this too; refusing here avoids a pointless 409.
                 if (!TRANSITIONS[card.status]?.includes(col)) {
-                  setErr(`${COLUMN_LABEL[card.status]} → ${COLUMN_LABEL[col]} is not a legal move`);
+                  setErr(S.issues.illegalMove(S.issues.columns[card.status], S.issues.columns[col]));
                   return;
                 }
                 void move(card, col);
               }}
             >
               <h2 className="flex items-center justify-between px-3 py-2.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                {COLUMN_LABEL[col]}
+                {S.issues.columns[col]}
                 <span className="tabular-nums">{cards.length}</span>
               </h2>
 
@@ -246,16 +251,20 @@ export const Issues = () => {
                         anatomy. A "normal" priority pill on every card was
                         chrome — priority earns ink only when it deviates. */}
                     <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
-                      <span className="text-[11px] tabular-nums text-muted-foreground">
+                      {/* dir="ltr": "#42" must not render as "42#" inside an
+                          RTL paragraph — the hash is bidi-neutral. */}
+                      <span dir="ltr" className="text-[11px] tabular-nums text-muted-foreground">
                         #{c.number}
                       </span>
-                      <DotLabel tone={TYPE_TONE[c.type]} className="capitalize">{c.type}</DotLabel>
+                      <DotLabel tone={TYPE_TONE[c.type]}>{S.issues.types[c.type]}</DotLabel>
                       {c.priority !== "normal" && (
-                        <StatusBadge tone={PRIORITY_TONE[c.priority]}>{c.priority}</StatusBadge>
+                        <StatusBadge tone={PRIORITY_TONE[c.priority]}>
+                          {S.issues.priorities[c.priority]}
+                        </StatusBadge>
                       )}
                       {c.humanOnly && (
-                        <span className="ms-auto" title="Agents will never claim this issue">
-                          <StatusBadge tone="warning">Human only</StatusBadge>
+                        <span className="ms-auto" title={S.issues.humanOnlyTitle}>
+                          <StatusBadge tone="warning">{S.issues.humanOnly}</StatusBadge>
                         </span>
                       )}
                     </div>
@@ -270,9 +279,9 @@ export const Issues = () => {
 
                     <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
                       {c.source === "feedback" && (
-                        <span className="rounded bg-muted px-1.5 py-0.5">feedback</span>
+                        <span className="rounded bg-muted px-1.5 py-0.5">{S.issues.feedbackTag}</span>
                       )}
-                      {c.area && <span className="rounded bg-muted px-1.5 py-0.5">{c.area}</span>}
+                      {c.area && <span dir="ltr" className="rounded bg-muted px-1.5 py-0.5">{c.area}</span>}
                       {c.commentCount > 0 && (
                         <span className="inline-flex items-center gap-0.5">
                           <MessageSquare className="size-3" />
@@ -280,13 +289,13 @@ export const Issues = () => {
                         </span>
                       )}
                       {c.attempts > 0 && (
-                        <span className="inline-flex items-center gap-0.5" title="Agent attempts">
+                        <span className="inline-flex items-center gap-0.5" title={S.issues.attemptsTitle}>
                           <RotateCw className="size-3" />
                           {c.attempts}
                         </span>
                       )}
                       {c.busy && <WorkingMark />}
-                      <span className="ms-auto">{ago(c.createdAt)}</span>
+                      <span className="ms-auto">{S.issues.ago(c.createdAt)}</span>
                     </div>
 
                     {/* Keyboard/assistive path — a drag-only board is unusable
@@ -296,7 +305,7 @@ export const Issues = () => {
                       onValueChange={(v) => void move(c, v as IssueStatus)}
                     >
                       <SelectTrigger
-                        aria-label={`Status of issue ${c.number}`}
+                        aria-label={S.issues.statusOf(c.number)}
                         className="mt-2 h-8 w-full text-xs"
                         // The card is the drag handle, so a pointerdown inside
                         // the trigger would start a drag instead of opening it.
@@ -306,9 +315,9 @@ export const Issues = () => {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value={c.status}>{COLUMN_LABEL[c.status]}</SelectItem>
+                        <SelectItem value={c.status}>{S.issues.columns[c.status]}</SelectItem>
                         {TRANSITIONS[c.status]?.map((t) => (
-                          <SelectItem key={t} value={t}>{COLUMN_LABEL[t]}</SelectItem>
+                          <SelectItem key={t} value={t}>{S.issues.columns[t]}</SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
@@ -316,7 +325,7 @@ export const Issues = () => {
                 ))}
 
                 {!cards.length && (
-                  <p className="px-1 py-3 text-xs text-muted-foreground">Nothing here</p>
+                  <p className="px-1 py-3 text-xs text-muted-foreground">{S.issues.nothingHere}</p>
                 )}
               </div>
             </section>
@@ -327,8 +336,8 @@ export const Issues = () => {
 
       {all.length === 0 && (
         <EmptyState
-          title="No issues yet"
-          description="Click the feedback button on any page to file the first one."
+          title={S.issues.emptyTitle}
+          description={S.issues.emptyDesc}
         />
       )}
     </PageShell>
@@ -345,8 +354,9 @@ Issues.displayName = "Issues";
  * beats five parallel ones.
  */
 const IssueTable = ({ rows }: { rows: Card[] }) => {
+  const { S } = useStrings();
   if (rows.length === 0) {
-    return <EmptyState title="No issues match" description="Try a different search." />;
+    return <EmptyState title={S.issues.noMatchTitle} description={S.issues.noMatchDesc} />;
   }
   return (
     <div className="flex-1 overflow-auto rounded-lg border border-border">
@@ -354,18 +364,18 @@ const IssueTable = ({ rows }: { rows: Card[] }) => {
         <TableHeader>
           <TableRow>
             <TableHead className="w-16">#</TableHead>
-            <TableHead>Title</TableHead>
-            <TableHead className="w-28">Status</TableHead>
-            <TableHead className="w-24">Priority</TableHead>
-            <TableHead className="w-24">Type</TableHead>
-            <TableHead className="w-28">Area</TableHead>
-            <TableHead className="w-28 text-end">Age</TableHead>
+            <TableHead>{S.issues.colTitle}</TableHead>
+            <TableHead className="w-28">{S.issues.colStatus}</TableHead>
+            <TableHead className="w-24">{S.issues.colPriority}</TableHead>
+            <TableHead className="w-24">{S.issues.colType}</TableHead>
+            <TableHead className="w-28">{S.issues.colArea}</TableHead>
+            <TableHead className="w-28 text-end">{S.issues.colAge}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {rows.map((c) => (
             <TableRow key={c.id}>
-              <TableCell className="tabular-nums text-muted-foreground">#{c.number}</TableCell>
+              <TableCell dir="ltr" className="tabular-nums text-muted-foreground">#{c.number}</TableCell>
               <TableCell>
                 <Link
                   to="/issues/$number"
@@ -376,23 +386,25 @@ const IssueTable = ({ rows }: { rows: Card[] }) => {
                 </Link>
                 {c.busy && <WorkingMark className="ms-2" />}
                 {c.humanOnly && (
-                  <span className="ms-2"><StatusBadge tone="warning">Human only</StatusBadge></span>
+                  <span className="ms-2"><StatusBadge tone="warning">{S.issues.humanOnly}</StatusBadge></span>
                 )}
               </TableCell>
-              <TableCell><StatusBadge tone="neutral">{COLUMN_LABEL[c.status]}</StatusBadge></TableCell>
+              <TableCell><StatusBadge tone="neutral">{S.issues.columns[c.status]}</StatusBadge></TableCell>
               {/* The column header gives the word its meaning, so the baseline
                   values sit as plain text; only a deviation wears the pill —
                   which is what makes a critical row findable in a scan. */}
               <TableCell>
                 {c.priority === "critical" || c.priority === "high" ? (
-                  <StatusBadge tone={PRIORITY_TONE[c.priority]}>{c.priority}</StatusBadge>
+                  <StatusBadge tone={PRIORITY_TONE[c.priority]}>
+                    {S.issues.priorities[c.priority]}
+                  </StatusBadge>
                 ) : (
-                  <span className="text-xs capitalize text-muted-foreground">{c.priority}</span>
+                  <span className="text-xs text-muted-foreground">{S.issues.priorities[c.priority]}</span>
                 )}
               </TableCell>
-              <TableCell><DotLabel tone={TYPE_TONE[c.type]} className="capitalize">{c.type}</DotLabel></TableCell>
-              <TableCell className="text-xs text-muted-foreground">{c.area || "—"}</TableCell>
-              <TableCell className="text-end text-xs text-muted-foreground">{ago(c.createdAt)}</TableCell>
+              <TableCell><DotLabel tone={TYPE_TONE[c.type]}>{S.issues.types[c.type]}</DotLabel></TableCell>
+              <TableCell dir="ltr" className="text-xs text-muted-foreground">{c.area || "—"}</TableCell>
+              <TableCell className="text-end text-xs text-muted-foreground">{S.issues.ago(c.createdAt)}</TableCell>
             </TableRow>
           ))}
         </TableBody>
@@ -422,6 +434,7 @@ const NewIssueDialog = ({
   onClose: () => void;
   onCreated: (n: number) => void;
 }) => {
+  const { S } = useStrings();
   const [type, setType] = useState<IssueType>("feature");
   const [priority, setPriority] = useState<Priority>("normal");
   const [title, setTitle] = useState("");
@@ -442,7 +455,7 @@ const NewIssueDialog = ({
   async function submit() {
     const t = title.trim();
     if (!t) {
-      setErr("Give the issue a title.");
+      setErr(S.issues.titleRequired);
       return;
     }
     setBusy(true);
@@ -461,22 +474,22 @@ const NewIssueDialog = ({
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="sm:max-w-lg" style={FADE_ONLY}>
         <DialogHeader>
-          <DialogTitle>New issue</DialogTitle>
+          <DialogTitle>{S.issues.dialogTitle}</DialogTitle>
         </DialogHeader>
 
         <div className="flex flex-col gap-3">
-          {err && <Callout kind="warn" title="Could not file it">{err}</Callout>}
+          {err && <Callout kind="warn" title={S.issues.dialogErrTitle}>{err}</Callout>}
 
           <div>
             <Label htmlFor="ni-title" className="mb-1 block text-xs text-muted-foreground">
-              Title
+              {S.issues.titleLabel}
             </Label>
             <Input
               id="ni-title"
               autoFocus
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              placeholder="What needs doing?"
+              placeholder={S.issues.titlePlaceholder}
               onKeyDown={(e) => {
                 // Enter submits from the title, because that is the only
                 // required field and typing one line then reaching for the
@@ -491,23 +504,23 @@ const NewIssueDialog = ({
 
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
-              <Label className="mb-1 block text-xs text-muted-foreground">Type</Label>
+              <Label className="mb-1 block text-xs text-muted-foreground">{S.issues.typeLabel}</Label>
               <Select value={type} onValueChange={(v) => setType(v as IssueType)}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {TYPES.map((t) => (
-                    <SelectItem key={t} value={t} className="capitalize">{t}</SelectItem>
+                    <SelectItem key={t} value={t}>{S.issues.types[t]}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
             <div>
-              <Label className="mb-1 block text-xs text-muted-foreground">Priority</Label>
+              <Label className="mb-1 block text-xs text-muted-foreground">{S.issues.priorityLabel}</Label>
               <Select value={priority} onValueChange={(v) => setPriority(v as Priority)}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {PRIORITIES.map((p) => (
-                    <SelectItem key={p} value={p} className="capitalize">{p}</SelectItem>
+                    <SelectItem key={p} value={p}>{S.issues.priorities[p]}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -516,42 +529,40 @@ const NewIssueDialog = ({
 
           <div>
             <Label htmlFor="ni-area" className="mb-1 block text-xs text-muted-foreground">
-              Area
+              {S.issues.areaLabel}
             </Label>
             <Input
               id="ni-area"
               value={area}
               onChange={(e) => setArea(e.target.value)}
-              placeholder="dashboard, sdk, db…"
+              placeholder={S.issues.areaPlaceholder}
             />
             {/* Said out loud, because an unrouted issue sits on the board
                 looking claimable and never is. */}
             <p className="mt-1 text-[11px] text-muted-foreground">
-              An agent only claims work in an area it owns. Leave it blank and
-              the lead will route it.
+              {S.issues.areaHint}
             </p>
           </div>
 
           <div>
-            <Label className="mb-1 block text-xs text-muted-foreground">Assignee</Label>
+            <Label className="mb-1 block text-xs text-muted-foreground">{S.issues.assigneeLabel}</Label>
             <Select value={assignee || "__auto"} onValueChange={(v) => setAssignee(v === "__auto" ? "" : v)}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
                 {/* Radix rejects an empty-string value, so the "no choice"
                     option carries a sentinel and is mapped back on the way
                     out. */}
-                <SelectItem value="__auto">Let the lead choose</SelectItem>
+                <SelectItem value="__auto">{S.issues.assigneeAuto}</SelectItem>
                 {agents.map((a) => (
                   <SelectItem key={a.slug} value={a.slug}>
                     {a.displayName || a.slug}
-                    {!a.enabled && " (disabled)"}
+                    {!a.enabled && S.issues.assigneeDisabled}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
             <p className="mt-1 text-[11px] text-muted-foreground">
-              Naming someone overrides area routing entirely — they get it even
-              if the area is not theirs.
+              {S.issues.assigneeHint}
             </p>
           </div>
 
@@ -563,17 +574,16 @@ const NewIssueDialog = ({
               className="mt-0.5"
             />
             <Label htmlFor="ni-human" className="cursor-pointer font-normal">
-              <span className="text-sm font-medium">Human only</span>
+              <span className="text-sm font-medium">{S.issues.humanOnly}</span>
               <span className="block text-xs text-muted-foreground">
-                Agents will never claim it, whatever the assignee says. For work
-                you intend to do yourself.
+                {S.issues.humanOnlyDesc}
               </span>
             </Label>
           </div>
 
           <div>
             <Label htmlFor="ni-body" className="mb-1 block text-xs text-muted-foreground">
-              Details
+              {S.issues.detailsLabel}
             </Label>
             {/* The body is rendered as markdown on the issue page, in the
                 widget and in the agent's own prompt, so it is written as
@@ -583,18 +593,17 @@ const NewIssueDialog = ({
               onChange={setBody}
               defaultView="write"
               minRows={6}
-              placeholder="What does done look like? Anything the agent should not touch?"
+              placeholder={S.issues.detailsPlaceholder}
             />
             <p className="mt-1 text-[11px] text-muted-foreground">
-              A title on its own is enough. Leave this empty and the agent will
-              ask you what it needs before it starts.
+              {S.issues.detailsHint}
             </p>
           </div>
 
           <div className="flex items-center justify-end gap-2 pt-1">
-            <Button variant="outline" onClick={onClose} disabled={busy}>Cancel</Button>
+            <Button variant="outline" onClick={onClose} disabled={busy}>{S.common.cancel}</Button>
             <Button onClick={() => void submit()} disabled={busy || !title.trim()}>
-              {busy ? "Filing…" : "File issue"}
+              {busy ? S.issues.filing : S.issues.fileIssue}
             </Button>
           </div>
         </div>
