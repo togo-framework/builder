@@ -1,7 +1,7 @@
 {
   "name": "create-togo-builder",
-  "version": "0.1.0",
-  "description": "Scaffold a togo builder project — an agentic development harness with a feedback widget, issue board, agent fleet, per-agent memory and a secret vault.",
+  "version": "0.1.1",
+  "description": "Scaffold a togo builder project \u2014 an agentic development harness with a feedback widget, issue board, agent fleet, per-agent memory and a secret vault.",
   "bin": {
     "create-togo-builder": "bin/create.js",
     "togo-builder": "bin/togo-builder.js"
@@ -9,10 +9,27 @@
   "scripts": {
     "postinstall": "node install.js"
   },
-  "files": ["bin/create.js", "bin/togo-builder.js", "install.js", "README.md"],
-  "keywords": ["togo", "builder", "agents", "scaffold", "claude", "autopilot"],
+  "files": [
+    "bin/create.js",
+    "bin/togo-builder.js",
+    "install.js",
+    "README.md"
+  ],
+  "keywords": [
+    "togo",
+    "builder",
+    "agents",
+    "scaffold",
+    "claude",
+    "autopilot"
+  ],
   "license": "MIT",
   "homepage": "https://github.com/togo-framework/builder#readme",
-  "repository": { "type": "git", "url": "git+https://github.com/togo-framework/builder.git" },
-  "engines": { "node": ">=18" }
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/togo-framework/builder.git"
+  },
+  "engines": {
+    "node": ">=18"
+  }
 }
