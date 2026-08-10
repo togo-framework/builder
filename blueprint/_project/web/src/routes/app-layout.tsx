@@ -13,6 +13,7 @@ import { metaResources, adminList, type ResourceMeta } from "../lib/admin";
 import { ToastProvider } from "../components/admin/toast";
 import { API, APP_NAME } from "../lib/api";
 import { AgentAlerts } from "../components/agent-alerts";
+import { FleetProgressBar } from "../components/fleet-progress-bar";
 import { onLiveChange } from "../lib/alerts";
 
 /** Group a flat resource list by the optional `group` field.
@@ -133,6 +134,9 @@ export function AppLayout() {
         {/* No AgentAlerts here: the host page behind this overlay is already
             running its own, and two copies would announce every alert twice. */}
         <div className="flex min-h-dvh min-w-0 flex-col bg-background">
+          {/* A background fleet generation is builder state, and these ARE the
+              builder's screens — the spend stays visible here too. */}
+          <FleetProgressBar />
           {/* One slim bar, and the only host chrome a standalone screen gets.
               Without a way back, arriving here is a one-way trip: the operator
               came from the product, and the launcher gave them no navigation
@@ -240,6 +244,10 @@ export function AppLayout() {
           off-screen, and the board's own overflow-x-auto never engaged because
           it was never actually constrained. */}
       <SidebarInset className="min-w-0">
+        {/* Above the header, on every page: a running generation spends real
+            money, and the operator who left the wizard early must never lose
+            sight of it. Renders nothing (and polls nothing) when no run exists. */}
+        <FleetProgressBar />
         <header className="flex h-14 items-center justify-between gap-2 border-b border-border px-4">
           <div className="flex items-center gap-3">
             <SidebarTrigger />

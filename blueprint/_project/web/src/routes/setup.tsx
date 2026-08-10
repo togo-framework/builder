@@ -41,6 +41,10 @@ export function Setup() {
         setBusy(true);
         watch();
       } else {
+        // A terminal run must be visible too: without it, a failure that
+        // happened while nobody was watching leaves the fleet step offering a
+        // fresh "Generate" with no word about what already completed.
+        if (s.progress?.done) setProgress(s.progress);
         setStep(s.completed ? "done" : s.step === "welcome" ? "preflight" : s.step);
       }
     })();
@@ -58,6 +62,11 @@ export function Setup() {
         setBusy(false);
         if (p.error) setErr(p.error);
         else {
+          // Mark setup durably complete the moment the fleet lands: the run
+          // outlives this tab, and a reload must open the app, not this
+          // wizard. Idempotent on the server; the agents exist by now.
+          await completeSetup().catch((e) =>
+            console.error("[Setup]", "could not mark setup complete", e));
           const s = await fetchSetup().catch(() => null);
           if (s) setState(s);
         }
@@ -84,7 +93,15 @@ export function Setup() {
   }
 
   async function doGenerate() {
-    setBusy(true); setErr(""); setProgress(null);
+    setBusy(true); setErr("");
+    // Optimistic "running" rather than null: the done step reads this before
+    // the first poll answers, and a 3-second flash of "setup is complete"
+    // during a resume would be a lie. Cost/counts carry over from a failed run
+    // so the resume never appears to un-spend money.
+    setProgress((p) => ({
+      running: true, done: false, agents: 0, skills: 0,
+      costUsd: p?.costUsd ?? 0, step: p?.step ?? 0, total: p?.total ?? 0, issues: 0,
+    }));
     try {
       const r = await startGenerate("default", withIssues);
       if (r.alreadyRunning) {
@@ -93,8 +110,14 @@ export function Setup() {
         if (p) setProgress(p);
       }
       watch();
+      // Started is enough to move on. Generation is detached and per-item
+      // durable on the server; the wizard's part ends when the run begins, and
+      // the app shell's top bar carries progress from here.
+      setStep("done");
     } catch (e) {
       setErr(String((e as Error).message));
+      setProgress(null);
+    } finally {
       setBusy(false);
     }
   }
@@ -107,14 +130,65 @@ export function Setup() {
 
   const idx = STEPS.findIndex((s) => s.key === step);
   const agents = state?.agents ?? [];
+  const failed = Boolean(progress?.done && progress.error);
+  const succeeded = Boolean(progress?.done && !progress?.error);
+
+  // Shared between the fleet step and the done step: after starting, the
+  // wizard advances immediately, and whichever step the operator is looking at
+  // must tell the same story about the same run.
+  const progressPanel = progress && (progress.running || progress.done) ? (
+    <div className="mt-4 rounded-md border border-border p-4">
+      <p className="text-sm font-medium">
+        {progress.running
+          ? !progress.stage
+            ? "Starting…"
+            : progress.stage === "roster"
+              ? "Designing the roster…"
+              : progress.stage === "issues-plan"
+                ? "Breaking the plan into issues…"
+                : `Writing ${progress.stage} ${progress.step}/${progress.total}`
+          : progress.error
+            // Counts persisted items (Rule 43), so "finished and saved" is a
+            // fact about the database, not a hope about the retry.
+            ? `Generation stopped — ${progress.step} of ${progress.total} finished and saved`
+            : "Fleet ready"}
+      </p>
+      {progress.total > 0 && (
+        <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-muted">
+          <div
+            className="h-full bg-primary transition-all"
+            style={{ width: `${Math.round((progress.step / progress.total) * 100)}%` }}
+          />
+        </div>
+      )}
+      {progress.costUsd > 0 && (
+        <p className="mt-2 text-xs text-muted-foreground">
+          ${progress.costUsd.toFixed(4)} spent
+        </p>
+      )}
+      {progress.summary && <p className="mt-2 text-sm">{progress.summary}</p>}
+      {progress.issues > 0 && (
+        <p className="mt-2 text-sm">
+          {progress.issues} issues from your plan are on the board, held for your
+          review — release them when you have read them.
+        </p>
+      )}
+      {progress.issuesNote && (
+        <p className="mt-2 rounded-md bg-warning/10 p-2 text-xs text-warning">
+          {progress.issuesNote}
+        </p>
+      )}
+    </div>
+  ) : null;
 
   return (
     <div className="mx-auto max-w-3xl p-8">
       <header className="mb-8">
         <h1 className="text-2xl font-semibold tracking-tight">Set up your project</h1>
         <p className="mt-1.5 text-sm text-muted-foreground">
-          The agent team is built from your plan before the dashboard opens — so the
-          first issue you file already has someone to work it.
+          The agent team is built from your plan. Once generation starts it runs in
+          the background — you can open the dashboard while the fleet lands, and
+          every finished agent is saved as it arrives.
         </p>
       </header>
 
@@ -226,7 +300,7 @@ export function Setup() {
             mean handing full write access to a session that just read an untrusted plan.
           </p>
 
-          {!progress?.running && !agents.length && (
+          {!progress?.running && !succeeded && (!agents.length || failed) && (
             <>
               <label className="mt-4 flex cursor-pointer items-start gap-2.5 rounded-md border border-border p-3 text-sm">
                 <input
@@ -250,47 +324,33 @@ export function Setup() {
                 disabled={busy}
                 className="mt-4 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
               >
-                {busy ? "Starting…" : "Generate the fleet"}
+                {/* Never "Try again": a failed run resumes — the server skips
+                    every persisted item and buys only what is missing. */}
+                {busy ? "Starting…" : failed || agents.length ? "Continue generating" : "Generate the fleet"}
               </button>
+              {failed && (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Finished work is saved on the server — continuing resumes where it
+                  stopped and buys only the missing items, not the whole fleet again.
+                </p>
+              )}
             </>
           )}
 
-          {progress && (progress.running || progress.done) && (
-            <div className="mt-4 rounded-md border border-border p-4">
-              <p className="text-sm font-medium">
-                {progress.running
-                  ? progress.stage === "roster"
-                    ? "Designing the roster…"
-                    : progress.stage === "issues-plan"
-                      ? "Breaking the plan into issues…"
-                      : `Writing ${progress.stage} ${progress.step}/${progress.total}`
-                  : progress.error ? "Generation failed" : "Fleet ready"}
-              </p>
-              {progress.total > 0 && (
-                <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-muted">
-                  <div
-                    className="h-full bg-primary transition-all"
-                    style={{ width: `${Math.round((progress.step / progress.total) * 100)}%` }}
-                  />
-                </div>
-              )}
-              {progress.costUsd > 0 && (
-                <p className="mt-2 text-xs text-muted-foreground">
-                  ${progress.costUsd.toFixed(4)} spent
-                </p>
-              )}
-              {progress.summary && <p className="mt-2 text-sm">{progress.summary}</p>}
-              {progress.issues > 0 && (
-                <p className="mt-2 text-sm">
-                  {progress.issues} issues from your plan are on the board, held for your
-                  review — release them when you have read them.
-                </p>
-              )}
-              {progress.issuesNote && (
-                <p className="mt-2 rounded-md bg-warning/10 p-2 text-xs text-warning">
-                  {progress.issuesNote}
-                </p>
-              )}
+          {progressPanel}
+
+          {progress?.running && (
+            <div className="mt-3 flex flex-wrap items-center gap-3">
+              <button
+                onClick={() => void nav({ to: "/dashboard" })}
+                className="rounded-md border border-border px-4 py-2 text-sm font-medium hover:bg-muted"
+              >
+                Continue to the app
+              </button>
+              <span className="text-xs text-muted-foreground">
+                The build keeps running in the background — progress and spend stay
+                visible in the bar at the top of the app.
+              </span>
             </div>
           )}
 
@@ -338,17 +398,63 @@ export function Setup() {
 
       {step === "done" && (
         <section>
-          <h2 className="text-base font-semibold">Setup is complete</h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {agents.length} agents are registered. Generated agents start disabled — enable
-            the ones you want working before the loop picks up issues.
-          </p>
-          <button
-            onClick={() => void nav({ to: "/dashboard" })}
-            className="mt-4 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
-          >
-            Open the dashboard
-          </button>
+          {progress?.running ? (
+            <>
+              <h2 className="text-base font-semibold">Your fleet is being built</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Setup is done from your side. Generation runs in the background and
+                every finished agent is saved the moment it lands, so there is nothing
+                to wait for here — the bar at the top of the app keeps showing
+                progress and spend until the fleet is ready.
+              </p>
+              {progressPanel}
+              <button
+                onClick={() => void nav({ to: "/dashboard" })}
+                className="mt-4 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
+              >
+                Open the dashboard
+              </button>
+            </>
+          ) : failed ? (
+            <>
+              <h2 className="text-base font-semibold">Generation stopped</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {progress?.step} of {progress?.total} items finished and saved.
+                Continuing resumes where it stopped and buys only the missing items —
+                it does not start over.
+              </p>
+              {progressPanel}
+              <div className="mt-4 flex flex-wrap items-center gap-3">
+                <button
+                  onClick={() => void doGenerate()}
+                  disabled={busy}
+                  className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
+                >
+                  {busy ? "Starting…" : "Continue generating"}
+                </button>
+                <button
+                  onClick={() => void nav({ to: "/dashboard" })}
+                  className="rounded-md border border-border px-4 py-2 text-sm font-medium hover:bg-muted"
+                >
+                  Open the dashboard
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <h2 className="text-base font-semibold">Setup is complete</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {agents.length} agents are registered. Generated agents start disabled — enable
+                the ones you want working before the loop picks up issues.
+              </p>
+              <button
+                onClick={() => void nav({ to: "/dashboard" })}
+                className="mt-4 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
+              >
+                Open the dashboard
+              </button>
+            </>
+          )}
         </section>
       )}
     </div>

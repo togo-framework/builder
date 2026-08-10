@@ -149,8 +149,18 @@ export async function isSetupComplete(): Promise<boolean> {
     });
     if (!res.ok) return true; // fail open
     const s = (await res.json()) as SetupState;
-    if (s.completed) _setupDone = true;
-    return s.completed;
+    if (s.completed) {
+      _setupDone = true;
+      return true;
+    }
+    // A generation in flight — or one that reached a terminal state in this
+    // server's lifetime — also opens the gate. Generation is detached and
+    // per-item durable on the server; the operator's part of the wizard is
+    // over the moment it starts, and the app shell's FleetProgressBar carries
+    // the run (and its spend, and its failure/resume) from here. Bouncing back
+    // to the wizard would re-block exactly what the background run unblocks.
+    // Not cached: only the server's completed_at is durable.
+    return Boolean(s.progress?.running || s.progress?.done);
   } catch {
     return true;
   }
