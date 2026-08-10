@@ -33,6 +33,51 @@ import (
 	"github.com/togo-framework/builder/internal/vault"
 )
 
+// mountAuthed mounts a builder surface behind the auth plugin's session
+// middleware, and FAILS CLOSED: when auth is unavailable the surface is not
+// mounted at all rather than served to anonymous callers.
+//
+// Every builder API surface must go through here. The terminal and the custom-app
+// registry already did this by hand, and the comment above the terminal mount
+// stated the reason plainly — "no builder route is session-authenticated; the
+// global chain is recovery, requestLogger and CORS; auth.Middleware is opt-in
+// per route and nothing here opted in". That was true of the OTHER twelve mounts
+// too, and it was found in production: /api/builder/brain, /issues, /skills,
+// /docs, /fleet, /preflight and /_meta all answered anonymous callers over the
+// public internet, and the write halves of those services (POST /issues,
+// POST /issues/bulk-delete, POST /skills/import, DELETE /skills/{name},
+// POST /docs, POST /deploy/issues/{n}/deploy) accepted anonymous mutations.
+//
+// A read-only leak of an empty database looks harmless; it stops being harmless
+// the moment a source ingests anything. The write half was never harmless: a
+// skill is an instruction an agent obeys, so anonymous skill import is remote
+// prompt injection into a loop that runs Claude Code with shell access.
+//
+// Centralised rather than repeated so a NEW mount cannot silently omit it: the
+// bug was never that someone removed a guard, it was that adding a route did not
+// require thinking about one.
+func mountAuthed(k *togo.Kernel, pattern string, fn func(chi.Router)) {
+	as, ok := auth.FromKernel(k)
+	if !ok || as == nil {
+		if k.Log != nil {
+			k.Log.Warn("builder: surface NOT mounted — the auth plugin is unavailable, "+
+				"and builder surfaces are not served unauthenticated", "pattern", pattern)
+		}
+		return
+	}
+	k.Router.Route(pattern, func(r chi.Router) {
+		r.Use(as.Middleware)
+		fn(r)
+	})
+}
+
+// mountAuthedGet is mountAuthed for a single handler mounted with Get rather
+// than a Routes group — preflight and _meta, both of which describe the host's
+// environment and so are operator information, not public information.
+func mountAuthedGet(k *togo.Kernel, pattern string, h http.HandlerFunc) {
+	mountAuthed(k, pattern, func(r chi.Router) { r.Get("/", h) })
+}
+
 // ---------------------------------------------------------------------------
 // Phase 0 wires the surfaces that exist today: the vault (self-contained, and a
 // dependency of everything that holds a credential) and the preflight probes
@@ -59,7 +104,7 @@ func provideVault(k *togo.Kernel) error {
 	if db, dbErr := k.SQL(context.Background()); dbErr == nil {
 		store := vault.NewStore(svc, db, k.Log)
 		k.Set(ProviderVault+".store", store)
-		k.Router.Route("/api/builder/vault", store.Routes)
+		mountAuthed(k, "/api/builder/vault", store.Routes)
 	} else if k.Log != nil {
 		k.Log.Warn("vault HTTP surface disabled: no database", "err", dbErr)
 	}
@@ -189,7 +234,7 @@ func provideNotify(k *togo.Kernel) error {
 	}
 	svc := notify.New(db, k.Log)
 	k.Set(ProviderNotify, svc)
-	k.Router.Route("/api/builder/notify", svc.Routes)
+	mountAuthed(k, "/api/builder/notify", svc.Routes)
 	return nil
 }
 
@@ -224,9 +269,9 @@ func provideIssues(k *togo.Kernel) error {
 	}
 	// The operator's half of the merge gate: verify, merge, and let the dev
 	// watcher restart. Mounted next to issues because it acts on an issue.
-	k.Router.Route("/api/builder/deploy", deploy.New(db, k.Log).Routes)
+	mountAuthed(k, "/api/builder/deploy", deploy.New(db, k.Log).Routes)
 
-	k.Router.Route("/api/builder", svc.Routes)
+	mountAuthed(k, "/api/builder", svc.Routes)
 
 	// Serve the SDK bundle so a host page needs one script tag and no build step.
 	//
@@ -293,12 +338,12 @@ func provideFleet(k *togo.Kernel) error {
 	// The wizard runs before the dashboard is usable, so it mounts here rather
 	// than behind the orchestrator.
 	wiz := setup.New(db, k.Log, gen)
-	k.Router.Route("/api/builder/setup", wiz.Routes)
+	mountAuthed(k, "/api/builder/setup", wiz.Routes)
 
 	// The agents roster and profile surface. Mounted alongside setup because it
 	// reads the same fleet the wizard generates.
 	if db, err := k.SQL(context.Background()); err == nil {
-		k.Router.Route("/api/builder/fleet", fleet.NewAgentsService(db, k.Log).Routes)
+		mountAuthed(k, "/api/builder/fleet", fleet.NewAgentsService(db, k.Log).Routes)
 	}
 
 	// The skill catalogue.
@@ -313,14 +358,14 @@ func provideFleet(k *togo.Kernel) error {
 	if skillsRoot == "" {
 		skillsRoot = "." // the process's own directory: this app
 	}
-	k.Router.Route("/api/builder/skills", skills.New(db, k.Log, skillsRoot).Routes)
+	mountAuthed(k, "/api/builder/skills", skills.New(db, k.Log, skillsRoot).Routes)
 
 	// The reference library. Mounted here because it needs the brain, which is
 	// bound by now, and because an upload with nowhere to be ingested is a file
 	// store pretending to be a knowledge base.
 	if b, ok := k.Get(ProviderBrain); ok && b != nil {
 		if bs, ok := b.(*brain.Store); ok {
-			k.Router.Route("/api/builder/docs", docs.New(db, k.Log, bs).Routes)
+			mountAuthed(k, "/api/builder/docs", docs.New(db, k.Log, bs).Routes)
 		}
 	}
 
@@ -328,9 +373,9 @@ func provideFleet(k *togo.Kernel) error {
 	// every agent reads and every source writes into had none.
 	if b, ok := k.Get(ProviderBrain); ok && b != nil {
 		if bs, ok := b.(*brain.Store); ok {
-			k.Router.Route("/api/builder/brain", bs.Routes)
+			mountAuthed(k, "/api/builder/brain", bs.Routes)
 			// The advisory surface. Same brain, no tools, no lease.
-			k.Router.Route("/api/builder/chat", chat.New(db, k.Log, bs).Routes)
+			mountAuthed(k, "/api/builder/chat", chat.New(db, k.Log, bs).Routes)
 		}
 	}
 
@@ -426,7 +471,7 @@ func provideSources(k *togo.Kernel) error {
 
 	store := sources.New(db, k.Log, bs, vs)
 	k.Set(ProviderSources, store)
-	k.Router.Route("/api/builder/sources", store.Routes)
+	mountAuthed(k, "/api/builder/sources", store.Routes)
 
 	// Detached, like the orchestrator: the schedule outlives any request.
 	go store.Run(context.Background())
@@ -566,7 +611,7 @@ func provideOrchestrator(k *togo.Kernel) error {
 
 	// Preflight is live from Phase 0 — the wizard refuses to proceed without it
 	// and the CLI `doctor` verb calls the same function.
-	k.Router.Get("/api/builder/preflight", func(w http.ResponseWriter, r *http.Request) {
+	mountAuthedGet(k, "/api/builder/preflight", func(w http.ResponseWriter, r *http.Request) {
 		report := runner.Preflight(r.Context())
 		w.Header().Set("Content-Type", "application/json")
 		if !report.OK() {
@@ -577,7 +622,7 @@ func provideOrchestrator(k *togo.Kernel) error {
 		_ = json.NewEncoder(w).Encode(report)
 	})
 
-	k.Router.Get("/api/builder/_meta", func(w http.ResponseWriter, r *http.Request) {
+	mountAuthedGet(k, "/api/builder/_meta", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"plugin":    Name,
