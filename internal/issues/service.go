@@ -430,6 +430,24 @@ func rankFor(n int64) string {
 	return fmt.Sprintf("m%08dz", n)
 }
 
+// RankFor and Truncate are the exported faces of the two helpers above, for
+// code that files issues from OUTSIDE this package — today, the wizard's
+// plan-import pass in internal/fleet. Exposed as wrappers rather than letting
+// callers re-implement them, because the rank format carries the board's
+// subdivision invariant (never ends in 'a') and truncate carries the
+// rune-boundary fix; a second copy of either would drift.
+//
+// TitleLimit and BodyLimit are the byte caps the columns are actually sized
+// for, exported for the same reason — a caller inventing its own numbers
+// would either reject titles this package accepts or trip the CHECK.
+const (
+	TitleLimit = maxTitleBytes
+	BodyLimit  = maxBodyBytes
+)
+
+func RankFor(n int64) string          { return rankFor(n) }
+func Truncate(s string, n int) string { return truncate(s, n) }
+
 func localeOr(l string) string {
 	if l == "" {
 		return "en"

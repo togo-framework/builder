@@ -11,6 +11,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -57,6 +58,11 @@ type genProgress struct {
 	Stage string `json:"stage,omitempty"`
 	Step  int    `json:"step"`
 	Total int    `json:"total"`
+	// The opt-in plan→issues pass. Issues is how many landed on the board;
+	// IssuesNote is set when the cap bit — the operator must hear that the
+	// board is a subset of what the plan decomposed into, not infer it.
+	Issues     int    `json:"issues"`
+	IssuesNote string `json:"issuesNote,omitempty"`
 }
 
 func New(db *sql.DB, log *slog.Logger, gen *fleet.Generator) *Service {
@@ -216,6 +222,10 @@ func (s *Service) handleGenerate(w http.ResponseWriter, r *http.Request) {
 	if v := strings.TrimSpace(r.URL.Query().Get("fleet")); v != "" {
 		name = v
 	}
+	// The plan→issues pass is OPT-IN, per request, and defaults off: it costs
+	// a model call per issue and seeds a board agents can later spend on, so
+	// it only runs when the operator ticked the box that says exactly that.
+	withIssues := r.URL.Query().Get("issues") == "1"
 
 	// Detached: generation takes minutes and must survive the request.
 	go func() {
@@ -242,16 +252,59 @@ func (s *Service) handleGenerate(w http.ResponseWriter, r *http.Request) {
 				s.mu.Unlock()
 			})
 
+		// The issues pass runs strictly AFTER the fleet landed: assignment
+		// resolves areas against the roster rows, and a failed generation has
+		// nothing to assign to. Both passes are per-item durable, so a death
+		// anywhere in this sequence resumes on the next press of the button.
+		var issuesNote string
+		issueCount := 0
+		if err == nil && withIssues {
+			// Re-arm for the list session, which is roster-shaped: one
+			// read-heavy call whose budget cannot be derived from an item
+			// count that is not yet known.
+			watchdog.Reset(fleet.RosterBudget)
+			fleetCost := cost
+			n, dropped, icost, ierr := s.gen.GenerateIssues(ctx, name, plan,
+				func(stage string, done, total int, spent float64) {
+					if stage != "issues-plan" {
+						watchdog.Reset(fleet.PhaseBudget(total - done))
+					}
+					s.mu.Lock()
+					s.progress.Stage, s.progress.Step, s.progress.Total = stage, done, total
+					s.progress.CostUSD = fleetCost + spent
+					s.mu.Unlock()
+				})
+			cost += icost
+			issueCount = n
+			if dropped > 0 {
+				// The cap bit. Saying so is the difference between an operator
+				// who knows the board is partial and one who ships against it.
+				issuesNote = fmt.Sprintf(
+					"The plan broke into %d issues; the cap is %d, so %d were filed and %d were not generated. Split the plan or file the rest by hand.",
+					n+dropped, fleet.MaxPlanIssues, n, dropped)
+			}
+			if ierr != nil {
+				// The fleet itself is fine — say precisely which half stopped,
+				// or the operator re-runs in fear of having lost the roster.
+				err = fmt.Errorf("the fleet was generated, but breaking the plan into issues stopped early: %w", ierr)
+			}
+		}
+
 		s.mu.Lock()
 		s.running = false
 		s.progress.Running = false
 		s.progress.Done = true
 		s.progress.Stage = "finished"
 		s.progress.CostUSD = cost
+		s.progress.Issues = issueCount
+		s.progress.IssuesNote = issuesNote
 		if err != nil {
 			s.progress.Err = err.Error()
 			s.log.Error("fleet generation failed", "err", err)
-		} else {
+		}
+		if m != nil {
+			// Set even when the issues pass failed: the roster IS on file, and
+			// the summary is how the operator sees that survived.
 			s.progress.Summary = m.Summary
 			s.progress.Agents = len(m.Agents)
 			s.progress.Skills = len(m.Skills)

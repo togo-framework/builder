@@ -3,6 +3,7 @@ package orchestrator
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -283,6 +284,52 @@ func (o *Orchestrator) noteUnroutable(ctx context.Context, id string, number int
 		 VALUES ($1,'moved','agent','{"by":"lead","agent":""}'::jsonb)`, id)
 	_ = tx.Commit()
 	o.log.Info("lead could not route", "issue", number, "why", why)
+}
+
+// OwnerForArea returns the slug of the agent whose declared areas cover
+// `area`, or "" when nobody's do.
+//
+// This is the deterministic half of routing — the same `area = ANY(areas)`
+// predicate the claim statement (claimSQL) matches on and RouteOne's
+// unroutable filter tests. It lives here, next to RouteOne, so exactly one
+// place decides what "an agent owns this area" means. The wizard's
+// plan-import pass calls this instead of growing its own matcher, because two
+// matchers WILL drift, and then the board's assignments disagree with what
+// claim actually hands out.
+//
+// Two deliberate differences from the runtime predicates, both because this
+// answers "who OWNS this surface" rather than "who can run right now":
+//
+//   - Disabled agents are eligible. The wizard assigns issues to a fleet it
+//     generated seconds ago, and generated agents land disabled until a human
+//     enables them. Filtering on enabled here would send every plan-derived
+//     issue to triage on the one run where assignment matters most. Enabled
+//     agents still win ties — an owner that can act beats one that cannot.
+//   - Generalists (agents with no declared areas) do NOT match. In the claim
+//     statement a generalist takes anything, but that is claiming, not owning:
+//     quietly handing unowned work to whoever looks nearest is how an agent
+//     ends up editing a surface it does not own. No declared owner means "".
+//
+// The slug tiebreak keeps the answer stable across a resumed run, so a re-run
+// assigns the same owner it assigned before.
+func OwnerForArea(ctx context.Context, db *sql.DB, area string) (string, error) {
+	area = strings.TrimSpace(area)
+	if area == "" {
+		return "", nil
+	}
+	var slug string
+	err := db.QueryRowContext(ctx,
+		`SELECT slug FROM builder_agents
+		  WHERE $1 = ANY(areas)
+		  ORDER BY enabled DESC, slug ASC
+		  LIMIT 1`, area).Scan(&slug)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("look up the owner of area %q: %w", area, err)
+	}
+	return slug, nil
 }
 
 func oneLineTrim(s string) string {

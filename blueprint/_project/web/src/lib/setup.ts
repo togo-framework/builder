@@ -37,10 +37,14 @@ export interface GenProgress {
   agents: number;
   skills: number;
   costUsd: number;
-  /** Which phase: "roster" | "persona" | "skill" | "write" | "finished". */
+  /** Which phase: "roster" | "persona" | "skill" | "write" | "issues-plan" | "issue" | "finished". */
   stage?: string;
   step: number;
   total: number;
+  /** How many plan-derived issues landed on the board (opt-in pass). */
+  issues: number;
+  /** Set when the issue cap bit — the board holds a subset of the plan. */
+  issuesNote?: string;
 }
 
 export interface SetupState {
@@ -88,11 +92,19 @@ export const savePlan = (plan: string) =>
  * this resolves rather than throwing; surfacing it as an error made a healthy
  * run look broken.
  */
-export const startGenerate = async (fleet: string): Promise<{ started: boolean; alreadyRunning: boolean }> => {
-  const res = await fetch(`${base}/generate?fleet=${encodeURIComponent(fleet)}`, {
-    method: "POST",
-    credentials: "include",
-  });
+export const startGenerate = async (
+  fleet: string,
+  // Opt-in and off by default: one model call per issue, and it seeds a board
+  // agents can later spend on. The caller passes the checkbox, never a default.
+  issues: boolean,
+): Promise<{ started: boolean; alreadyRunning: boolean }> => {
+  const res = await fetch(
+    `${base}/generate?fleet=${encodeURIComponent(fleet)}${issues ? "&issues=1" : ""}`,
+    {
+      method: "POST",
+      credentials: "include",
+    },
+  );
   if (res.status === 409) return { started: true, alreadyRunning: true };
   const d = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error((d as any).error || `request failed (${res.status})`);

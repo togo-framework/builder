@@ -19,6 +19,10 @@ export function Setup() {
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const [plan, setPlan] = useState("");
+  // Unticked by default, deliberately: the pass costs a model call per issue
+  // and seeds a board agents can later spend on. Opting in is the operator's
+  // call to make with the price in front of them, never a default.
+  const [withIssues, setWithIssues] = useState(false);
   const [progress, setProgress] = useState<GenProgress | null>(null);
   const poll = useRef<number | null>(null);
 
@@ -82,7 +86,7 @@ export function Setup() {
   async function doGenerate() {
     setBusy(true); setErr(""); setProgress(null);
     try {
-      const r = await startGenerate("default");
+      const r = await startGenerate("default", withIssues);
       if (r.alreadyRunning) {
         // Attach to the run instead of complaining about it.
         const p = await genStatus().catch(() => null);
@@ -223,13 +227,32 @@ export function Setup() {
           </p>
 
           {!progress?.running && !agents.length && (
-            <button
-              onClick={() => void doGenerate()}
-              disabled={busy}
-              className="mt-4 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
-            >
-              {busy ? "Starting…" : "Generate the fleet"}
-            </button>
+            <>
+              <label className="mt-4 flex cursor-pointer items-start gap-2.5 rounded-md border border-border p-3 text-sm">
+                <input
+                  type="checkbox"
+                  checked={withIssues}
+                  onChange={(e) => setWithIssues(e.target.checked)}
+                  className="mt-0.5"
+                />
+                <span>
+                  <span className="font-medium">Also break my plan into issues</span>
+                  <span className="mt-0.5 block text-xs text-muted-foreground">
+                    Costs one model call per issue (capped at 15) and puts work on the
+                    board assigned to this fleet. The issues arrive held for your
+                    review — but once you release them, agents can start claiming and
+                    spending on them.
+                  </span>
+                </span>
+              </label>
+              <button
+                onClick={() => void doGenerate()}
+                disabled={busy}
+                className="mt-4 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
+              >
+                {busy ? "Starting…" : "Generate the fleet"}
+              </button>
+            </>
           )}
 
           {progress && (progress.running || progress.done) && (
@@ -238,7 +261,9 @@ export function Setup() {
                 {progress.running
                   ? progress.stage === "roster"
                     ? "Designing the roster…"
-                    : `Writing ${progress.stage} ${progress.step}/${progress.total}`
+                    : progress.stage === "issues-plan"
+                      ? "Breaking the plan into issues…"
+                      : `Writing ${progress.stage} ${progress.step}/${progress.total}`
                   : progress.error ? "Generation failed" : "Fleet ready"}
               </p>
               {progress.total > 0 && (
@@ -255,6 +280,17 @@ export function Setup() {
                 </p>
               )}
               {progress.summary && <p className="mt-2 text-sm">{progress.summary}</p>}
+              {progress.issues > 0 && (
+                <p className="mt-2 text-sm">
+                  {progress.issues} issues from your plan are on the board, held for your
+                  review — release them when you have read them.
+                </p>
+              )}
+              {progress.issuesNote && (
+                <p className="mt-2 rounded-md bg-warning/10 p-2 text-xs text-warning">
+                  {progress.issuesNote}
+                </p>
+              )}
             </div>
           )}
 
