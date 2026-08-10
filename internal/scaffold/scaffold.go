@@ -144,11 +144,35 @@ func New(project, claude fs.FS, o Options) (*Result, error) {
 	}
 
 	if !o.SkipTidy {
+		// GOWORK=off, and this is not optional.
+		//
+		// A generated project is standalone by definition, but Go looks UPWARD
+		// for a go.work — so scaffolding anywhere beneath one makes the new
+		// project inherit a workspace it is not a member of, and the build
+		// dies on "directory prefix . does not contain modules listed in
+		// go.work". That is exactly what a framework developer's machine looks
+		// like: `npx create-togo-builder` inside ~/Sites/togo failed on a
+		// project that builds perfectly on its own.
+		//
+		// Set on tidy as well as build, or tidy resolves against the workspace
+		// and writes a go.sum that the standalone build then disagrees with.
+		//
+		// It applies ONLY to these verification commands. The go.work this
+		// scaffolder writes for --plugin-path is still honoured by everything
+		// the operator runs afterwards; suppressing it here just means the
+		// check answers the right question — does this project build by
+		// itself? — rather than a question about the directory it happens to
+		// sit in.
+		noWorkspace := append(os.Environ(), "GOWORK=off")
+
 		cmd := exec.Command("go", "mod", "tidy")
 		cmd.Dir = abs
+		cmd.Env = noWorkspace
 		_ = cmd.Run() // a tidy failure is recoverable; the build step reports it
+
 		build := exec.Command("go", "build", "./...")
 		build.Dir = abs
+		build.Env = noWorkspace
 		if out, err := build.CombinedOutput(); err != nil {
 			return res, fmt.Errorf("the generated project does not build: %w\n%s", err, out)
 		}
