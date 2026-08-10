@@ -3,43 +3,168 @@ package brain
 import (
 	"context"
 	"database/sql"
+	"fmt"
+	"net/url"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"sort"
 	"strings"
+	"sync"
 	"testing"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
+// brainTestDBName is this package's OWN database.
+//
+// These fixtures open with blanket DELETEs on builder_memories, builder_brains
+// and builder_agents. Under `go test ./...` the package binaries run in
+// PARALLEL, and the root package's brain-wiring test plus the orchestrator's
+// fixtures delete the same tables — so on a shared database a neighbour wipes
+// the rows mid-run and the failure reads as a recall bug. Measured before this
+// change: 4 of 8 whole-repo runs failed on exactly that, with the two suites
+// blaming each other.
+//
+// internal/fleet already solved this the same way, for the same reason. The
+// difference here is that this provisioner NEVER DROPS: it creates the database
+// only when it does not exist, and the per-test DELETEs handle reuse. A test
+// harness that drops a database is one typo in a DSN away from dropping the
+// wrong one.
+const brainTestDBName = "builder_brain_test"
+
+var (
+	provisionOnce sync.Once
+	provisionErr  error
+)
+
 func open(t *testing.T) *sql.DB {
-	dsn := os.Getenv("TEST_DATABASE_URL")
-	if dsn == "" {
+	base := os.Getenv("TEST_DATABASE_URL")
+	if base == "" {
 		t.Skip("TEST_DATABASE_URL not set")
 	}
 	// These fixtures DELETE FROM every table they touch. Refuse to run against
 	// anything that is not obviously a throwaway database — an earlier version
 	// of this suite wiped builder_dev's agents.
-	if !strings.Contains(dsn, "_test") {
+	if !strings.Contains(base, "_test") {
 		t.Fatalf("refusing to run destructive fixtures against %q: "+
-			"the DSN must name a _test database", dsn)
+			"the DSN must name a _test database", base)
 	}
-	db, err := sql.Open("pgx", dsn)
+	provisionOnce.Do(func() { provisionErr = provisionBrainDB(base) })
+	if provisionErr != nil {
+		t.Fatalf("provision %s: %v", brainTestDBName, provisionErr)
+	}
+	u, err := url.Parse(base)
+	if err != nil {
+		t.Fatalf("TEST_DATABASE_URL is not a URL: %v", err)
+	}
+	u.Path = "/" + brainTestDBName
+
+	db, err := sql.Open("pgx", u.String())
 	if err != nil {
 		t.Fatal(err)
 	}
-	db.Exec(`DELETE FROM builder_memories`)
-	db.Exec(`DELETE FROM builder_memory_gaps`)
-	db.Exec(`DELETE FROM builder_brain_grants`)
-	db.Exec(`DELETE FROM builder_brains`)
-	db.Exec(`DELETE FROM builder_agents`)
+	t.Cleanup(func() { _ = db.Close() })
+	// Checked, not ignored. A fixture INSERT that silently fails leaves the
+	// agent with no brain row, Recall resolves no readable namespace and
+	// returns nothing — which reads on screen as "the answer was not recalled",
+	// i.e. exactly like the recall bug these tests exist to catch. Hours were
+	// spent on that diagnosis once.
+	for _, q := range []string{
+		`DELETE FROM builder_memories`,
+		`DELETE FROM builder_memory_gaps`,
+		`DELETE FROM builder_brain_grants`,
+		`DELETE FROM builder_brains`,
+		`DELETE FROM builder_agents`,
+	} {
+		if _, err := db.Exec(q); err != nil {
+			t.Fatalf("fixture %s: %v", q, err)
+		}
+	}
 	// Two agents, private brains, plus a shared project brain both can read.
 	for _, a := range []string{"api-dev", "ui-dev"} {
-		db.Exec(`INSERT INTO builder_agents (slug, display_name, description, role, spec_path, persona_md)
-		         VALUES ($1,$1,'d','advisor','.claude/agents/'||$1||'.md','p')`, a)
-		db.Exec(`INSERT INTO builder_brains (agent_slug, namespace, embedding_dim) VALUES ($1,'proj:'||$1,1024)`, a)
-		db.Exec(`INSERT INTO builder_brain_grants (namespace, agent_slug, can_read, can_write)
-		         VALUES ('proj:project',$1,true,false)`, a)
+		if _, err := db.Exec(`INSERT INTO builder_agents (slug, display_name, description, role, spec_path, persona_md)
+		         VALUES ($1,$1,'d','advisor','.claude/agents/'||$1||'.md','p')`, a); err != nil {
+			t.Fatalf("fixture agent %s: %v", a, err)
+		}
+		if _, err := db.Exec(`INSERT INTO builder_brains (agent_slug, namespace, embedding_dim) VALUES ($1,'proj:'||$1,1024)`, a); err != nil {
+			t.Fatalf("fixture brain %s: %v", a, err)
+		}
+		if _, err := db.Exec(`INSERT INTO builder_brain_grants (namespace, agent_slug, can_read, can_write)
+		         VALUES ('proj:project',$1,true,false)`, a); err != nil {
+			t.Fatalf("fixture grant %s: %v", a, err)
+		}
 	}
 	return db
+}
+
+// provisionBrainDB creates this package's database if it is not already there
+// and applies every migration in order — the same sequence scaffold runs.
+//
+// Create-if-absent, never drop. An existing database is reused as-is; the
+// per-test DELETEs above are what make a re-run clean. That means a schema
+// change needs the database removed by hand once, which is a deliberate trade:
+// a harness that DROPs on every run is one wrong DSN away from taking a real
+// database with it, and the migrations are not uniformly re-runnable anyway.
+func provisionBrainDB(baseDSN string) error {
+	admin, err := sql.Open("pgx", baseDSN)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = admin.Close() }()
+
+	var exists bool
+	if err := admin.QueryRow(
+		`SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = $1)`,
+		brainTestDBName).Scan(&exists); err != nil {
+		return fmt.Errorf("look for %s: %w", brainTestDBName, err)
+	}
+
+	u, err := url.Parse(baseDSN)
+	if err != nil {
+		return err
+	}
+	u.Path = "/" + brainTestDBName
+
+	if exists {
+		// Already provisioned. Confirm the newest migration landed, so a stale
+		// database reports what is wrong instead of failing later as a missing
+		// column somewhere unrelated.
+		db, err := sql.Open("pgx", u.String())
+		if err != nil {
+			return err
+		}
+		defer func() { _ = db.Close() }()
+		var ok bool
+		if err := db.QueryRow(`SELECT EXISTS (
+			SELECT 1 FROM information_schema.columns
+			 WHERE table_name = 'builder_memories' AND column_name = 'embedding_model')`).Scan(&ok); err != nil {
+			return fmt.Errorf("inspect %s: %w", brainTestDBName, err)
+		}
+		if !ok {
+			return fmt.Errorf("%s predates migration 0018; drop it by hand and re-run: dropdb %s",
+				brainTestDBName, brainTestDBName)
+		}
+		return nil
+	}
+
+	if _, err := admin.Exec(`CREATE DATABASE ` + brainTestDBName); err != nil {
+		return fmt.Errorf("create %s: %w", brainTestDBName, err)
+	}
+	files, err := filepath.Glob(filepath.Join("..", "..", "db", "migrations", "*.sql"))
+	if err != nil || len(files) == 0 {
+		return fmt.Errorf("no migration files found: %v", err)
+	}
+	sort.Strings(files)
+	// psql, not db.Exec: the migration files are multi-statement with DO blocks
+	// and function bodies, which the driver's extended protocol will not run.
+	for _, f := range files {
+		cmd := exec.Command("psql", u.String(), "-q", "-v", "ON_ERROR_STOP=1", "-f", f)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("apply %s: %w\n%s", filepath.Base(f), err, out)
+		}
+	}
+	return nil
 }
 
 func TestBrainIsolationAndRecall(t *testing.T) {

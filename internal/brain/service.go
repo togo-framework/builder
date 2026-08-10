@@ -106,15 +106,25 @@ type memoryView struct {
 }
 
 type projectView struct {
-	Namespace string        `json:"namespace"`
-	Embedder  string        `json:"embedder"`
-	Semantic  bool          `json:"semantic"`
-	Memories  int           `json:"memories"`
-	Entities  int           `json:"entities"`
-	Edges     int           `json:"edges"`
-	Recent    []memoryView  `json:"recent"`
-	Sources   []sourceCount `json:"sources"`
-	Graph     struct {
+	Namespace string `json:"namespace"`
+	Embedder  string `json:"embedder"`
+	Semantic  bool   `json:"semantic"`
+	// Reranker is empty when recall returns the fused order unchanged. Shown
+	// separately from Embedder because the two fail independently: a live
+	// embedder with a dead reranker is still semantic recall, just a worse
+	// ordering of it, and collapsing them into one badge would report an
+	// outage that has not happened.
+	Reranker string `json:"reranker,omitempty"`
+	// Pending is how many memories still hold a vector from an older embedder
+	// and are therefore invisible to the vector arm of recall until the
+	// backfill reaches them. Non-zero is a progress reading, not an error.
+	Pending  int           `json:"pendingReembed"`
+	Memories int           `json:"memories"`
+	Entities int           `json:"entities"`
+	Edges    int           `json:"edges"`
+	Recent   []memoryView  `json:"recent"`
+	Sources  []sourceCount `json:"sources"`
+	Graph    struct {
 		Nodes []GraphNode `json:"nodes"`
 		Edges []GraphEdge `json:"edges"`
 	} `json:"graph"`
@@ -138,12 +148,20 @@ func (s *Store) Routes(r chi.Router) {
 
 func (s *Store) handleProject(w http.ResponseWriter, r *http.Request) {
 	ns := s.ProjectNamespaceFor(r.Context())
-	v := projectView{Namespace: ns, Embedder: s.emb.Name()}
+	v := projectView{Namespace: ns, Embedder: s.EmbedderName(), Reranker: s.RerankerName()}
 	// Said plainly rather than left to be inferred from the embedder's name.
 	// Recall over a hashed bag of words is keyword overlap, and a page that
 	// shows a graph without saying so invites the operator to trust it.
-	_, hashed := s.emb.(HashEmbedder)
-	v.Semantic = !hashed
+	//
+	// This used to be `_, hashed := s.emb.(HashEmbedder); v.Semantic = !hashed`,
+	// which was true in two cases it should not have been: a store built with no
+	// embedder at all (a nil interface is not a HashEmbedder, so the page claimed
+	// semantic recall over a table of NULL vectors), and a real embedder whose
+	// endpoint had since stopped answering. IsSemantic covers all three.
+	v.Semantic = s.Semantic()
+	if n, err := s.PendingReembed(r.Context()); err == nil {
+		v.Pending = n
+	}
 
 	_ = s.db.QueryRowContext(r.Context(),
 		`SELECT count(*) FROM builder_memories WHERE namespace=$1 AND invalid_at IS NULL`, ns).
