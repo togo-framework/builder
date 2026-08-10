@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/togo-framework/builder/internal/runner"
 )
 
 // Reconciling runs whose owning process is gone.
@@ -35,24 +37,33 @@ func (o *Orchestrator) reconcileOwnRuns(ctx context.Context) {
 	pid := fmt.Sprintf("%d", osGetpid())
 
 	rows, err := o.db.QueryContext(ctx,
+		// tmux_session comes back so the orphaned session can be reaped with the
+		// orphaned worktree. A tmux server outlives the builder that created the
+		// session, so a crash mid-run is the one path where kill-on-completion
+		// never runs — this is where that leak is closed.
+		//
+		// Deliberately NOT cleared in this statement: RETURNING reports the new
+		// row, so setting it to '' here would hand back an empty name and the
+		// session would survive. It is cleared per row after the reap.
 		`UPDATE builder_runs
 		    SET status = 'expired', terminal_reason = 'lease_lost', ended_at = now(),
 		        error = 'the owning process is gone (restart or crash)'
 		  WHERE status = 'running'
 		    AND split_part(claimed_by, ':', 1) = $1
 		    AND split_part(claimed_by, ':', 2) <> $2
-		  RETURNING id, issue_id, coalesce(worktree_path, '')`, host, pid)
+		  RETURNING id, issue_id, coalesce(worktree_path, ''),
+		            coalesce(tmux_session, '')`, host, pid)
 	if err != nil {
 		o.log.Error("reconcile own runs", "err", err)
 		return
 	}
 	defer rows.Close()
 
-	type orphan struct{ runID, issueID, worktree string }
+	type orphan struct{ runID, issueID, worktree, tmux string }
 	var orphans []orphan
 	for rows.Next() {
 		var o1 orphan
-		if rows.Scan(&o1.runID, &o1.issueID, &o1.worktree) == nil {
+		if rows.Scan(&o1.runID, &o1.issueID, &o1.worktree, &o1.tmux) == nil {
 			orphans = append(orphans, o1)
 		}
 	}
@@ -61,6 +72,11 @@ func (o *Orchestrator) reconcileOwnRuns(ctx context.Context) {
 	for _, o1 := range orphans {
 		o.releaseOrphanedIssue(ctx, o1.issueID, o1.runID)
 		o.removeOrphanedWorktree(o1.worktree)
+		if o1.tmux != "" {
+			runner.ReapTmuxSession(o.log, o1.tmux)
+			_, _ = o.db.ExecContext(ctx,
+				`UPDATE builder_runs SET tmux_session = '' WHERE id = $1`, o1.runID)
+		}
 	}
 	if len(orphans) > 0 {
 		o.log.Warn("reconciled runs whose process was restarted", "count", len(orphans))
@@ -81,8 +97,12 @@ func (o *Orchestrator) sweepStaleRuns(ctx context.Context) {
 
 	rows, err := o.db.QueryContext(ctx,
 		`UPDATE builder_runs
+		-- tmux_session is cleared but NOT reaped: this sweep only ever touches
+		-- runs owned by a different host, and that host's tmux server is not
+		-- reachable from here. Clearing it at least stops the dashboard offering
+		-- an attach command for a session on a machine the operator is not on.
 		    SET status = 'expired', terminal_reason = 'lease_lost', ended_at = now(),
-		        error = 'no heartbeat within the lease window'
+		        error = 'no heartbeat within the lease window', tmux_session = ''
 		  WHERE status = 'running'
 		    AND split_part(claimed_by, ':', 1) <> $1
 		    AND coalesce(heartbeat_at, started_at) < now() - ($2 * interval '1 second')

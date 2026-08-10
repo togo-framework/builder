@@ -1,0 +1,24 @@
+-- Every agent run is watchable (issue: tmux agent sessions).
+--
+-- A headless run was a black box: the operator saw a verdict minutes later and
+-- had no way to look at the work while it happened. Runs now spawn inside a
+-- tmux session named `builder-issue-<number>-<attempt>`, and this column is
+-- where that name becomes durable — written next to worktree_path BEFORE the
+-- process starts, for the same reason the run row is: the mapping from a
+-- database row to something an operator can attach to must survive a crash
+-- between the claim and the first byte of output.
+--
+-- The value means "a session you can attach to RIGHT NOW", not "the session
+-- this run used". Every terminal write clears it (finish, release, reconcile),
+-- because the session is killed when the run ends and a stale name would send
+-- the operator to something tmux has already reaped. Empty is therefore the
+-- normal state for any finished run, and the dashboard shows the attach
+-- command only while it is not.
+--
+-- Empty string rather than NULL to match every other text column on this
+-- table, so no reader needs a null check that none of its neighbours needs.
+--
+-- IF NOT EXISTS because there is no migration ledger: scaffold runs every
+-- file in db/migrations on every upgrade, so each must survive re-application.
+ALTER TABLE builder_runs
+  ADD COLUMN IF NOT EXISTS tmux_session text NOT NULL DEFAULT '';

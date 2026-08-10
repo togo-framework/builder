@@ -192,8 +192,13 @@ func (o *Orchestrator) release(ctx context.Context, c *Claim, why string) {
 	// leave exactly the leak it is here to close. Found by running the same
 	// UPDATE by hand against the live table before trusting it.
 	if _, err := o.db.ExecContext(ctx,
+		// tmux_session is cleared on every terminal write, here and in finish().
+		// The column means "the session an operator can attach to RIGHT NOW", so
+		// a value that outlived its session would send them to a name tmux has
+		// already reaped — a worse answer than none.
 		`UPDATE builder_runs
-		    SET status = 'failed', terminal_reason = 'error', error = $2, ended_at = now()
+		    SET status = 'failed', terminal_reason = 'error', error = $2,
+		        tmux_session = '', ended_at = now()
 		  WHERE id = $1 AND status = 'running'`,
 		c.RunID, truncateText("released: "+why, 2000)); err != nil {
 		// Logged, not discarded. A run row that stays open occupies a
@@ -235,7 +240,7 @@ func (o *Orchestrator) finish(ctx context.Context, c *Claim, status, terminal st
 		        branch = $3, head_sha = $4, files_changed = $5,
 		        lines_added = $6, lines_removed = $7, cost_usd = $8,
 		        num_turns = $9, verdict = $10::jsonb, error = $11,
-		        pushed = $13, pr_url = $14
+		        pushed = $13, pr_url = $14, tmux_session = ''
 		  WHERE id = $12 AND status = 'running'`,
 		d.RunStatus, terminal, d.Branch, d.HeadSHA, d.FilesChanged,
 		d.Added, d.Removed, d.CostUSD, d.Turns, d.VerdictJSON, d.Err, c.RunID,

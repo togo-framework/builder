@@ -46,16 +46,29 @@ func (s *Service) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	}
 
 	bin, _ := tmuxBin()
-	// -A: attach if it exists, create if it does not. Without it, opening the
-	// same session twice is an error, and "already exists" is the single most
-	// likely outcome of clicking a button called New session.
-	cmd := exec.CommandContext(r.Context(), bin,
-		"new-session", "-d", "-A", "-s", name, "-c", s.workdir)
-	cmd.Env = sessionEnv()
-	if out, err := cmd.CombinedOutput(); err != nil {
-		s.log.Error("create tmux session", "name", name, "err", err, "out", string(out))
-		httpErr(w, http.StatusInternalServerError, "could not start that session: "+string(out))
-		return
+	// Check-then-create, deliberately NOT `new-session -A`.
+	//
+	// -A ("attach if it exists") looks like exactly what a button called New
+	// session wants, but when it takes the exists branch tmux builds a CLIENT,
+	// and a client needs a terminal. This is an HTTP handler with no TTY, so it
+	// dies with "open terminal failed: not a terminal". Neither -d nor -D
+	// avoids it — both were tried against real tmux and both reproduce.
+	//
+	// The failure only shows on the SECOND call for a name, which is why
+	// creating a session appeared to work and reopening it did not.
+	//
+	// has-session touches no client, so the exists path stays terminal-free.
+	exists := exec.CommandContext(r.Context(), bin, "has-session", "-t", "="+name)
+	exists.Env = sessionEnv()
+	if exists.Run() != nil {
+		cmd := exec.CommandContext(r.Context(), bin,
+			"new-session", "-d", "-s", name, "-c", s.workdir)
+		cmd.Env = sessionEnv()
+		if out, err := cmd.CombinedOutput(); err != nil {
+			s.log.Error("create tmux session", "name", name, "err", err, "out", string(out))
+			httpErr(w, http.StatusInternalServerError, "could not start that session: "+string(out))
+			return
+		}
 	}
 	s.log.Info("tmux session ready", "name", name, "workdir", s.workdir)
 	writeJSON(w, http.StatusCreated, map[string]any{"name": name})

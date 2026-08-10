@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"strings"
@@ -40,6 +41,18 @@ type Session struct {
 	// nothing else, so a ceiling edited in the agent settings UI had no effect
 	// inside the run — the two disagreed and the file silently won.
 	Env []string
+	// TmuxSession is the name of the tmux session the run is spawned inside, so
+	// an operator can `tmux attach -t <name>` and watch the work happen.
+	//
+	// Empty means "name it for me" — every run gets a session, because the
+	// requirement is that every running task is attachable and a per-call-site
+	// opt-in would silently miss whichever call site is added next. Set it
+	// explicitly where the name should be GUESSABLE: an issue run uses
+	// TmuxSessionName(number, attempt) so the operator can type it from the
+	// board without looking anything up.
+	TmuxSession string
+	// Log is where the tmux wrapper reports. nil takes slog.Default().
+	Log *slog.Logger
 }
 
 // Result is the terminal `result` event plus what we derived from it.
@@ -53,8 +66,12 @@ type Result struct {
 	NumTurns     int           `json:"num_turns"`
 	DurationMS   int64         `json:"duration_ms"`
 	SessionID    string        `json:"session_id"`
-	Raw          string        `json:"-"`
-	Took         time.Duration `json:"-"`
+	// TmuxSession is the session the run actually executed in, or empty when
+	// tmux was unavailable and the process was spawned directly. Returned so a
+	// caller that did not choose the name can still persist and display it.
+	TmuxSession string        `json:"tmux_session,omitempty"`
+	Raw         string        `json:"-"`
+	Took        time.Duration `json:"-"`
 }
 
 type rawEvent struct {
@@ -101,41 +118,70 @@ func (s Session) Run(ctx context.Context) (Result, error) {
 		args = append(args, "--permission-mode", s.PermissionMode)
 	}
 
-	cmd := exec.CommandContext(ctx, claudeBin(), args...)
-	if s.Dir != "" {
-		cmd.Dir = s.Dir
+	log := s.Log
+	if log == nil {
+		log = slog.Default()
 	}
-	cmd.Env = append(append(os.Environ(), "NO_COLOR=1", "CLICOLOR=0"), s.Env...)
+	dir := s.Dir
+	if dir == "" {
+		// tmux needs a real start directory, and the process used to inherit
+		// this one implicitly.
+		if wd, err := os.Getwd(); err == nil {
+			dir = wd
+		}
+	}
+	env := append(append(os.Environ(), "NO_COLOR=1", "CLICOLOR=0"), s.Env...)
+
+	// tmux FIRST, direct spawn as the fallback. The two paths agree on their
+	// contract — stdout, stderr, and an error that is non-nil exactly when the
+	// command failed — so everything below this block is shared.
+	name := s.sessionLabel()
+	start := time.Now()
+	out, errText, err, viaTmux := tmuxRun(ctx, log, name, dir, env, claudeBin(), args)
+	if !viaTmux {
+		name = ""
+		out, errText, err = directRun(ctx, dir, env, claudeBin(), args)
+	}
+	took := time.Since(start)
+
+	res, perr := parseClaudeResult(out)
+	if perr != nil {
+		if err != nil {
+			return Result{Raw: out, Took: took, TmuxSession: name},
+				fmt.Errorf("claude failed: %w: %s", err, firstLine(errText))
+		}
+		return Result{Raw: out, Took: took, TmuxSession: name},
+			fmt.Errorf("unparsable response: %w", perr)
+	}
+
+	return Result{
+		Text:        res.Result,
+		IsError:     res.IsError,
+		Subtype:     res.Subtype,
+		CostUSD:     res.TotalCostUSD,
+		NumTurns:    res.NumTurns,
+		DurationMS:  res.DurationMS,
+		SessionID:   res.SessionID,
+		TmuxSession: name,
+		Raw:         out,
+		Took:        took,
+	}, nil
+}
+
+// directRun is the pre-tmux spawn, kept intact as the fallback path.
+func directRun(ctx context.Context, dir string, env []string, bin string, args []string) (string, string, error) {
+	cmd := exec.CommandContext(ctx, bin, args...)
+	if dir != "" {
+		cmd.Dir = dir
+	}
+	cmd.Env = env
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	start := time.Now()
 	err := cmd.Run()
-	took := time.Since(start)
-
-	out := stdout.String()
-	res, perr := parseClaudeResult(out)
-	if perr != nil {
-		if err != nil {
-			return Result{Raw: out, Took: took},
-				fmt.Errorf("claude failed: %w: %s", err, firstLine(stderr.String()))
-		}
-		return Result{Raw: out, Took: took}, fmt.Errorf("unparsable response: %w", perr)
-	}
-
-	return Result{
-		Text:       res.Result,
-		IsError:    res.IsError,
-		Subtype:    res.Subtype,
-		CostUSD:    res.TotalCostUSD,
-		NumTurns:   res.NumTurns,
-		DurationMS: res.DurationMS,
-		SessionID:  res.SessionID,
-		Raw:        out,
-		Took:       took,
-	}, nil
+	return stdout.String(), stderr.String(), err
 }
 
 // JSON extracts a JSON object from the model's text.

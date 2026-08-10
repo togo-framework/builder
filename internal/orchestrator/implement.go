@@ -226,9 +226,19 @@ func (o *Orchestrator) Implement(
 	}
 	defer ws.Remove(context.Background())
 
+	// The tmux session the run will live in. Named from the issue and the
+	// attempt so an operator can type `tmux attach -t builder-issue-412-2`
+	// straight from the board without looking anything up, and so two attempts
+	// on the same issue never share a name.
+	//
+	// Recorded BEFORE the session starts, alongside the worktree, for the same
+	// reason the run row is written before the process: the mapping has to
+	// survive a crash between here and the first output.
+	tmuxSession := runner.TmuxSessionName(c.Number, c.Attempt)
+
 	_, _ = o.db.ExecContext(ctx,
-		`UPDATE builder_runs SET worktree_path=$1, branch=$2, base_sha=$3 WHERE id=$4`,
-		ws.Dir, ws.Branch, ws.BaseSHA, c.RunID)
+		`UPDATE builder_runs SET worktree_path=$1, branch=$2, base_sha=$3, tmux_session=$5 WHERE id=$4`,
+		ws.Dir, ws.Branch, ws.BaseSHA, c.RunID, tmuxSession)
 
 	// Keep the lease alive while the session runs, and abort the moment it is
 	// lost — continuing to edit an issue someone else now owns is worse than
@@ -297,6 +307,8 @@ func (o *Orchestrator) Implement(
 		MaxTurns:       40,
 		PermissionMode: "acceptEdits", // never bypassPermissions
 		Timeout:        o.cfg.ImplementTO,
+		TmuxSession:    tmuxSession,
+		Log:            o.log,
 	}
 
 	// Say what is about to happen, BEFORE doing it.
