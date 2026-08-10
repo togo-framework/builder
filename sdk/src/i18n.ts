@@ -36,6 +36,12 @@ const en = {
   screenshot: "Screenshot",
   submit: "Submit",
   submitting: "Submitting…",
+  // The disclosure is a requirement, not a nicety: a report that quietly
+  // ships the page's console and network activity is surveillance, not
+  // feedback. Say what is attached, and offer the way out.
+  ctxAttached: (c: number, n: number) =>
+    `Console and network activity from the product page will be attached (${c} console line${c === 1 ? "" : "s"}, ${n} request${n === 1 ? "" : "s"}).`,
+  ctxOptOut: "Send without console & network activity",
   created: (n: number) => `Reported as #${n}`,
   failed: "Could not submit. Try again.",
   titleRequired: "A title is required.",
@@ -95,6 +101,9 @@ const ar: Dict = {
   screenshot: "لقطة شاشة",
   submit: "إرسال",
   submitting: "جارٍ الإرسال…",
+  ctxAttached: (c: number, n: number) =>
+    `سيتم إرفاق نشاط وحدة التحكم والشبكة من صفحة المنتج (${c} سطر، ${n} طلب).`,
+  ctxOptOut: "الإرسال دون نشاط وحدة التحكم والشبكة",
   created: (n: number) => `تم الإبلاغ برقم #${n}`,
   failed: "تعذّر الإرسال. حاول مرة أخرى.",
   titleRequired: "العنوان مطلوب.",

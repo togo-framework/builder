@@ -34,6 +34,9 @@ export function httpTransport(apiBase = ""): Transport {
           locale: issue.locale,
           pins: issue.pins,
           reporter_email: issue.reporterEmail ?? "",
+          // undefined when absent, so the key is dropped from the JSON and the
+          // server's json.RawMessage stays empty rather than the string "null".
+          context: issue.context ?? undefined,
         }),
       );
       for (const a of issue.attachments) {

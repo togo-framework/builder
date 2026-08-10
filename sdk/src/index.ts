@@ -6,7 +6,15 @@ import { highlight, startPicker } from "./picker";
 import { createDetail, httpDetail, type DetailView } from "./detail";
 import { CSS, HOST_CSS } from "./styles";
 import { httpTransport } from "./transport";
-import type { Attachment, Handle, IssueSummary, IssueType, MountOptions, PinAnchor } from "./types";
+import type {
+  Attachment,
+  BridgeContext,
+  Handle,
+  IssueSummary,
+  IssueType,
+  MountOptions,
+  PinAnchor,
+} from "./types";
 import { icon, label as iconLabel } from "./icons";
 
 const FAB_POS_KEY = "builder.fab.position";
@@ -59,6 +67,16 @@ export function mount(opts: MountOptions = {}): Handle {
   // True once a builder shell's hello has been accepted (see bridge.ts). The
   // shell renders the UI from the outer page; ours goes away entirely.
   let bridged = false;
+  // Bridge-mode state, meaningful only with framedHost. The shell page's own
+  // location is /shell — the page a report is ABOUT is the one inside the
+  // frame, and these carry what the frame last told us about it.
+  let innerPage: { url: string; title: string } | null = null;
+  let frameCtx: BridgeContext | null = null;
+  // A pick running INSIDE the frame. Separate from cancelPick (a pick on this
+  // page) because the two flows must never interleave: Escape on the shell
+  // must cancel the frame's picker, not dismiss the form under the reporter.
+  let bridgePick = false;
+  let cancelBridgePick: () => void = () => {};
 
   // ---- markup ------------------------------------------------------------
   const wrap = document.createElement("div");
@@ -145,6 +163,16 @@ export function mount(opts: MountOptions = {}): Handle {
             <div class="files"></div>
             <input type="file" class="filein hidden" multiple accept="${ACCEPT}">
 
+            <!-- Bridge-mode disclosure. Hidden until the framed product has
+                 volunteered console/network context; then it says exactly what
+                 will ride along with the report and offers the way out. A tool
+                 that quietly harvests session activity is not a feedback
+                 widget. -->
+            <div class="ctxrow hidden">
+              <p class="hint ctx-note"></p>
+              <label class="ctx-opt"><input type="checkbox" class="ctx-optout"><span class="ctx-opt-txt"></span></label>
+            </div>
+
             <div class="label lbl-url"></div>
             <input type="text" name="url" disabled>
 
@@ -217,31 +245,147 @@ export function mount(opts: MountOptions = {}): Handle {
       b.setAttribute("aria-disabled", "true");
     }
 
+    const ctxRow = $<HTMLElement>(".ctxrow");
+    const ctxNote = $<HTMLParagraphElement>(".ctx-note");
+    $(".ctx-opt-txt").textContent = t.ctxOptOut;
+
+    const updateCtxDisclosure = () => {
+      const has =
+        !!frameCtx && (frameCtx.console.length > 0 || frameCtx.network.length > 0);
+      ctxRow.classList.toggle("hidden", !has);
+      if (frameCtx) {
+        ctxNote.textContent = t.ctxAttached(frameCtx.console.length, frameCtx.network.length);
+      }
+    };
+
+    // What the frame says about its own location becomes what the report
+    // attaches to. The shell page's location is /shell — scoping issues to it
+    // would file every report from every framed product on one route.
+    const syncInner = (d: { url?: unknown; title?: unknown }) => {
+      if (typeof d.url !== "string" || !d.url) return;
+      innerPage = { url: d.url, title: typeof d.title === "string" ? d.title : "" };
+      urlIn.value = d.url;
+      $(".brand-sub").textContent = normalizeRoute(d.url);
+    };
+
+    const endBridgePick = () => {
+      bridgePick = false;
+      // Only the modal comes back if the form is what was open — same rule as
+      // the local pick's restore.
+      if (formOpen) modal.dataset.open = "true";
+      else panel.dataset.open = "true";
+      renderPins(); // restores the pin button's label and pressed state
+    };
+    cancelBridgePick = () => {
+      askFrame(BRIDGE_MSG.pinCancel);
+      endBridgePick();
+    };
+
     window.addEventListener("message", (e: MessageEvent) => {
       // Only our own window, only our own origin. The shell has already
       // checked the frame; this is the second half of the same rule, and
       // without it any page could post a forged pin result into the panel.
       if (e.source !== window || e.origin !== location.origin) return;
-      const d = e.data as { v?: number; type?: string; anchor?: unknown; dataUrl?: string | null };
+      const d = e.data as {
+        v?: number;
+        type?: string;
+        anchor?: PinAnchor | null;
+        dataUrl?: string | null;
+        error?: string;
+        url?: string;
+        title?: string;
+      } & Partial<BridgeContext>;
       if (!d || d.v !== 1 || typeof d.type !== "string") return;
 
-      if (d.type === BRIDGE_MSG.ready) {
-        frameReady = true;
-        for (const b of [pinB, shotB]) {
-          b.disabled = false;
-          b.removeAttribute("aria-disabled");
-          b.title = "";
+      switch (d.type) {
+        case BRIDGE_MSG.ready:
+          frameReady = true;
+          for (const b of [pinB, shotB]) {
+            b.disabled = false;
+            b.removeAttribute("aria-disabled");
+            b.title = "";
+          }
+          syncInner(d);
+          // Prime the disclosure and re-scope the listing to the inner page.
+          askFrame(BRIDGE_MSG.context);
+          void refresh();
+          return;
+
+        case BRIDGE_MSG.url:
+          syncInner(d);
+          void refresh();
+          return;
+
+        case BRIDGE_MSG.pinDone: {
+          if (!bridgePick) return;
+          const a = d.anchor;
+          // anchor null = the reporter pressed Escape inside the frame.
+          if (a && typeof a === "object" && pins.length < MAX_PINS) pins = [...pins, a];
+          endBridgePick();
+          return;
+        }
+
+        case BRIDGE_MSG.shotDone: {
+          shotB.disabled = false;
+          if (typeof d.dataUrl === "string" && d.dataUrl.startsWith("data:")) {
+            const att = dataUrlToAttachment(d.dataUrl);
+            if (att && att.size <= limitFor("image")) {
+              files.push(att);
+              renderFiles();
+              setNote("");
+            } else {
+              setNote(t.failed, "err");
+            }
+          } else {
+            // dataUrl null + error: the capture failed inside the frame.
+            setNote(typeof d.error === "string" && d.error ? d.error : t.failed, "err");
+          }
+          return;
+        }
+
+        case BRIDGE_MSG.contextDone: {
+          frameCtx = {
+            console: Array.isArray(d.console) ? d.console : [],
+            network: Array.isArray(d.network) ? d.network : [],
+            viewport:
+              d.viewport && typeof d.viewport === "object"
+                ? d.viewport
+                : { w: 0, h: 0, dpr: 1 },
+            userAgent: typeof d.userAgent === "string" ? d.userAgent : "",
+            locale: typeof d.locale === "string" ? d.locale : "",
+            url: typeof d.url === "string" ? d.url : "",
+            title: typeof d.title === "string" ? d.title : "",
+          };
+          updateCtxDisclosure();
+          return;
         }
       }
     });
 
     pinB.addEventListener("click", () => {
       if (!frameReady) return;
+      if (bridgePick) {
+        cancelBridgePick();
+        return;
+      }
+      bridgePick = true;
+      // The reporter aims INSIDE the frame; the shell's own surfaces get out
+      // of the way exactly as the local pick does.
+      panel.dataset.open = "false";
+      modal.dataset.open = "false";
+      pinB.setAttribute("aria-pressed", "true");
+      pinB.textContent = t.pinning;
       askFrame(BRIDGE_MSG.pinStart);
     });
     shotB.addEventListener("click", () => {
       if (!frameReady) return;
+      shotB.disabled = true; // until shot:done — a double click is one capture
       askFrame(BRIDGE_MSG.shot);
+    });
+    // A fresh snapshot each time the form opens, so the disclosure counts what
+    // would actually be sent, not what was true at handshake time.
+    $(".report").addEventListener("click", () => {
+      if (frameReady) askFrame(BRIDGE_MSG.context);
     });
   }
   const clearPinBtn = $<HTMLButtonElement>(".clearpin");
@@ -388,10 +532,12 @@ export function mount(opts: MountOptions = {}): Handle {
     if (bridged) return; // the shell owns the UI; this panel no longer exists
     panel.dataset.open = "true";
     fab.setAttribute("aria-expanded", "true");
-    urlIn.value = location.href;
+    // On a shell page the report is about the FRAMED page, not /shell — show
+    // the URL the issue will attach to, not the one the browser is on.
+    urlIn.value = innerPage?.url ?? location.href;
     // Re-read on every open: in an SPA the route changes without a remount,
     // and a header pinned to the mount-time route would quietly lie.
-    $(".brand-sub").textContent = normalizeRoute();
+    $(".brand-sub").textContent = normalizeRoute(innerPage?.url);
     void refresh();
   }
   function close() {
@@ -579,7 +725,14 @@ export function mount(opts: MountOptions = {}): Handle {
   // Escape closes the form. Bound to the host document because the pin picker
   // moves focus onto the page itself.
   document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && formOpen && !cancelPick) showForm(false);
+    if (e.key !== "Escape") return;
+    // A pick running inside the frame: Escape cancels the pick, never the
+    // form — dismissing the form here would wipe the half-written report.
+    if (bridgePick) {
+      cancelBridgePick();
+      return;
+    }
+    if (formOpen && !cancelPick) showForm(false);
   });
   $(".x").addEventListener("click", close);
   root.addEventListener("keydown", (e) => {
@@ -637,7 +790,12 @@ export function mount(opts: MountOptions = {}): Handle {
   }
 
   // ---- pin ---------------------------------------------------------------
-  pinBtn.addEventListener("click", () => {
+  // The LOCAL picker — it reads THIS page's DOM. On a shell page the DOM that
+  // matters is inside a cross-origin frame, so the framedHost block above owns
+  // the pin button there and this handler must not also fire: both running at
+  // once is a picker armed on the shell that can never be clicked, on top of
+  // the real one inside the frame.
+  if (!opts.framedHost) pinBtn.addEventListener("click", () => {
     if (cancelPick) {
       cancelPick();
       cancelPick = null;
@@ -758,7 +916,11 @@ export function mount(opts: MountOptions = {}): Handle {
     setNote("");
   }
 
-  $(".shot").addEventListener("click", async () => {
+  // The LOCAL screenshot — html-to-image against THIS document. On a shell
+  // page that yields a picture of the shell with a blank rectangle where the
+  // product is; the framedHost block owns the button there and the capture
+  // happens inside the frame instead.
+  if (!opts.framedHost) $(".shot").addEventListener("click", async () => {
     const btn = $<HTMLButtonElement>(".shot");
     btn.disabled = true;
     // Hide the widget so it does not appear in its own screenshot.
@@ -823,15 +985,20 @@ export function mount(opts: MountOptions = {}): Handle {
     sendBtn.disabled = true;
     sendBtn.textContent = t.submitting;
     try {
+      // In a shell, the report is about the framed page: route and URL come
+      // from what the frame reported, and the context rides along only when
+      // the disclosure was shown and the reporter did not opt out.
+      const ctxOff = $<HTMLInputElement>(".ctx-optout");
       const r = await transport.create({
         type,
         title,
         body: bodyIn.value,
-        route: normalizeRoute(),
-        pageUrl: location.href,
+        route: normalizeRoute(innerPage?.url),
+        pageUrl: innerPage?.url ?? location.href,
         locale,
         pins,
         attachments: files,
+        context: frameCtx && !ctxOff?.checked ? frameCtx : undefined,
       });
       setNote(t.created(r.number), "ok");
       opts.onCreated?.(r);
@@ -858,7 +1025,9 @@ export function mount(opts: MountOptions = {}): Handle {
     if (formOpen) return;
     rows.replaceChildren(el("div", "empty", t.loading));
     try {
-      issues = await transport.listByRoute(normalizeRoute());
+      // Scoped to the inner page when framed — "issues on this page" means the
+      // page the operator is looking at, which on a shell is the framed one.
+      issues = await transport.listByRoute(normalizeRoute(innerPage?.url));
     } catch {
       issues = [];
     }
@@ -971,6 +1140,29 @@ export function mount(opts: MountOptions = {}): Handle {
 
 /** Re-find and flash a stored pin. Exposed for the issue detail page. */
 export { highlight as highlightPin };
+
+/**
+ * Decode a `builder:shot:done` payload into a real attachment. The frame sends
+ * a data URL because a Blob cannot cross the relay's re-post; the bytes are
+ * reconstituted here so the upload path is the same multipart it always was.
+ */
+function dataUrlToAttachment(dataUrl: string): Attachment | null {
+  try {
+    const comma = dataUrl.indexOf(",");
+    if (comma < 0) return null;
+    const mime = /^data:([^;,]+)/.exec(dataUrl.slice(0, comma))?.[1] || "image/png";
+    const bin = atob(dataUrl.slice(comma + 1));
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const blob = new Blob([bytes], { type: mime });
+    const d = new Date();
+    const p = (n: number) => String(n).padStart(2, "0");
+    const stamp = `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+    return { name: `screenshot-${stamp}.png`, mime, size: blob.size, kind: "screenshot", blob };
+  } catch {
+    return null; // a malformed payload must not take the form down with it
+  }
+}
 
 function el(tag: string, cls: string, txt: string): HTMLElement {
   const e = document.createElement(tag);

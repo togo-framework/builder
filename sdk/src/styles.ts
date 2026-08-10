@@ -543,6 +543,15 @@ textarea { min-height: 96px; resize: vertical; }
 .note { font-size: var(--fs-xs); margin-top: 10px; }
 .note.err { color: var(--danger); }
 .note.ok { color: var(--ok); }
+
+/* Bridge-mode context disclosure (framedHost). Flex + logical gap, so the
+   checkbox row reads correctly in RTL without direction-specific rules. */
+.ctxrow { margin-top: 10px; }
+.ctx-opt {
+  display: flex; align-items: center; gap: 6px; margin-top: 6px;
+  font-size: var(--fs-xs); color: var(--muted); cursor: pointer;
+}
+.ctx-opt input { accent-color: var(--accent); margin: 0; }
 .hidden { display: none !important; }
 
 /* ---- in-panel issue detail ---- */

@@ -61,6 +61,12 @@ export interface NewIssue {
   pins: PinAnchor[];
   attachments: Attachment[];
   reporterEmail?: string;
+  /**
+   * The console/network snapshot the framed product volunteered (bridge mode).
+   * Only ever present when the reporter was shown the disclosure and did not
+   * opt out — attaching it silently would make the widget a session harvester.
+   */
+  context?: BridgeContext | null;
 }
 
 export interface IssueSummary {
