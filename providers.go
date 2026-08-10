@@ -5,14 +5,17 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
 	"github.com/togo-framework/auth"
 	"github.com/togo-framework/togo"
 
+	"github.com/togo-framework/builder/customapps"
 	"github.com/togo-framework/builder/internal/brain"
 	"github.com/togo-framework/builder/internal/chat"
 	"github.com/togo-framework/builder/internal/deploy"
@@ -77,16 +80,35 @@ func provideBrain(k *togo.Kernel) error {
 		k.Set(ProviderBrain, nil)
 		return nil // no database: the loop still runs, just without memory
 	}
-	// A real model when one is configured, the hash embedder otherwise.
+	// A real model when one is configured AND answering, the hash embedder
+	// otherwise.
 	//
 	// HashEmbedder has no semantic content: "the login button is broken" and
 	// "authentication fails" share no tokens and embed orthogonally, so recall
 	// over it is keyword overlap wearing relevance's clothes. Which one is in
 	// use is logged at boot, because "is this real recall?" must be answerable
 	// without reading the source.
+	//
+	// The endpoint is PROBED before it is accepted. A configured-but-unreachable
+	// model used to leave the brain with an embedder that failed on every call:
+	// each retain warned and stored a NULL vector, so recall silently had no
+	// vector arm and nothing said so. Falling back to the hash embedder is worse
+	// recall and a working brain, which is the right way round for a harness
+	// whose whole premise is that it runs on day 0 with nothing else up.
 	var emb brain.Embedder = brain.HashEmbedder{}
 	if real := brain.EmbedderFromEnv(); real != nil {
-		emb = real
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		err := brain.Probe(ctx, real)
+		cancel()
+		if err != nil {
+			// Error, not Warn. The operator asked for semantic recall, is not
+			// getting it, and every "related memories" panel is about to show
+			// keyword overlap — that is not a footnote.
+			k.Log.Error("builder.brain embedding endpoint did not answer — "+
+				"FALLING BACK to keyword-only recall", "embedder", real.Name(), "err", err)
+		} else {
+			emb = real
+		}
 	}
 	store, err := brain.New(db, k.Log, emb)
 	if err != nil {
@@ -94,13 +116,66 @@ func provideBrain(k *togo.Kernel) error {
 		k.Set(ProviderBrain, nil)
 		return nil
 	}
+
+	// Reranking is independent of embedding and degrades independently: without
+	// it recall returns the fused order, which is what it has always returned.
+	if rr := brain.RerankerFromEnv(os.Getenv("BUILDER_EMBED_URL")); rr != nil && brain.IsSemantic(emb) {
+		store.SetReranker(rr)
+		k.Log.Info("builder.brain reranking enabled", "reranker", rr.Name())
+	} else if rr != nil {
+		// Reranking a keyword-overlap candidate set is not wrong, but it spends
+		// a model on a list the first pass had no real basis for choosing. Said
+		// out loud so it does not read as reranking being broken.
+		k.Log.Info("builder.brain reranking configured but idle — " +
+			"the candidate set comes from keyword overlap; fix the embedder first")
+	}
+
 	k.Set(ProviderBrain, store)
-	k.Log.Info("builder.brain ready", "embedder", emb.Name(), "dim", emb.Dimensions())
-	if _, hashed := emb.(brain.HashEmbedder); hashed {
+	k.Log.Info("builder.brain ready",
+		"embedder", emb.Name(), "dim", emb.Dimensions(), "semantic", brain.IsSemantic(emb))
+	if !brain.IsSemantic(emb) {
 		k.Log.Info("builder.brain recall is KEYWORD-ONLY — " +
 			"set BUILDER_EMBED_URL to a /v1/embeddings endpoint for semantic recall")
+		return nil
 	}
+	startReembedBackfill(k, store)
 	return nil
+}
+
+// startReembedBackfill rewrites memories left over from a previous embedder.
+//
+// In the background, and never blocking boot: it is a long job over a network
+// service, the brain is completely usable while it runs, and a harness that
+// takes four minutes to start because it is re-embedding ten thousand rows is a
+// harness people stop starting.
+func startReembedBackfill(k *togo.Kernel, store *brain.Store) {
+	if !brain.BackfillEnabled() {
+		return
+	}
+	pending, err := store.PendingReembed(context.Background())
+	if err != nil {
+		k.Log.Warn("builder.brain could not count memories to re-embed", "err", err)
+		return
+	}
+	if pending == 0 {
+		return
+	}
+	k.Log.Info("builder.brain re-embedding memories written by a previous embedder",
+		"pending", pending, "note", "they stay findable by keyword until this completes")
+
+	go func() {
+		start := time.Now()
+		res, err := store.BackfillEmbeddings(context.Background(), brain.BackfillPause())
+		if err != nil {
+			// Partial progress is kept, not rolled back. The remaining rows are
+			// found by the same predicate on the next boot.
+			k.Log.Warn("builder.brain re-embedding stopped early",
+				"written", res.Written, "failed", res.Failed, "err", err)
+			return
+		}
+		k.Log.Info("builder.brain re-embedding complete",
+			"written", res.Written, "failed", res.Failed, "took", time.Since(start).Round(time.Second))
+	}()
 }
 
 func provideNotify(k *togo.Kernel) error {
@@ -266,7 +341,14 @@ func provideFleet(k *togo.Kernel) error {
 	// is the right place for that to be found). The two servers under it
 	// authenticate with their own bearer tokens rather than the dashboard
 	// session, because an MCP client cannot present a cookie.
-	k.Router.Route("/api/builder/mcp", mcpsrv.New(db, k.Log).Routes)
+	//
+	// Bound into the container as well as mounted, because the custom-app
+	// registry boots later and has to hand itself to the MCP tools. Without the
+	// binding there is no way to reach this instance, and a second one would
+	// mean agents creating apps into a registry the running builder never reads.
+	mcpSvc := mcpsrv.New(db, k.Log)
+	k.Set(ProviderFleet+".mcp", mcpSvc)
+	k.Router.Route("/api/builder/mcp", mcpSvc.Routes)
 
 	// The terminal. Off unless BUILDER_TERMINAL=1, and never in production —
 	// the service refuses at construction, so the routes exist but answer 403
@@ -349,6 +431,77 @@ func provideSources(k *togo.Kernel) error {
 	// Detached, like the orchestrator: the schedule outlives any request.
 	go store.Run(context.Background())
 	k.Log.Info("builder.sources running", "kinds", strings.Join(append(sources.Kinds(), "sql"), ", "))
+	return nil
+}
+
+// provideApps mounts the custom-app registry: screens a user added, discovered
+// at boot rather than named in any file here.
+//
+// Two properties are load-bearing and both are enforced below rather than by
+// convention:
+//
+//   - Nothing a custom app does can fail this boot. Scan swallows every
+//     per-app failure into a problems list, so a malformed app.json costs one
+//     tile. The provider returns nil in every path.
+//
+//   - The surface fails CLOSED when auth is unavailable. This serves
+//     third-party JavaScript and accepts writes to a file on disk, and the
+//     terminal already taught this plugin what an unauthenticated surface on a
+//     :8080 bound to every interface costs. An absent feature is a nuisance;
+//     an unauthenticated one that serves attacker-supplied script into an
+//     authenticated origin is a compromise.
+func provideApps(k *togo.Kernel) error {
+	db, err := k.SQL(context.Background())
+	if err != nil {
+		// Not fatal, and not even a reason to skip: a drop-in app needs no
+		// database. Compiled apps are handed a nil DB and told to check it.
+		db = nil
+		if k.Log != nil {
+			k.Log.Warn("builder.apps: no database; custom apps receive a nil DB handle", "err", err)
+		}
+	}
+
+	// Rooted at the APP's own directory, not BUILDER_WORKDIR — the same
+	// correction the skill catalogue already carries. BUILDER_WORKDIR is the
+	// repository agents branch from; a custom app belongs to the application
+	// that serves it. Defaulting to the workdir here scanned the builder's own
+	// checkout and found nothing, which is exactly how that bug read in skills.
+	root := os.Getenv("BUILDER_APPS_DIR")
+	if root == "" {
+		root = filepath.Join(".", "apps")
+	}
+
+	svc := customapps.New(db, k.Log, root)
+	svc.Scan(context.Background())
+	k.Set(ProviderApps, svc)
+
+	// Hand the registry to the MCP surface, so an agent mid-run can add a screen
+	// with create_app instead of filing an issue asking a human to type
+	// `togo-builder app new`. THIS instance and no other: the tool scaffolds into
+	// this root and rescans this registry, which is what makes a created app
+	// appear in the launcher without a restart.
+	//
+	// Bound rather than missing when MCP is absent: provideFleet skips the mount
+	// when it has no database, and a nil registry there simply means create_app
+	// reports that custom apps are unavailable. A boot with no MCP must still
+	// serve the apps it discovered.
+	if m, ok := k.Get(ProviderFleet + ".mcp"); ok && m != nil {
+		if ms, ok := m.(*mcpsrv.Service); ok {
+			ms.SetApps(svc)
+			k.Log.Info("builder.apps reachable over mcp", "surface", "/api/builder/mcp/agents", "dir", root)
+		}
+	}
+
+	as, ok := auth.FromKernel(k)
+	if !ok || as == nil {
+		k.Log.Warn("builder.apps NOT mounted: the auth plugin is unavailable, and a surface that serves third-party script and accepts writes will not be served unauthenticated",
+			"dir", root, "discovered", len(svc.List()))
+		return nil
+	}
+	k.Router.Route("/api/builder/apps", func(r chi.Router) {
+		r.Use(as.Middleware)
+		svc.Routes(r)
+	})
 	return nil
 }
 
@@ -442,6 +595,7 @@ func activeProviders() []string {
 	all := []string{
 		ProviderVault, ProviderBrain, ProviderNotify,
 		ProviderIssues, ProviderFleet, ProviderOrchestrator, ProviderSources,
+		ProviderApps,
 	}
 	out := make([]string, 0, len(all))
 	for _, name := range all {

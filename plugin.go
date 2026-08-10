@@ -33,6 +33,8 @@ const (
 	ProviderOrchestrator = "builder.orchestrator" // claim/lease/route/triage
 	ProviderNotify       = "builder.notify"       // realtime + push + sound
 	ProviderSources      = "builder.sources"      // scheduled ingestion into the brain
+	ProviderApps         = "builder.apps"         // user-supplied screens, discovered at boot
+	ProviderWeb          = "builder.web"          // the dashboard itself, from the embedded bundle
 )
 
 // Boot order. togo runs providers ascending, and a later provider overwrites an
@@ -61,6 +63,14 @@ const (
 	// After the orchestrator so both loops start last, and after brain and
 	// vault because a source cannot be constructed without either.
 	priSources = togo.PriorityLate + 17
+	// Last of all. Custom apps are third-party code; they register after every
+	// first-party surface exists, so an app can read the kernel container and
+	// so nothing builder ships can be shadowed by one.
+	priApps = togo.PriorityLate + 18
+	// The dashboard, last. It depends on nothing — it is a file server over an
+	// embedded bundle — and mounting it after every API surface keeps the route
+	// table readable: the pages sit below the endpoints they call.
+	priWeb = togo.PriorityLate + 19
 )
 
 func init() {
@@ -71,6 +81,8 @@ func init() {
 	register(ProviderFleet, priFleet, provideFleet)
 	register(ProviderOrchestrator, priOrchestrator, provideOrchestrator)
 	register(ProviderSources, priSources, provideSources)
+	register(ProviderApps, priApps, provideApps)
+	register(ProviderWeb, priWeb, provideWeb)
 }
 
 // register wires one provider unless it is named in BUILDER_DISABLE.

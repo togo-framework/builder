@@ -23,3 +23,12 @@
 # and must not be what resolves modules for anyone else.
 builderd/go.work
 builderd/go.work.sum
+
+# Frontend installs. web/dist IS committed — go:embed needs it in the module,
+# exactly as sdk/dist is — but the tree that produced it is not.
+node_modules/
+# ...and the LINK web/prepare.mjs drops into the blueprint so the shared source
+# resolves from its real location. A symlink, not a directory, so the pattern
+# above does not match it. It is generated on every build and belongs to this
+# machine; committing it would ship a dangling link into every scaffold.
+blueprint/_project/web/node_modules

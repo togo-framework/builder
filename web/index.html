@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>builder</title>
+    <!-- No-flash theme: apply the persisted choice (default dark) before first paint -->
+    <script>
+      (function () {
+        try {
+          var k = "togo-theme", t = localStorage.getItem(k);
+          if (!t) { t = "dark"; localStorage.setItem(k, t); }
+          var d = document.documentElement;
+          d.setAttribute("data-theme", t);
+          d.classList.toggle("dark", t !== "light");
+        } catch (e) {}
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+    <!-- No feedback widget here, deliberately.
+         The generated project's index.html loads /sdk/builder-sdk.js so an
+         operator can report a bug from the product. This page IS the builder:
+         mounting the launcher on top of the screens it launches gives you a
+         floating button whose every tile navigates to the page you are already
+         on, and a report modal stacked over the report board. -->
+  </body>
+</html>

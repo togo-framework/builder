@@ -1,0 +1,32 @@
+{
+  "name": "@togo-framework/builder-web",
+  "private": true,
+  "type": "module",
+  "description": "The builder's own dashboard, built from the shared blueprint source and embedded into the Go binary.",
+  "scripts": {
+    "prepare": "node prepare.mjs",
+    "dev": "node prepare.mjs && vite",
+    "build": "node prepare.mjs && tsc --noEmit && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "^5.62.0",
+    "@tanstack/react-router": "^1.95.0",
+    "@tanstack/react-table": "^8.20.5",
+    "@togo-framework/ui": "^0.1.11",
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/xterm": "^5.5.0",
+    "lucide-react": "^0.462.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "tailwindcss": "^4.0.0",
+    "typescript": "^5.7.0",
+    "vite": "^6.0.0"
+  }
+}
