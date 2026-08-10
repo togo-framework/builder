@@ -219,11 +219,23 @@ func (s *Service) handleGenerate(w http.ResponseWriter, r *http.Request) {
 
 	// Detached: generation takes minutes and must survive the request.
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 25*time.Minute)
+		// No flat deadline. 25 minutes was right for the nine-agent fleet it
+		// was written against and killed a 27-agent one at agent 20 — and the
+		// re-run bought the same twenty agents again. The roster's size is
+		// only known once phase 1 has run, so there is no correct constant to
+		// put here; instead a watchdog is re-armed on every completed item
+		// with a budget for the work that REMAINS. It fires only when nothing
+		// finishes inside that budget — a hang, not a big fleet.
+		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
+		watchdog := time.AfterFunc(fleet.RosterBudget, cancel)
+		defer watchdog.Stop()
 
 		m, cost, err := s.gen.Generate(ctx, name, plan, "",
 			func(stage string, done, total int, spent float64) {
+				if stage != "roster" {
+					watchdog.Reset(fleet.PhaseBudget(total - done))
+				}
 				s.mu.Lock()
 				s.progress.Stage, s.progress.Step, s.progress.Total = stage, done, total
 				s.progress.CostUSD = spent // visible while it runs, not only at the end

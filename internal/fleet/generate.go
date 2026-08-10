@@ -3,12 +3,17 @@ package fleet
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
+
+	"golang.org/x/sync/errgroup"
 
 	"github.com/togo-framework/builder/internal/brain"
 	"github.com/togo-framework/builder/internal/runner"
@@ -19,10 +24,61 @@ type Generator struct {
 	db   *sql.DB
 	log  *slog.Logger
 	root string // the project working tree
+
+	// runSession is how every model call is made. Production leaves it nil and
+	// gets runner.Session.Run; tests substitute a recorder, because proving
+	// that a resumed run does NOT re-buy sessions means counting them, and
+	// counting real sessions costs exactly the money this seam exists to save.
+	runSession func(ctx context.Context, s runner.Session) (runner.Result, error)
+
+	// parallel caps how many phase-2 sessions run at once. Zero means
+	// maxParallelWrites; tests set 1 so "cancel after N agents" is a fact
+	// rather than a race between five in-flight sessions.
+	parallel int
 }
 
 func NewGenerator(db *sql.DB, log *slog.Logger, root string) *Generator {
 	return &Generator{db: db, log: log, root: root}
+}
+
+func (g *Generator) session(ctx context.Context, s runner.Session) (runner.Result, error) {
+	if g.runSession != nil {
+		return g.runSession(ctx, s)
+	}
+	return s.Run(ctx)
+}
+
+// Session and phase bounds. The wizard's watchdog is derived from these, so
+// they live here rather than being re-guessed at the call site.
+const (
+	// rosterTimeout bounds the phase-1 session: one read-heavy opus call.
+	rosterTimeout = 15 * time.Minute
+	// writeTimeout bounds ONE persona or skill session. When a session hits
+	// it, that agent falls back to its brief — the run carries on.
+	writeTimeout = 4 * time.Minute
+	// maxParallelWrites bounds phase 2. The sessions are independent, but
+	// unbounded launch would put a 27-agent fleet's worth of Claude processes
+	// on the operator's machine at once and trip provider rate limits; five
+	// keeps a big roster inside a sane wall clock without either.
+	maxParallelWrites = 5
+)
+
+// RosterBudget is how long a caller should allow phase 1 before concluding it
+// hung: the session's own cap plus margin for spawn and parse.
+const RosterBudget = rosterTimeout + 5*time.Minute
+
+// PhaseBudget is how long a caller should allow the write phase given how many
+// items REMAIN. It budgets remaining work, not the whole run: the wizard
+// re-arms its watchdog with this on every completion, so a big fleet earns
+// time by making progress while a hung one still dies within a single wave.
+func PhaseBudget(remaining int) time.Duration {
+	if remaining < 1 {
+		remaining = 1
+	}
+	waves := (remaining + maxParallelWrites - 1) / maxParallelWrites
+	// Twice the session cap per wave: a thin skill body gets exactly one
+	// retry, so the honest worst case for one slot is two full sessions.
+	return time.Duration(waves)*2*writeTimeout + 5*time.Minute
 }
 
 const (
@@ -243,6 +299,13 @@ type roster struct {
 type Progress func(stage string, done, total int, spentUSD float64)
 
 // Generate runs both phases, writes the tree and persists the fleet.
+//
+// Durability contract: the roster is persisted the moment it is decided, and
+// every persona and skill body the moment its session returns. A run that dies
+// at agent 20 of 27 leaves 20 personas in the database, and the next call with
+// the same plan resumes at agent 21 — it re-runs neither the roster session
+// (re-deciding could produce a different team than the personas already
+// written) nor anything already on file. Pressing Generate twice is free.
 func (g *Generator) Generate(ctx context.Context, fleetName, plan, model string, onProgress Progress) (*Manifest, float64, error) {
 	if strings.TrimSpace(plan) == "" {
 		return nil, 0, fmt.Errorf("the plan is empty")
@@ -250,117 +313,247 @@ func (g *Generator) Generate(ctx context.Context, fleetName, plan, model string,
 	if model == "" {
 		model = "opus"
 	}
+	// spent and done are written by concurrent phase-2 workers; mu guards both.
+	var mu sync.Mutex
 	spent := 0.0
-	report := func(stage string, done, total int) {
+	report := func(stage string, done, total int, spentNow float64) {
 		if onProgress != nil {
-			onProgress(stage, done, total, spent)
+			onProgress(stage, done, total, spentNow)
 		}
 	}
 
-	fenced := planFenceOpen + "\n" +
-		strings.NewReplacer(planFenceOpen, "", planFenceClose, "").Replace(plan) +
-		"\n" + planFenceClose
-
-	// ---- phase 1: the roster ----------------------------------------------
-	report("roster", 0, 1)
-	rosterSess := runner.Session{
-		ID:             newUUID(),
-		Dir:            g.root,
-		Prompt:         fmt.Sprintf(rosterPrompt, fenced),
-		Model:          model,
-		AllowedTools:   "Read,Glob,Grep", // read-only: the model proposes, Go writes
-		MaxTurns:       40,
-		PermissionMode: "acceptEdits",
-		Timeout:        15 * time.Minute,
-	}
-
-	g.log.Info("fleet phase 1: roster", "model", model)
-	res, err := rosterSess.Run(ctx)
-	spent = res.CostUSD
+	// ---- phase 1: the roster, or the one a previous run already decided ----
+	r, resuming, err := g.loadRoster(ctx, fleetName, digest(plan))
 	if err != nil {
-		return nil, spent, fmt.Errorf("roster session: %w", err)
+		return nil, 0, err
 	}
-	if res.IsError {
-		return nil, spent, fmt.Errorf("roster session error: %s", trunc(res.Text, 300))
+	rosterSessionID := ""
+	if resuming {
+		g.log.Info("resuming fleet generation from the persisted roster",
+			"fleet", fleetName, "agents", len(r.Agents), "skills", len(r.Skills))
+		report("roster", 1, 1, 0)
+	} else {
+		report("roster", 0, 1, 0)
+		fenced := planFenceOpen + "\n" +
+			strings.NewReplacer(planFenceOpen, "", planFenceClose, "").Replace(plan) +
+			"\n" + planFenceClose
+		rosterSess := runner.Session{
+			ID:             newUUID(),
+			Dir:            g.root,
+			Prompt:         fmt.Sprintf(rosterPrompt, fenced),
+			Model:          model,
+			AllowedTools:   "Read,Glob,Grep", // read-only: the model proposes, Go writes
+			MaxTurns:       40,
+			PermissionMode: "acceptEdits",
+			Timeout:        rosterTimeout,
+		}
+
+		g.log.Info("fleet phase 1: roster", "model", model)
+		res, err := g.session(ctx, rosterSess)
+		spent = res.CostUSD
+		if err != nil {
+			return nil, spent, fmt.Errorf("roster session: %w", err)
+		}
+		if res.IsError {
+			return nil, spent, fmt.Errorf("roster session error: %s", trunc(res.Text, 300))
+		}
+
+		var rr roster
+		if err := res.JSON(&rr); err != nil {
+			g.dumpRaw("roster", res.Raw)
+			return nil, spent, fmt.Errorf("roster was not valid JSON (%w) — raw response saved to %s",
+				err, g.dumpPath("roster"))
+		}
+		if len(rr.Agents) == 0 {
+			return nil, spent, fmt.Errorf("the roster contains no agents")
+		}
+		r = &rr
+		rosterSessionID = res.SessionID
+		g.log.Info("fleet roster", "agents", len(r.Agents), "skills", len(r.Skills), "cost", spent)
+		report("roster", 1, 1, spent)
 	}
 
-	var r roster
-	if err := res.JSON(&r); err != nil {
-		g.dumpRaw("roster", res.Raw)
-		return nil, spent, fmt.Errorf("roster was not valid JSON (%w) — raw response saved to %s",
-			err, g.dumpPath("roster"))
+	// Identity checks and normalisation must run BEFORE the roster is
+	// persisted: builder_agents carries CHECK constraints on slug and model, so
+	// one unfiltered roster row would abort the transaction that makes the
+	// other twenty-six durable.
+	m, briefs, skillBriefs, problems := skeletonManifest(r)
+	if len(problems) > 0 {
+		g.log.Warn("roster problems", "count", len(problems), "problems", problems)
 	}
-	if len(r.Agents) == 0 {
-		return nil, spent, fmt.Errorf("the roster contains no agents")
+	if len(m.Agents) == 0 {
+		return nil, spent, fmt.Errorf("the roster contains no usable agents: %s", strings.Join(problems, "; "))
 	}
-	g.log.Info("fleet roster", "agents", len(r.Agents), "skills", len(r.Skills), "cost", spent)
-	report("roster", 1, 1)
+	if !resuming {
+		if err := g.persistRoster(ctx, fleetName, plan, r, m, rosterSessionID); err != nil {
+			return nil, spent, fmt.Errorf("persist roster: %w", err)
+		}
+	}
 
 	// ---- phase 2: personas and skill bodies -------------------------------
 	// A cheaper model is right here: writing a persona from an agreed roster is
 	// much easier than designing the team was.
 	writeModel := "sonnet"
-	m := &Manifest{Summary: r.Summary, Notes: r.Notes}
-	total := len(r.Agents) + len(r.Skills)
+	total := len(m.Agents) + len(m.Skills)
 	done := 0
 
-	for _, ra := range r.Agents {
-		report("persona", done, total)
-		spec := ra.AgentSpec
-		p, cost := g.writeOne(ctx, writeModel, "persona",
-			fmt.Sprintf(personaPrompt, trunc(plan, 2000), ra.Slug, ra.DisplayName,
-				ra.Role, strings.Join(ra.Areas, ", "), ra.PersonaBrief))
-		spent += cost
-		if p == "" {
-			// Fall back to the brief rather than dropping the agent: an agent
-			// with a thin persona is recoverable, a missing one is not.
-			p = fmt.Sprintf("You are **%s**.\n\n%s\n\nAreas: %s.",
-				ra.DisplayName, ra.PersonaBrief, strings.Join(ra.Areas, ", "))
-			g.log.Warn("persona generation failed; using the brief", "agent", ra.Slug)
+	// What a previous run already paid for is loaded, counted as done and never
+	// bought again. On a fresh roster both maps are empty by construction:
+	// persistRoster blanked the personas, and skills are only ever filled once.
+	havePersonas, err := g.personasOnFile(ctx, m.Agents)
+	if err != nil {
+		return nil, spent, err
+	}
+	haveSkills, err := g.skillBodiesOnFile(ctx, m.Skills)
+	if err != nil {
+		return nil, spent, err
+	}
+	for i := range m.Agents {
+		if p, ok := havePersonas[m.Agents[i].Slug]; ok {
+			m.Agents[i].Persona = p
+			done++
 		}
-		spec.Persona = p
-		m.Agents = append(m.Agents, spec)
-		done++
+	}
+	for i := range m.Skills {
+		if b, ok := haveSkills[m.Skills[i].Name]; ok {
+			m.Skills[i].Body = b
+			done++
+		}
+	}
+	if done > 0 {
+		g.log.Info("resume: skipping items already on file", "done", done, "total", total)
+	}
+	report("persona", done, total, spent)
+
+	limit := g.parallel
+	if limit <= 0 {
+		limit = maxParallelWrites
+	}
+	eg, gctx := errgroup.WithContext(ctx)
+	eg.SetLimit(limit)
+
+	for i := range m.Agents {
+		if m.Agents[i].Persona != "" {
+			continue
+		}
+		spec := m.Agents[i]
+		eg.Go(func() error {
+			// A cancelled run must not burn a slot spawning a doomed process.
+			if err := gctx.Err(); err != nil {
+				return err
+			}
+			p, cost := g.writeOne(gctx, writeModel, "persona",
+				fmt.Sprintf(personaPrompt, trunc(plan, 2000), spec.Slug, spec.DisplayName,
+					spec.Role, strings.Join(spec.Areas, ", "), briefs[spec.Slug]))
+			mu.Lock()
+			spent += cost
+			mu.Unlock()
+			if p == "" {
+				// A dead run and a failed agent both surface as an empty
+				// answer, and they must not be treated the same: persisting a
+				// brief-fallback for every agent a cancelled run never reached
+				// would mark them done and make resume skip them forever.
+				if err := gctx.Err(); err != nil {
+					return err
+				}
+				// This agent's own session failed (its 4-minute cap, a bad
+				// exit). Fall back to the brief rather than dropping the
+				// agent or the run: a thin persona is recoverable, a missing
+				// agent is not, and 26 sessions must not die for one.
+				p = fmt.Sprintf("You are **%s**.\n\n%s\n\nAreas: %s.",
+					spec.DisplayName, briefs[spec.Slug], strings.Join(spec.Areas, ", "))
+				g.log.Warn("persona generation failed; using the brief", "agent", spec.Slug)
+			}
+			if err := g.persistPersona(gctx, spec.Slug, p); err != nil {
+				return fmt.Errorf("persist persona %s: %w", spec.Slug, err)
+			}
+			mu.Lock()
+			m.Agents[i].Persona = p
+			done++
+			d, s := done, spent
+			mu.Unlock()
+			// done counts persisted items, never launched ones — the wizard's
+			// "18 of 27" must mean 18 personas that are safe in the database.
+			report("persona", d, total, s)
+			return nil
+		})
 	}
 
-	for _, rs := range r.Skills {
-		report("skill", done, total)
-		prompt := fmt.Sprintf(skillPrompt, trunc(plan, 1500), rs.Name, rs.Brief)
-		body, cost := g.writeOne(ctx, writeModel, "body", prompt)
-		spent += cost
-
-		// One retry when the answer is too thin to be a procedure.
-		//
-		// The original prompt produced a single restated sentence every time.
-		// The prompt is much more specific now, but a model that ignored it once
-		// will ignore it again silently, and the result — a catalogue of stubs
-		// that look like skills — is worse than an obvious failure. The retry is
-		// told plainly what was wrong with the first attempt.
-		if why := checkSkillBody(body); why != "" {
-			g.log.Warn("skill body rejected; retrying", "skill", rs.Name, "why", why)
-			retry, rcost := g.writeOne(ctx, writeModel, "body",
-				prompt+"\n\nYour previous attempt was rejected: "+why+
-					"\nWrite the full procedure this time, with every required section.")
-			spent += rcost
-			if checkSkillBody(retry) == "" {
-				body = retry
-			} else if len(retry) > len(body) {
-				// Still short, but closer. Keep the better of the two rather
-				// than throwing away work that cost money.
-				body = retry
-			}
-			if why := checkSkillBody(body); why != "" {
-				g.log.Warn("skill still thin after a retry", "skill", rs.Name, "why", why)
-			}
+	for i := range m.Skills {
+		if m.Skills[i].Body != "" {
+			continue
 		}
+		sk := m.Skills[i]
+		eg.Go(func() error {
+			if err := gctx.Err(); err != nil {
+				return err
+			}
+			prompt := fmt.Sprintf(skillPrompt, trunc(plan, 1500), sk.Name, skillBriefs[sk.Name])
+			body, cost := g.writeOne(gctx, writeModel, "body", prompt)
+			mu.Lock()
+			spent += cost
+			mu.Unlock()
 
-		if body == "" {
-			body = rs.Brief
-		}
-		m.Skills = append(m.Skills, SkillSpec{Name: rs.Name, Description: rs.Description, Body: body})
-		done++
+			// One retry when the answer is too thin to be a procedure.
+			//
+			// The original prompt produced a single restated sentence every
+			// time. The prompt is much more specific now, but a model that
+			// ignored it once will ignore it again silently, and the result —
+			// a catalogue of stubs that look like skills — is worse than an
+			// obvious failure. The retry is told plainly what was wrong with
+			// the first attempt. Skipped when the run is being cancelled:
+			// retrying against a dead context can only report the wrong error.
+			if why := checkSkillBody(body); why != "" && gctx.Err() == nil {
+				g.log.Warn("skill body rejected; retrying", "skill", sk.Name, "why", why)
+				retry, rcost := g.writeOne(gctx, writeModel, "body",
+					prompt+"\n\nYour previous attempt was rejected: "+why+
+						"\nWrite the full procedure this time, with every required section.")
+				mu.Lock()
+				spent += rcost
+				mu.Unlock()
+				if checkSkillBody(retry) == "" {
+					body = retry
+				} else if len(retry) > len(body) {
+					// Still short, but closer. Keep the better of the two
+					// rather than throwing away work that cost money.
+					body = retry
+				}
+				if why := checkSkillBody(body); why != "" {
+					g.log.Warn("skill still thin after a retry", "skill", sk.Name, "why", why)
+				}
+			}
+
+			if body == "" {
+				// Same distinction as personas: only fall back when THIS
+				// session failed, never when the whole run did.
+				if err := gctx.Err(); err != nil {
+					return err
+				}
+				body = skillBriefs[sk.Name]
+			}
+			if err := g.persistSkillBody(gctx, sk.Name, sk.Description, body); err != nil {
+				return fmt.Errorf("persist skill %s: %w", sk.Name, err)
+			}
+			mu.Lock()
+			m.Skills[i].Body = body
+			done++
+			d, s := done, spent
+			mu.Unlock()
+			report("skill", d, total, s)
+			return nil
+		})
 	}
-	report("write", total, total)
+
+	if err := eg.Wait(); err != nil {
+		mu.Lock()
+		d, s := done, spent
+		mu.Unlock()
+		// Say what survived: "failed" alone reads as "start over", and the
+		// entire point of per-item persistence is that it is not.
+		return m, s, fmt.Errorf("generation stopped after %d of %d items: %w — "+
+			"finished work is saved; generating again with the same plan resumes from here", d, total, err)
+	}
+	report("write", total, total, spent)
 
 	if problems := m.Validate(); len(problems) > 0 {
 		g.log.Warn("manifest problems", "count", len(problems), "problems", problems)
@@ -376,10 +569,39 @@ func (g *Generator) Generate(ctx context.Context, fleetName, plan, model string,
 	g.log.Info("fleet written", "agents", len(m.Agents), "skills", len(m.Skills),
 		"files", len(written), "cost", spent)
 
-	if err := g.persist(ctx, fleetName, plan, m, res.SessionID); err != nil {
-		return m, spent, fmt.Errorf("persist fleet: %w", err)
+	if err := g.finishFleet(ctx, fleetName); err != nil {
+		return m, spent, fmt.Errorf("mark fleet active: %w", err)
 	}
 	return m, spent, nil
+}
+
+// skeletonManifest turns a roster into the manifest the run will fill in,
+// dropping entries whose identity would poison the database write, and hands
+// back the briefs the phase-2 prompts are built from (AgentSpec does not carry
+// them). Personas are deliberately EMPTY in the result — an empty persona_md
+// is the completion marker resume keys on. Validate would reject that as a
+// broken agent, so a placeholder stands in during the identity checks and is
+// cleared after. Filtering is deterministic, so running it again over the
+// stored roster on resume converges on the same team.
+func skeletonManifest(r *roster) (m *Manifest, briefs, skillBriefs map[string]string, problems []string) {
+	briefs = map[string]string{}
+	skillBriefs = map[string]string{}
+	m = &Manifest{Summary: r.Summary, Notes: r.Notes}
+	for _, ra := range r.Agents {
+		spec := ra.AgentSpec
+		spec.Persona = "pending"
+		m.Agents = append(m.Agents, spec)
+		briefs[strings.ToLower(strings.TrimSpace(ra.Slug))] = ra.PersonaBrief
+	}
+	for _, rs := range r.Skills {
+		m.Skills = append(m.Skills, SkillSpec{Name: rs.Name, Description: rs.Description})
+		skillBriefs[strings.ToLower(strings.TrimSpace(rs.Name))] = rs.Brief
+	}
+	problems = m.Validate()
+	for i := range m.Agents {
+		m.Agents[i].Persona = ""
+	}
+	return m, briefs, skillBriefs, problems
 }
 
 // writeOne runs a single small generation and returns its text.
@@ -401,9 +623,9 @@ func (g *Generator) writeOne(ctx context.Context, model, field, prompt string) (
 		AllowedTools:   "Read,Glob,Grep",
 		MaxTurns:       12,
 		PermissionMode: "acceptEdits",
-		Timeout:        4 * time.Minute,
+		Timeout:        writeTimeout,
 	}
-	res, err := sess.Run(ctx)
+	res, err := g.session(ctx, sess)
 	if err != nil {
 		g.log.Warn("generation step failed", "field", field, "err", err)
 		return "", res.CostUSD
@@ -447,8 +669,48 @@ func trunc(s string, n int) string {
 	return s[:n] + "…"
 }
 
-// persist records the fleet, its agents, and a brain per agent.
-func (g *Generator) persist(ctx context.Context, name, plan string, m *Manifest, sessionID string) error {
+// loadRoster returns the roster a previous run persisted for this exact plan.
+//
+// Matching on the digest matters: resume must never mix personas written for
+// one plan with a roster re-decided for another. A changed plan is a fresh
+// generation; the same plan is always a resume — even after success, which is
+// what makes pressing Generate twice free instead of a duplicate bill.
+func (g *Generator) loadRoster(ctx context.Context, name, planDigest string) (*roster, bool, error) {
+	var raw []byte
+	err := g.db.QueryRowContext(ctx,
+		`SELECT roster_json FROM builder_fleets
+		  WHERE name = $1 AND plan_digest = $2 AND roster_json IS NOT NULL`,
+		name, planDigest).Scan(&raw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, fmt.Errorf("look up a resumable roster: %w", err)
+	}
+	var r roster
+	if err := json.Unmarshal(raw, &r); err != nil {
+		// A corrupt stored roster must not brick generation forever: treat it
+		// as absent and decide a fresh one, at the price of a roster session.
+		g.log.Warn("stored roster is unreadable; a new one will be decided", "err", err)
+		return nil, false, nil
+	}
+	if len(r.Agents) == 0 {
+		return nil, false, nil
+	}
+	return &r, true, nil
+}
+
+// persistRoster records the fleet, its roster, and one skeleton row per agent —
+// BEFORE any persona is written. This is the durability half of resume: the
+// roster is the expensive opus decision, and each agent row is the slot its
+// persona lands in the moment its session returns. A crash anywhere after this
+// commit loses at most the sessions still in flight.
+func (g *Generator) persistRoster(ctx context.Context, name, plan string, r *roster, m *Manifest, sessionID string) error {
+	rosterRaw, err := json.Marshal(r)
+	if err != nil {
+		return fmt.Errorf("encode roster: %w", err)
+	}
+
 	tx, err := g.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -457,14 +719,14 @@ func (g *Generator) persist(ctx context.Context, name, plan string, m *Manifest,
 
 	var fleetID string
 	if err := tx.QueryRowContext(ctx,
-		`INSERT INTO builder_fleets (name, plan_md, plan_digest, generated_by_session_id, status)
-		 VALUES ($1,$2,$3,$4,'active')
+		`INSERT INTO builder_fleets (name, plan_md, plan_digest, generated_by_session_id, status, roster_json)
+		 VALUES ($1,$2,$3,$4,'generating',$5::jsonb)
 		 ON CONFLICT (name) DO UPDATE SET
 		   plan_md = EXCLUDED.plan_md, plan_digest = EXCLUDED.plan_digest,
 		   generated_by_session_id = EXCLUDED.generated_by_session_id,
-		   status = 'active', updated_at = now()
+		   status = 'generating', roster_json = EXCLUDED.roster_json, updated_at = now()
 		 RETURNING id`,
-		name, plan, digest(plan), sessionID).Scan(&fleetID); err != nil {
+		name, plan, digest(plan), sessionID, string(rosterRaw)).Scan(&fleetID); err != nil {
 		return fmt.Errorf("upsert fleet: %w", err)
 	}
 
@@ -485,6 +747,13 @@ func (g *Generator) persist(ctx context.Context, name, plan string, m *Manifest,
 
 	for i, a := range m.Agents {
 		specPath := ".claude/agents/" + a.Slug + ".md"
+		// a.Persona is the skeleton's empty string here, and the conflict arm
+		// writes it over whatever the slug had before — deliberately. This path
+		// only runs for a FRESH roster (a resume never reaches it), and a fresh
+		// roster means any existing persona was written for a different plan.
+		// Blanking is what keeps `persona_md <> ''` a truthful completion
+		// marker; keeping the old text would make resume skip the agent and
+		// ship it a persona grounded in the wrong plan.
 		if _, err := tx.ExecContext(ctx,
 			`INSERT INTO builder_agents
 			   (slug, fleet_id, display_name, description, role, model,
@@ -537,6 +806,94 @@ func (g *Generator) persist(ctx context.Context, name, plan string, m *Manifest,
 	}
 
 	return tx.Commit()
+}
+
+// persistPersona lands one persona the moment its session returns. One row in
+// its own implicit transaction: a crash one agent later cannot take it back.
+func (g *Generator) persistPersona(ctx context.Context, slug, persona string) error {
+	_, err := g.db.ExecContext(ctx,
+		`UPDATE builder_agents SET persona_md = $2, updated_at = now() WHERE slug = $1`,
+		slug, persona)
+	return err
+}
+
+// persistSkillBody catalogues one generated skill body as it is written, which
+// is both the durability record and what resume skips on.
+//
+// The `body_md = ”` guard is the catalogue's version of writeIfSafe on disk:
+// generation fills empty slots and never overwrites a body somebody already
+// has. Source alone cannot make that distinction — hand-written skills arrive
+// from a disk sync as source 'local', the same value used here.
+func (g *Generator) persistSkillBody(ctx context.Context, name, description, body string) error {
+	_, err := g.db.ExecContext(ctx,
+		`INSERT INTO builder_skills (name, title, description, body_md, source, installed_path)
+		 VALUES ($1,$1,$2,$3,'local',$4)
+		 ON CONFLICT (name) DO UPDATE SET
+		   description = EXCLUDED.description, body_md = EXCLUDED.body_md, updated_at = now()
+		 WHERE builder_skills.body_md = ''`,
+		name, trunc(oneLine(description), 1900), body, ".claude/skills/"+name+"/SKILL.md")
+	return err
+}
+
+// finishFleet flips 'generating' to 'active' only after the tree is written.
+// The status is how a half-done run stays recognisable — to the UI, and to
+// anyone asking whether a resume is owed.
+func (g *Generator) finishFleet(ctx context.Context, name string) error {
+	_, err := g.db.ExecContext(ctx,
+		`UPDATE builder_fleets SET status = 'active', updated_at = now() WHERE name = $1`, name)
+	return err
+}
+
+// personasOnFile returns the roster's agents that already carry a persona —
+// the work a previous run paid for and this one must not buy again.
+func (g *Generator) personasOnFile(ctx context.Context, agents []AgentSpec) (map[string]string, error) {
+	slugs := make([]string, 0, len(agents))
+	for _, a := range agents {
+		slugs = append(slugs, a.Slug)
+	}
+	rows, err := g.db.QueryContext(ctx,
+		`SELECT slug, persona_md FROM builder_agents
+		  WHERE slug = ANY($1::text[]) AND persona_md <> ''`, pgArray(slugs))
+	if err != nil {
+		return nil, fmt.Errorf("load existing personas: %w", err)
+	}
+	defer rows.Close()
+	out := map[string]string{}
+	for rows.Next() {
+		var slug, p string
+		if err := rows.Scan(&slug, &p); err != nil {
+			return nil, fmt.Errorf("scan existing persona: %w", err)
+		}
+		out[slug] = p
+	}
+	return out, rows.Err()
+}
+
+// skillBodiesOnFile is personasOnFile for the skill catalogue.
+func (g *Generator) skillBodiesOnFile(ctx context.Context, skills []SkillSpec) (map[string]string, error) {
+	if len(skills) == 0 {
+		return map[string]string{}, nil
+	}
+	names := make([]string, 0, len(skills))
+	for _, s := range skills {
+		names = append(names, s.Name)
+	}
+	rows, err := g.db.QueryContext(ctx,
+		`SELECT name, body_md FROM builder_skills
+		  WHERE name = ANY($1::text[]) AND body_md <> ''`, pgArray(names))
+	if err != nil {
+		return nil, fmt.Errorf("load existing skill bodies: %w", err)
+	}
+	defer rows.Close()
+	out := map[string]string{}
+	for rows.Next() {
+		var name, b string
+		if err := rows.Scan(&name, &b); err != nil {
+			return nil, fmt.Errorf("scan existing skill body: %w", err)
+		}
+		out[name] = b
+	}
+	return out, rows.Err()
 }
 
 func pgArray(xs []string) string {

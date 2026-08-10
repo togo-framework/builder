@@ -1,0 +1,22 @@
+-- Fleet generation must resume, not start over (issue #56).
+--
+-- The roster is decided by one opus session and then lived only in memory
+-- while a session per agent and per skill ran behind it. Any failure after
+-- phase 1 discarded the decision AND every persona already paid for, and the
+-- re-run bought all of it again. The personas now land in builder_agents row
+-- by row as their sessions return; this column is where the DECISION itself
+-- becomes durable the moment it exists.
+--
+-- The stored roster carries what builder_agents does not: the persona briefs
+-- and skill briefs the phase-2 prompts are built from, plus the summary and
+-- notes the manifest needs. A re-run with the same plan (matched on
+-- plan_digest) loads this instead of re-running the roster session —
+-- re-deciding could produce a different team than the personas already
+-- written for the first decision.
+--
+-- NULL means "no roster recorded": fleets generated before this column
+-- existed, whose only option is to start over.
+--
+-- IF NOT EXISTS because there is no migration ledger: scaffold runs every
+-- file in db/migrations on every upgrade, so each must survive re-application.
+ALTER TABLE builder_fleets ADD COLUMN IF NOT EXISTS roster_json jsonb;
