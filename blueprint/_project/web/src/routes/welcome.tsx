@@ -1,180 +1,372 @@
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import {
-  Layers, LayoutGrid, Bot, ListChecks, KeyRound, ArrowRight, ArrowLeft,
-  MessageSquareText, SearchCode, Wrench, GitPullRequest, ShieldCheck, GitBranch, ScrollText,
+  ArrowLeft,
+  ArrowRight,
+  Bot,
+  Camera,
+  FileDiff,
+  GitPullRequest,
+  KeyRound,
+  Languages,
+  LayoutGrid,
+  Layers,
+  ListChecks,
+  MousePointerClick,
+  UserCheck,
 } from "lucide-react";
 import { Button, useT } from "@togo-framework/ui";
+import { PageShell, Rows, Section } from "../components/page-shell";
+import { EmptyState, type Suggestion } from "../components/ui/empty-state";
+import {
+  Footprint,
+  FootprintArtefact,
+  FootprintRow,
+  type FootprintStatus,
+} from "../components/ui/footprint";
 import { API, APP_NAME } from "../lib/api";
 import { sessionMe, type Me } from "../lib/auth";
+import { useWelcomeStrings } from "../lib/i18n.welcome";
 
-type Card = {
-  icon: typeof Layers;
-  en: string; ar: string;
-  descEn: string; descAr: string;
-  to: string;
+/**
+ * welcome — the first screen, treated as a WAYFINDER rather than a landing page.
+ *
+ * The previous version explained the product in prose: a 60-word hero
+ * paragraph, then four "how it works" slabs, then three pillar slabs, then four
+ * link cards. Fifteen boxes, all at the same volume, and the actual next action
+ * — log in — sat above the fold and then never appeared again. A newcomer had
+ * to READ the page to find out what the thing does.
+ *
+ * This version shows instead of tells, and the substitution is the whole edit:
+ *
+ *   1. The hero states the promise in one line and one sentence. Everything the
+ *      paragraph used to claim is demonstrated below rather than asserted here.
+ *   2. "How it works" is rendered as an actual Footprint — the product's own
+ *      evidence primitive, the same component the agent's Runs tab uses. A
+ *      newcomer does not read that agents leave a checkable trail; they look at
+ *      one, with the handles, the files, the diffstat and the spend on it. It
+ *      is labelled as an example, because a fabricated trace presented as real
+ *      data would poison the one thing this component exists to establish.
+ *   3. The last row of that trace is `pending`, not `done`. The single most
+ *      important fact about an autonomous fleet — that a human stands between
+ *      every change and production — is therefore carried by the SHAPE of a
+ *      glyph in a list, which survives being skimmed.
+ *   4. One primary action, auth-aware, in one place. The signed-out visitor
+ *      gets the four destinations as wayfinder pills on an EmptyState, because
+ *      "you have no fleet yet" is an honest empty state and not a failure.
+ *
+ * Every route the old page linked to is still reachable: /dashboard, /agents,
+ * /issues, /vault, /login, /register.
+ *
+ * Layout note: this page owns NO horizontal geometry. PageShell supplies the
+ * gutter, the rail and the start-anchored measure. A local `max-w-* mx-auto`
+ * here is exactly what made the h1 jump 120px between routes.
+ */
+
+/* ------------------------------------------------------------------ */
+/* The example run                                                     */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The machine half of the trace. These are identical in English and Arabic —
+ * an agent handle, a path and a diffstat are machine names in both — so they
+ * live here rather than in i18n.welcome, and every one of them is rendered
+ * through FootprintArtefact, which carries `dir="ltr"`.
+ *
+ * Indexes are parallel to `S.steps`, which is a fixed-length tuple so the two
+ * cannot drift apart without a type error.
+ */
+type Beat = {
+  status: FootprintStatus;
+  /** Agent handle. Rendered LTR + mono by FootprintRow. */
+  actor?: string;
+  /** Checkable artefacts: [icon, machine value] pairs. */
+  artefacts?: { icon: typeof Camera; value: string }[];
+  costUsd?: number;
+  tokens?: number;
 };
 
-// What this fleet actually does — the landing page for the builder itself,
-// not the generic togo framework scaffold it replaced.
-const CARDS: Card[] = [
-  { icon: LayoutGrid, en: "Dashboard", ar: "لوحة التحكم", descEn: "Live status across every run, issue and agent.", descAr: "حالة مباشرة لكل تشغيل ومهمة ووكيل.", to: "/dashboard" },
-  { icon: Bot, en: "Agents", ar: "الوكلاء", descEn: "Meet the fleet — specialists that pick up issues and ship fixes.", descAr: "تعرّف على الفريق — متخصصون يتولون المهام وينفّذون الإصلاحات.", to: "/agents" },
-  { icon: ListChecks, en: "Issues", ar: "المهام", descEn: "Report a bug and watch an agent reproduce and fix it.", descAr: "أبلغ عن خلل وشاهد وكيلاً يعيد إنتاجه ويصلحه.", to: "/issues" },
-  { icon: KeyRound, en: "Vault", ar: "الخزنة", descEn: "Secrets your agents can use, never see.", descAr: "أسرار يستخدمها الوكلاء ولا يرونها أبداً.", to: "/vault" },
+const RUN: readonly Beat[] = [
+  {
+    status: "done",
+    artefacts: [
+      { icon: Camera, value: "screenshot.png" },
+      { icon: MousePointerClick, value: "click-path" },
+    ],
+  },
+  { status: "done", actor: "agent:qa", artefacts: [{ icon: ListChecks, value: "issue #128" }] },
+  {
+    status: "done",
+    actor: "agent:web",
+    artefacts: [
+      { icon: Layers, value: "web/src/routes/welcome.tsx" },
+      { icon: FileDiff, value: "+38 −12" },
+    ],
+    costUsd: 0.12,
+    tokens: 48000,
+  },
+  {
+    status: "done",
+    actor: "agent:review",
+    artefacts: [{ icon: GitPullRequest, value: "PR #91" }],
+  },
+  { status: "pending", artefacts: [{ icon: UserCheck, value: "human gate" }] },
 ];
 
-type Step = { icon: typeof Layers; en: string; ar: string; descEn: string; descAr: string };
+/* ------------------------------------------------------------------ */
+/* Destinations                                                        */
+/* ------------------------------------------------------------------ */
 
-const STEPS: Step[] = [
-  { icon: MessageSquareText, en: "Report", ar: "الإبلاغ", descEn: "Anyone pins a problem on the page it happened on — a screenshot, a click path, the exact element.", descAr: "يشير أي شخص إلى مشكلة في الصفحة التي حدثت فيها — لقطة شاشة، مسار النقرات، والعنصر بالتحديد." },
-  { icon: SearchCode, en: "Reproduce", ar: "إعادة الإنتاج", descEn: "An agent claims the issue and proves the bug is real before touching a single line of code.", descAr: "يتولى وكيل المهمة ويثبت أن الخلل حقيقي قبل تعديل أي سطر من الكود." },
-  { icon: Wrench, en: "Fix", ar: "الإصلاح", descEn: "The right specialist — backend, database, or UI — makes the smallest change that fixes it, and proves it live.", descAr: "يقوم المتخصص المناسب — خلفي أو قاعدة بيانات أو واجهة — بأصغر تعديل يحل المشكلة ويثبت عمله فعليًا." },
-  { icon: GitPullRequest, en: "Review & ship", ar: "المراجعة والتسليم", descEn: "A second, independent agent reviews the diff. A human merges. Nothing an agent writes merges itself.", descAr: "يراجع وكيل آخر مستقل التغييرات، ويدمجها إنسان. لا يدمج أي وكيل عمله بنفسه." },
+type DestKey = "dashboard" | "agents" | "issues" | "vault";
+
+const DESTINATIONS: { key: DestKey; icon: typeof Bot; to: string }[] = [
+  { key: "dashboard", icon: LayoutGrid, to: "/dashboard" },
+  { key: "agents", icon: Bot, to: "/agents" },
+  { key: "issues", icon: ListChecks, to: "/issues" },
+  { key: "vault", icon: KeyRound, to: "/vault" },
 ];
 
-type Pillar = { icon: typeof Layers; en: string; ar: string; descEn: string; descAr: string };
-
-const PILLARS: Pillar[] = [
-  { icon: ShieldCheck, en: "Guardrails, not vibes", ar: "ضوابط لا انطباعات", descEn: "Every run is bounded by written rules — blast-radius caps, spend ceilings, and a human gate on anything risky.", descAr: "كل تشغيل مقيّد بقواعد مكتوبة — حدود لنطاق التغيير، سقوف للإنفاق، وبوابة بشرية لأي شيء حسّاس." },
-  { icon: GitBranch, en: "Generator-first togo", ar: "togo أولاً بالمولّدات", descEn: "Schema, queries and API contracts are declared once and generated — never hand-patched behind the framework's back.", descAr: "يُعلن المخطط والاستعلامات وعقود الواجهة مرة واحدة وتُولَّد تلقائيًا — لا تعديل يدوي خفي عن الإطار." },
-  { icon: ScrollText, en: "Full audit trail", ar: "سجل تدقيق كامل", descEn: "Every run writes a journal — what reproduced, what changed, what was verified live. No journal, no merge.", descAr: "كل تشغيل يكتب سجلًا — ما تكرر، وما تغيّر، وما تم التحقق منه فعليًا. بلا سجل، لا دمج." },
-];
+/* ------------------------------------------------------------------ */
+/* Page                                                                */
+/* ------------------------------------------------------------------ */
 
 export function Welcome() {
-  const { language } = useT();
-  const ar = language === "ar";
-  const tx = (en: string, a: string) => (ar ? a : en);
+  const { setLanguage } = useT();
+  const { S, ar } = useWelcomeStrings();
+  const navigate = useNavigate();
   const Arrow = ar ? ArrowLeft : ArrowRight;
 
   const [health, setHealth] = useState<{ status?: string; togo?: string } | null>(null);
+  // undefined = still asking. Distinguished from null so the hand-off slot can
+  // hold its height instead of flashing the signed-out state at every visitor.
   const [me, setMe] = useState<Me | null | undefined>(undefined);
 
   useEffect(() => {
-    fetch(`${API}/api/health`).then((r) => r.json()).then(setHealth).catch(() => setHealth(null));
+    fetch(`${API}/api/health`)
+      .then((r) => r.json())
+      .then(setHealth)
+      .catch(() => setHealth(null));
     sessionMe().then(setMe).catch(() => setMe(null));
   }, []);
 
   const online = health?.status === "ok";
 
+  const label: Record<DestKey, { name: string; desc: string }> = {
+    dashboard: { name: S.dashboard, desc: S.dashboardDesc },
+    agents: { name: S.agents, desc: S.agentsDesc },
+    issues: { name: S.issues, desc: S.issuesDesc },
+    vault: { name: S.vault, desc: S.vaultDesc },
+  };
+
+  // The wayfinder. Same four destinations as the signed-in list, so the page
+  // teaches one map regardless of session state; the router's own guard sends
+  // an unauthenticated visitor to /login and back.
+  const suggestions: Suggestion[] = DESTINATIONS.map((d) => ({
+    label: label[d.key].name,
+    title: `${S.opens}${label[d.key].name}`,
+    icon: <d.icon aria-hidden="true" />,
+    onSelect: () => navigate({ to: d.to }),
+  }));
+
   return (
-    <main dir={ar ? "rtl" : "ltr"} className="relative min-h-screen overflow-hidden bg-background text-foreground">
-      {/* subtle brand glow — theme-aware, decorative */}
-      <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-96"
-        style={{ background: "radial-gradient(620px 320px at 50% -4%, color-mix(in srgb, var(--primary) 22%, transparent), transparent 70%)" }} />
+    <main dir={ar ? "rtl" : "ltr"} className="relative min-h-screen bg-background text-foreground">
+      {/* Brand glow. Theme-token driven, so it retints under every preset —
+          a hardcoded gradient stays blue under a rose theme, which is how a
+          page stops belonging to the product. */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-96 bg-[radial-gradient(620px_320px_at_50%_-4%,hsl(var(--primary)/0.16),transparent_70%)]"
+      />
 
-      <div className="mx-auto w-full max-w-4xl px-6 py-16 sm:py-20">
-        {/* hero */}
-        <header className="text-center">
-          <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-2xl text-white shadow-lg"
-            style={{ background: "linear-gradient(135deg,#1FC7DC,#2D8CE6 55%,#1659C8)" }}>
-            <Layers className="h-8 w-8" />
+      <PageShell>
+        {/* Utility row — kept out of the hero's flow so it cannot compete with
+            the primary action. A bilingual product whose first screen has no
+            way to change language has already failed half its audience. */}
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={() => setLanguage(ar ? "en" : "ar")}
+            aria-label={S.switchLang}
+            className="motion-hover motion-press inline-flex items-center gap-1.5 rounded-pill border border-border bg-card px-3 py-1.5 text-xs text-muted-foreground hover:border-primary/40 hover:text-foreground"
+          >
+            <Languages aria-hidden="true" className="size-3.5" />
+            <bdi>{S.otherLang}</bdi>
+          </button>
+        </div>
+
+        {/* ── Hero ─────────────────────────────────────────────────── */}
+        <header className="motion-entrance motion-reduce:animate-none flex flex-col items-start gap-4 pt-2 sm:pt-6">
+          <div className="flex items-center gap-3">
+            <span className="flex size-10 shrink-0 items-center justify-center rounded-card bg-primary text-primary-foreground shadow-brand">
+              <Layers aria-hidden="true" className="size-5" />
+            </span>
+            <div className="flex min-w-0 flex-col">
+              {/* APP_NAME is a product name — Latin in both languages, and the
+                  isolate is what stops it colliding with the Arabic eyebrow. */}
+              <bdi dir="ltr" className="truncate text-sm font-semibold text-foreground">
+                {APP_NAME}
+              </bdi>
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                {S.eyebrow}
+              </span>
+            </div>
           </div>
-          <h1 className="text-4xl font-extrabold tracking-tight sm:text-5xl">{APP_NAME}</h1>
-          <p className="mx-auto mt-3 max-w-xl text-base text-muted-foreground sm:text-lg">
-            {tx("An autonomous fleet of AI agents that turns reported issues into shipped fixes.",
-                "أسطول من الوكلاء الذكيين يحوّل المهام المُبلّغ عنها إلى إصلاحات مُنفَّذة.")}
-          </p>
-          <p className="mx-auto mt-4 max-w-2xl text-sm text-muted-foreground sm:text-base">
-            {tx(
-              `${APP_NAME} is built on the togo builder blueprint: a set of specialist agents, each scoped to one part of the codebase, working under written rules instead of open-ended prompts. A person reports a problem; an agent reproduces it, fixes it, and proves the fix live — with another agent and a human standing between every change and production.`,
-              `يقوم ${APP_NAME} على مخطط بناء togo: مجموعة من الوكلاء المتخصصين، كل واحد مسؤول عن جزء محدد من الشيفرة، يعملون وفق قواعد مكتوبة لا مطالبات مفتوحة. يُبلِّغ شخص عن مشكلة، فيعيد وكيل إنتاجها ويصلحها ويُثبت عمل الإصلاح فعليًا — مع وكيل آخر وإنسان بين كل تغيير والإنتاج.`
-            )}
-          </p>
 
-          {/* auth-aware CTAs */}
-          <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
-            {me ? (
-              <Button asChild size="lg" className="w-full sm:w-auto">
-                <Link to="/dashboard">{tx("Go to dashboard", "اذهب إلى لوحة التحكم")} <Arrow className="ms-1 h-4 w-4" /></Link>
+          {/* The measure is wide enough for the whole promise to sit on one
+              line on a laptop. At a poster width it broke after "An", which
+              splits the subject from its verb and makes a seven-word headline
+              read as two fragments. */}
+          <h1 className="max-w-[42ch] text-balance text-3xl font-bold leading-tight tracking-tight text-foreground sm:text-4xl">
+
+            {S.headline}
+          </h1>
+          <p className="max-w-[62ch] text-base text-muted-foreground">{S.sub}</p>
+
+          {/* The hand-off. One primary action; every path the old page offered
+              is preserved. The undefined branch reserves the row's height so
+              the hero does not reflow when /me resolves. */}
+          <div className="mt-2 flex flex-wrap items-center gap-3">
+            {me === undefined ? (
+              <span
+                aria-label={S.loading}
+                className="skeleton-shimmer h-11 w-40 rounded-field"
+              />
+            ) : me ? (
+              <Button asChild size="lg">
+                <Link to="/dashboard">
+                  {S.ctaDashboard}
+                  <Arrow aria-hidden="true" className="ms-2 size-4" />
+                </Link>
               </Button>
             ) : (
               <>
-                <Button asChild size="lg" className="w-full sm:w-auto">
-                  <Link to="/login">{tx("Log in", "تسجيل الدخول")}</Link>
+                <Button asChild size="lg">
+                  <Link to="/login">
+                    {S.ctaLogin}
+                    <Arrow aria-hidden="true" className="ms-2 size-4" />
+                  </Link>
                 </Button>
-                <Button asChild size="lg" variant="outline" className="w-full sm:w-auto">
-                  <Link to="/register">{tx("Create account", "إنشاء حساب")}</Link>
+                <Button asChild size="lg" variant="outline">
+                  <Link to="/register">{S.ctaRegister}</Link>
                 </Button>
               </>
             )}
           </div>
         </header>
 
-        {/* how it works — the report → reproduce → fix → ship loop */}
-        <section className="mt-16">
-          <h2 className="text-center text-xl font-bold tracking-tight sm:text-2xl">
-            {tx("How a fix happens", "كيف يتم الإصلاح")}
-          </h2>
-          <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {STEPS.map((s, i) => (
-              <div key={s.en} className="relative rounded-2xl border border-border bg-card p-5 text-start">
-                <div className="flex items-center gap-3">
-                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary ring-1 ring-inset ring-primary/15">
-                    <s.icon className="h-4.5 w-4.5" />
+        {/* ── The example run ──────────────────────────────────────── */}
+        <Section
+          title={S.runTitle}
+          className="motion-entrance motion-reduce:animate-none [animation-delay:80ms]"
+        >
+          <p className="-mt-1 text-xs text-muted-foreground">{S.runCaption}</p>
+          <Footprint bordered>
+            {RUN.map((beat, i) => (
+              <FootprintRow
+                key={S.steps[i]}
+                status={beat.status}
+                arabic={ar}
+                actor={beat.actor}
+                costUsd={beat.costUsd}
+                tokens={beat.tokens}
+                lead={
+                  <span
+                    title={S.stepLabel(i + 1)}
+                    className="numeric flex size-5 shrink-0 items-center justify-center rounded-pill bg-muted text-[10px] font-semibold text-muted-foreground"
+                  >
+                    <bdi dir="ltr">{i + 1}</bdi>
                   </span>
-                  <span className="text-xs font-semibold text-muted-foreground/70">
-                    {tx(`Step ${i + 1}`, `الخطوة ${i + 1}`)}
+                }
+                title={<span className="text-foreground">{S.steps[i]}</span>}
+                artefacts={beat.artefacts?.map((a) => (
+                  <FootprintArtefact key={a.value} icon={<a.icon aria-hidden="true" />}>
+                    {a.value}
+                  </FootprintArtefact>
+                ))}
+              />
+            ))}
+          </Footprint>
+        </Section>
+
+        {/* ── Where to start ───────────────────────────────────────── */}
+        <Section
+          title={S.startTitle}
+          className="motion-entrance motion-reduce:animate-none [animation-delay:160ms]"
+        >
+          {me === undefined ? (
+            <div aria-label={S.loading} className="skeleton-shimmer h-44 w-full rounded-card" />
+          ) : me ? (
+            /* Signed in: the grouped list, one card with hairlines. Links carry
+               the row's interactive shell because Rows' own Row is an <article>
+               and a destination has to be a real anchor — middle-clickable,
+               copyable, announced as a link. */
+            <Rows>
+              {DESTINATIONS.map((d) => (
+                <Link
+                  key={d.key}
+                  to={d.to}
+                  className="motion-hover group flex items-center gap-3 border-s-2 border-s-transparent px-3 py-3 hover:border-s-primary hover:bg-muted/40"
+                >
+                  <span className="flex size-9 shrink-0 items-center justify-center rounded-field bg-muted text-muted-foreground group-hover:text-primary">
+                    <d.icon aria-hidden="true" className="size-4" />
                   </span>
-                </div>
-                <p className="mt-3 font-semibold">{tx(s.en, s.ar)}</p>
-                <p className="mt-1.5 text-sm text-muted-foreground">{tx(s.descEn, s.descAr)}</p>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        {/* why it's safe to run unattended — the guardrails that make autonomy trustworthy */}
-        <section className="mt-14">
-          <h2 className="text-center text-xl font-bold tracking-tight sm:text-2xl">
-            {tx("Built on the togo blueprint", "مبني على مخطط togo")}
-          </h2>
-          <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-3">
-            {PILLARS.map((p) => (
-              <div key={p.en} className="rounded-2xl border border-border bg-card p-5 text-start">
-                <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary ring-1 ring-inset ring-primary/15">
-                  <p.icon className="h-5 w-5" />
-                </span>
-                <p className="mt-3 font-semibold">{tx(p.en, p.ar)}</p>
-                <p className="mt-1.5 text-sm text-muted-foreground">{tx(p.descEn, p.descAr)}</p>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        {/* explore — each card is a real in-app route */}
-        <section className="mt-14">
-          <h2 className="text-center text-xl font-bold tracking-tight sm:text-2xl">
-            {tx("Explore the fleet", "استكشف الفريق")}
-          </h2>
-          <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2">
-            {CARDS.map((c) => (
-              <Link key={c.en} to={c.to} className="group block rounded-2xl border border-border bg-card p-5 text-start transition-colors hover:border-primary/40 hover:bg-accent/40">
-                <div className="flex items-center gap-3">
-                  <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary ring-1 ring-inset ring-primary/15">
-                    <c.icon className="h-5 w-5" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-semibold text-foreground">
+                      {label[d.key].name}
+                    </span>
+                    <span className="mt-0.5 block text-xs text-muted-foreground">
+                      {label[d.key].desc}
+                    </span>
                   </span>
-                  <span className="font-semibold">{tx(c.en, c.ar)}</span>
-                  <Arrow className="ms-auto h-4 w-4 text-muted-foreground/50 transition-all group-hover:text-primary group-hover:translate-x-0.5 rtl:group-hover:-translate-x-0.5" />
-                </div>
-                <p className="mt-3 text-sm text-muted-foreground">{tx(c.descEn, c.descAr)}</p>
-              </Link>
-            ))}
-          </div>
-        </section>
+                  <Arrow
+                    aria-hidden="true"
+                    className="size-4 shrink-0 text-muted-foreground/50 group-hover:text-primary"
+                  />
+                </Link>
+              ))}
+            </Rows>
+          ) : (
+            /* size="sm" is deliberate. At the default size this dashed box
+               became the largest object on the page, which tells a first-time
+               visitor that the most important thing here is an absence. It is
+               a status line with doors on it, so it gets a strip's height. */
+            <EmptyState
+              size="sm"
+              icon={<Bot aria-hidden="true" />}
+              title={S.emptyTitle}
+              description={S.emptyDesc}
+              suggestionsLabel={S.emptyLabel}
+              suggestions={suggestions}
+            />
+          )}
+        </Section>
 
-        {/* footer status */}
-        <footer className="mt-14 flex flex-wrap items-center justify-center gap-x-3 gap-y-2 text-xs text-muted-foreground">
+        {/* ── Status ───────────────────────────────────────────────── */}
+        {/* pb-20 buys clearance from the SDK feedback launcher, which is fixed
+            to the bottom-END corner of the viewport and does NOT mirror under
+            RTL — so on an Arabic page it lands on top of the start-aligned
+            status line and covers the togo version. */}
+        <footer className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-border pb-20 pt-4 text-xs text-muted-foreground">
           <span className="inline-flex items-center gap-1.5">
-            <span className={`h-2 w-2 rounded-full ${online ? "bg-success" : "bg-muted-foreground/40"}`} />
-            {tx(online ? "API connected" : "API offline", online ? "الواجهة متّصلة" : "الواجهة غير متّصلة")}
+            <span
+              aria-hidden="true"
+              className={`size-2 rounded-pill ${online ? "bg-success" : "bg-muted-foreground/40"}`}
+            />
+            {online ? S.apiOnline : S.apiOffline}
           </span>
-          <span aria-hidden>·</span>
-          <span>togo {health?.togo ?? "…"}</span>
-          <span aria-hidden>·</span>
-          <span>{tx("powered by Go", "مدعوم بـ Go")}</span>
+          {/* A version string is LTR content even on an Arabic page. Without the
+              isolate `togo 0.1.11` renders with the number thrown to the wrong
+              end of the name. */}
+          <bdi dir="ltr" className="numeric font-mono">
+            togo {health?.togo ?? "…"}
+          </bdi>
+          <span>
+            {S.poweredBy}
+            <bdi dir="ltr">Go</bdi>
+          </span>
         </footer>
-      </div>
+      </PageShell>
     </main>
   );
 }
+Welcome.displayName = "Welcome";

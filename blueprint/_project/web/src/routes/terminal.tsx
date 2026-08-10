@@ -2,12 +2,26 @@ import { useEffect, useRef, useState } from "react";
 import {
   Button, Callout, EmptyState, Input, PageHeader, Skeleton, StatusBadge,
 } from "@togo-framework/ui";
-import { Plus, SquareTerminal, Trash2 } from "lucide-react";
+import {
+  ArrowDownToLine, Check, Copy, Plug, Plus, SquareTerminal, Trash2,
+} from "lucide-react";
 import {
   attachURL, createSession, killSession, termStatus, type TermStatus,
 } from "../lib/term";
 import { API } from "../lib/api";
 import { PageShell } from "../components/page-shell";
+import { useStrings } from "../lib/i18n";
+import { useAIStrings } from "../lib/i18n.ai";
+
+/** The slice of xterm's API this page actually drives. Typed here rather than
+ *  importing the class, so xterm stays out of the main bundle. */
+interface XTermLike {
+  dispose: () => void;
+  write: (d: string) => void;
+  scrollToBottom: () => void;
+  onScroll: (cb: (y: number) => void) => { dispose: () => void };
+  buffer: { active: { viewportY: number; baseY: number } };
+}
 
 /**
  * A terminal in the dashboard, attached to tmux on the machine the builder
@@ -16,19 +30,35 @@ import { PageShell } from "../components/page-shell";
  * tmux rather than a bare shell because the point is persistence: start
  * `claude`, close the tab, come back and it is still running. Reattaching is
  * what makes this useful for the long jobs an agent's work actually involves.
+ *
+ * The redesign is about reading LENGTH. Agent output is thousands of lines, so
+ * the session list became a tab strip on top of the terminal instead of loose
+ * pills floating above the page; the frame carries a title bar that says which
+ * machine, which directory and whether the socket is live; and the scroll
+ * position is watched so that reading back through the scrollback offers a way
+ * to return to the tail rather than stranding the operator in the middle of a
+ * run.
  */
 export const Terminal = () => {
+  const { S } = useStrings();
+  const { A } = useAIStrings();
   const [status, setStatus] = useState<TermStatus | null>(null);
   const [err, setErr] = useState("");
   const [active, setActive] = useState<string | null>(null);
   const [newName, setNewName] = useState("builder");
   const [connected, setConnected] = useState(false);
+  const [attachedAt, setAttachedAt] = useState<string | null>(null);
+  /** False while the operator is reading back through the scrollback. */
+  const [atTail, setAtTail] = useState(true);
+  /** Bumped to force a re-attach without changing the session. */
+  const [nonce, setNonce] = useState(0);
+  const [copiedInstall, setCopiedInstall] = useState(false);
 
   const hostRef = useRef<HTMLDivElement | null>(null);
   // The xterm instance and its socket live in refs, not state: they are
   // imperative objects with their own lifecycle, and putting them in state
   // would tear the terminal down on every unrelated re-render.
-  const termRef = useRef<{ dispose: () => void; write: (d: string) => void } | null>(null);
+  const termRef = useRef<XTermLike | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
 
   const load = () =>
@@ -124,7 +154,23 @@ export const Terminal = () => {
       term.loadAddon(fit);
       term.open(hostRef.current);
       fit.fit();
-      termRef.current = term;
+      termRef.current = term as unknown as XTermLike;
+
+      // Follow-tail. xterm keeps the viewport where the operator put it, so
+      // scrolling up to read a stack trace while output keeps arriving is
+      // silent — nothing says the tail has moved on. This watches the viewport
+      // and lets the chrome offer the way back.
+      //
+      // ATTACHED TO TMUX THIS NEVER FIRES, and that is correct rather than
+      // broken: tmux takes the alternate screen, so xterm's normal buffer gets
+      // no scrollback and the viewport is always the tail. The history lives in
+      // tmux's own copy mode, which is what the footer note points at. The
+      // watcher stays because it is right for any attached program that does
+      // NOT hold the alternate screen, and it costs one event subscription.
+      const onScroll = term.onScroll(() => {
+        const b = term.buffer.active;
+        setAtTail(b.viewportY >= b.baseY);
+      });
 
       const ws = new WebSocket(attachURL(active, term.cols, term.rows));
       // The PTY sends bytes; a partial UTF-8 sequence split across two reads is
@@ -134,7 +180,10 @@ export const Terminal = () => {
       const decoder = new TextDecoder();
       wsRef.current = ws;
 
-      ws.onopen = () => setConnected(true);
+      ws.onopen = () => {
+        setConnected(true);
+        setAttachedAt(new Date().toISOString());
+      };
       ws.onclose = () => {
         setConnected(false);
         term.write("\r\n\x1b[2m— detached. The session is still running in tmux. —\x1b[0m\r\n");
@@ -166,6 +215,7 @@ export const Terminal = () => {
 
       cleanup = () => {
         onData.dispose();
+        onScroll.dispose();
         window.removeEventListener("resize", onResize);
         ro.disconnect();
         ws.close();
@@ -179,7 +229,7 @@ export const Terminal = () => {
       disposed = true;
       cleanup();
     };
-  }, [active]);
+  }, [active, nonce]);
 
   async function start() {
     const n = newName.trim();
@@ -205,17 +255,36 @@ export const Terminal = () => {
     }
   }
 
+  /** Drop the socket and attach again. The tmux session is untouched — this
+   *  only rebuilds the browser's end of it. */
+  const handleReconnect = () => {
+    setErr("");
+    setNonce((n) => n + 1);
+  };
+
+  const handleJumpToLatest = () => {
+    termRef.current?.scrollToBottom();
+    setAtTail(true);
+  };
+
+  const handleCopyInstall = async () => {
+    if (!status?.install) return;
+    await navigator.clipboard.writeText(status.install);
+    setCopiedInstall(true);
+    window.setTimeout(() => setCopiedInstall(false), 1600);
+  };
+
   if (!status) {
     // The header is identical to the loaded one so nothing jumps when the
     // status arrives; the skeleton is the size of the terminal it becomes.
     return (
       <PageShell width="wide">
         <PageHeader
-          title="Terminal"
+          title={A.term.title}
           icon={<SquareTerminal className="size-5" />}
-          description="A shell on the machine this builder runs on."
+          description={A.term.desc}
         />
-        <Skeleton className="h-[min(72dvh,760px)] w-full rounded-lg" />
+        <Skeleton className="h-[min(72dvh,760px)] w-full rounded-xl" />
       </PageShell>
     );
   }
@@ -227,18 +296,15 @@ export const Terminal = () => {
     return (
       <PageShell width="narrow">
         <PageHeader
-          title="Terminal"
+          title={A.term.title}
           icon={<SquareTerminal className="size-5" />}
-          description="A shell on the machine this builder runs on."
+          description={A.term.desc}
         />
-        <Callout kind="warn" title="The terminal is off">
-          {status.reason}
+        <Callout kind="warn" title={A.term.offTitle}>
+          {/* The server's own sentence — it names the flag to set. */}
+          <bdi>{status.reason}</bdi>
         </Callout>
-        <p className="text-xs text-muted-foreground">
-          It is off by default on purpose: anyone who can reach this dashboard
-          would be able to run commands on this machine. It refuses to run in
-          production whatever the flag says.
-        </p>
+        <p className="max-w-prose text-xs text-muted-foreground">{A.term.offBody}</p>
       </PageShell>
     );
   }
@@ -247,17 +313,30 @@ export const Terminal = () => {
     return (
       <PageShell width="narrow">
         <PageHeader
-          title="Terminal"
+          title={A.term.title}
           icon={<SquareTerminal className="size-5" />}
-          description="A shell on the machine this builder runs on."
+          description={A.term.desc}
         />
-        <Callout kind="warn" title="tmux is not installed">
-          Sessions run inside tmux so they survive closing this tab. Install it
-          and reload:
-        </Callout>
-        <pre className="overflow-x-auto rounded-md border border-border bg-card p-3 text-xs">
-          {status.install}
-        </pre>
+        <Callout kind="warn" title={A.term.noTmuxTitle}>{A.term.noTmuxBody}</Callout>
+        <div className="rounded-xl border border-border bg-card">
+          <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-1.5">
+            <span className="font-mono text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+              shell
+            </span>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 px-1.5 text-[11px]"
+              onClick={() => void handleCopyInstall()}
+            >
+              {copiedInstall
+                ? <Check className="me-1.5 size-3.5" />
+                : <Copy className="me-1.5 size-3.5" />}
+              {copiedInstall ? A.term.copied : A.term.copyCommand}
+            </Button>
+          </div>
+          <pre dir="ltr" className="overflow-x-auto p-3 text-xs">{status.install}</pre>
+        </div>
       </PageShell>
     );
   }
@@ -265,89 +344,171 @@ export const Terminal = () => {
   return (
     <PageShell width="wide">
       <PageHeader
-        title="Terminal"
+        title={A.term.title}
         icon={<SquareTerminal className="size-5" />}
-        description={`tmux on this machine, in ${status.workdir}. Sessions keep running when you close the tab.`}
+        description={A.term.descIn(status.workdir)}
         actions={
           <div className="flex items-center gap-2">
             <Input
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
-              placeholder="session name"
+              placeholder={A.term.namePlaceholder}
+              aria-label={A.term.nameAria}
+              dir="ltr"
               className="h-9 w-44"
               onKeyDown={(e) => e.key === "Enter" && void start()}
             />
             <Button size="sm" onClick={() => void start()}>
               <Plus className="me-1.5 size-4" />
-              New session
+              {A.term.newSession}
             </Button>
           </div>
         }
       />
 
-      {err && <Callout kind="warn" title="Something went wrong">{err}</Callout>}
+      {err && <Callout kind="warn" title={S.common.somethingWrong}>{err}</Callout>}
 
-      {status.sessions.length > 0 && (
-        <div className="flex flex-wrap items-center gap-2">
-          {status.sessions.map((n) => (
-            <div
-              key={n}
-              className={`flex items-center gap-1.5 rounded-lg border px-2 py-1 text-xs transition-colors ${
-                active === n ? "border-primary bg-primary/10" : "border-border"
-              }`}
-            >
-              <button type="button" onClick={() => setActive(n)} className="font-mono">
-                {n}
-              </button>
-              {active === n && (
-                <StatusBadge tone={connected ? "success" : "neutral"}>
-                  {connected ? "attached" : "detached"}
-                </StatusBadge>
-              )}
-              <button
-                type="button"
-                onClick={() => void kill(n)}
-                aria-label={`Kill ${n}`}
-                className="text-muted-foreground transition-colors hover:text-destructive"
+      {/* One frame: tab strip, title bar, terminal. The sessions used to be
+          loose pills above an unrelated black rectangle, which is why the page
+          read as two widgets that happened to share a screen. */}
+      <section className="flex min-w-0 flex-col overflow-hidden rounded-xl border border-border bg-card">
+        {status.sessions.length > 0 && (
+          <div
+            role="tablist"
+            aria-label={A.term.sessionsHeading}
+            className="flex min-w-0 items-stretch gap-px overflow-x-auto border-b border-border bg-muted/30"
+          >
+            {status.sessions.map((n) => (
+              <div
+                key={n}
+                className={`group flex shrink-0 items-center gap-2 border-b-2 px-3 py-2 transition-colors ${
+                  active === n
+                    ? "border-b-primary bg-card"
+                    : "border-b-transparent hover:bg-card/60"
+                }`}
               >
-                <Trash2 className="size-3.5" />
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={active === n}
+                  onClick={() => setActive(n)}
+                  className="flex items-center gap-2"
+                >
+                  {/* A session name is a machine identifier. */}
+                  <bdi dir="ltr" className="font-mono text-xs">{n}</bdi>
+                  {active === n && (
+                    <span
+                      aria-hidden="true"
+                      className={`size-1.5 rounded-full ${connected ? "bg-success" : "bg-muted-foreground"}`}
+                    />
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void kill(n)}
+                  aria-label={A.term.killAria(n)}
+                  title={A.term.killTitle}
+                  className="rounded p-0.5 text-muted-foreground opacity-0 transition-opacity hover:text-destructive focus-visible:opacity-100 group-hover:opacity-100"
+                >
+                  <Trash2 className="size-3.5" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
 
-      {active ? (
-        <div
-          ref={hostRef}
-          // A DEFINITE height, not flex-1 + h-full.
-          //
-          // The page sits inside a `main` that scrolls, so `h-full` resolved
-          // against an auto-height ancestor — which is no height at all. FitAddon
-          // measured the container, found it unbounded, and sized the terminal to
-          // 417 rows: roughly seven thousand pixels of black that the whole page
-          // then scrolled through forever.
-          //
-          // dvh rather than vh so a mobile browser's collapsing toolbar does not
-          // change the row count on every scroll.
-          style={{ height: "min(72dvh, 760px)" }}
-          // bg-background, not bg-black: xterm paints its own background from
-          // the SAME --background variable (readTheme below), so any other
-          // frame colour shows as a 8px halo around the terminal — black in a
-          // light theme, off-tone in the coloured presets.
-          className="min-h-0 overflow-hidden rounded-lg border border-border bg-background p-2"
-        />
-      ) : (
-        <EmptyState
-          icon={<SquareTerminal className="size-6" />}
-          title={status.sessions.length ? "Pick a session" : "No sessions yet"}
-          description={
-            status.sessions.length
-              ? "Choose one above to attach to it."
-              : "Start one to run claude, gh, git — anything you would run in a terminal here."
-          }
-        />
-      )}
+        {active ? (
+          <>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border px-3 py-1.5">
+              <StatusBadge tone={connected ? "success" : "neutral"}>
+                {connected ? A.term.attached : A.term.detached}
+              </StatusBadge>
+              {connected && attachedAt && (
+                <span className="text-[11px] text-muted-foreground">
+                  {A.term.attachedSince(A.mcp.ago(attachedAt))}
+                </span>
+              )}
+              {/* The working directory is a path — machine text, own direction. */}
+              <bdi
+                dir="ltr"
+                className="min-w-0 truncate font-mono text-[11px] text-muted-foreground"
+              >
+                {status.workdir}
+              </bdi>
+              <Button
+                variant="ghost"
+                size="sm"
+                title={A.term.reconnectTitle}
+                className="ms-auto h-7 px-2 text-[11px] text-muted-foreground"
+                onClick={handleReconnect}
+              >
+                <Plug className="me-1.5 size-3.5" />
+                {A.term.reconnect}
+              </Button>
+            </div>
+
+            {/* relative: the jump-to-latest pill is positioned inside the
+                terminal, where the eye already is, not in the page chrome. */}
+            <div className="relative">
+              <div
+                ref={hostRef}
+                // A DEFINITE height, expressed as an arbitrary Tailwind value
+                // rather than a style attribute — not flex-1 + h-full.
+                //
+                // The page sits inside a `main` that scrolls, so `h-full`
+                // resolved against an auto-height ancestor — which is no height
+                // at all. FitAddon measured the container, found it unbounded,
+                // and sized the terminal to 417 rows: roughly seven thousand
+                // pixels of black that the whole page then scrolled through
+                // forever.
+                //
+                // dvh rather than vh so a mobile browser's collapsing toolbar
+                // does not change the row count on every scroll.
+                // h-[min(64dvh,760px)] — 64, not 72: the frame now carries a tab
+                // strip, a title bar and a status line, and the old figure
+                // pushed the tmux status row past the fold on a 900px viewport
+                // — the one line that says which window you are in.
+                //
+                // bg-background, not bg-black: xterm paints its own background
+                // from the SAME --background variable (readTheme below), so any
+                // other frame colour shows as a halo around the terminal —
+                // black in a light theme, off-tone in the coloured presets.
+                className="min-h-0 h-[min(64dvh,760px)] overflow-hidden bg-background p-2"
+              />
+              {!atTail && (
+                <div className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center">
+                  <Button
+                    size="sm"
+                    className="pointer-events-auto shadow-lg"
+                    onClick={handleJumpToLatest}
+                  >
+                    <ArrowDownToLine className="me-1.5 size-4" />
+                    {A.term.jumpToLatest}
+                  </Button>
+                </div>
+              )}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-x-3 border-t border-border px-3 py-1.5 text-[11px] text-muted-foreground">
+              {/* Only claims to be following when it is. Scrolled back, the
+                  pill above is the statement, and repeating it here would be
+                  two controls for one fact. */}
+              {atTail && <span>{A.term.following}</span>}
+              <span className="ms-auto">{A.term.scrollbackNote}</span>
+            </div>
+          </>
+        ) : (
+          <div className="p-6">
+            <EmptyState
+              icon={<SquareTerminal className="size-6" />}
+              title={status.sessions.length ? A.term.emptyPickTitle : A.term.emptyNoneTitle}
+              description={
+                status.sessions.length ? A.term.emptyPickDesc : A.term.emptyNoneDesc
+              }
+            />
+          </div>
+        )}
+      </section>
     </PageShell>
   );
 };

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { LayoutGrid, List, LoaderCircle, MessageSquare, Plus, RotateCw, SquareKanban } from "lucide-react";
+import { Check, ChevronDown, ChevronUp, ChevronsUp, Folder, GitBranch, Hash, LayoutGrid, List, LoaderCircle, MessageSquare, Plus, SquareKanban, UserRound, X } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import {
   Button, Callout, Checkbox, Dialog, DialogContent, DialogHeader, DialogTitle, EmptyState, Input, Label, MarkdownEditor, PageHeader, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Skeleton, StatusBadge, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, ToggleGroup, ToggleGroupItem,
@@ -9,7 +9,7 @@ import {
   TRANSITIONS, createIssue, fetchBoard, patchIssue,
   type Board, type Card, type IssueStatus, type IssueType, type Priority,
 } from "../lib/issues";
-import { listAgents, type Agent } from "../lib/agents";
+import { agentColor, initials, listAgents, type Agent } from "../lib/agents";
 import { FADE_ONLY } from "../lib/dialog-motion";
 import { useStrings } from "../lib/i18n";
 
@@ -62,11 +62,125 @@ const WorkingMark = ({ className }: { className?: string }) => {
 };
 WorkingMark.displayName = "WorkingMark";
 
+/**
+ * The column's identity as a coloured dot — with the column boxes gone this is
+ * the only always-on colour the board frame carries. Tones echo the stat strip
+ * (ready=info, in-progress=success, blocked=warning) so strip and board read
+ * as one system; semantic tokens only, so every theme preset retints them.
+ */
+const STATUS_DOT: Record<IssueStatus, string> = {
+  triage: "text-muted-foreground",
+  ready: "text-info",
+  in_progress: "text-success",
+  blocked: "text-warning",
+  in_review: "text-primary",
+  done: "text-success",
+  rejected: "text-destructive",
+};
+
+/**
+ * Agent activity as a GLYPH, not a coloured word: a spinner while a lease is
+ * held, a check when the attempts carried the card onward (review/done), a
+ * cross when they bounced back. Shape as well as colour, so the state survives
+ * a monochrome screenshot and colourblindness. Zero runs earn no chip at all —
+ * deviation-only ink.
+ */
+const RunChip = ({ card }: { card: Card }) => {
+  const { S } = useStrings();
+  if (card.busy) {
+    return (
+      <span className="inline-flex items-center text-success" title={S.issues.workingTitle}>
+        <LoaderCircle aria-hidden="true" className="size-3 animate-spin motion-reduce:animate-none" />
+      </span>
+    );
+  }
+  if (card.attempts === 0) return null;
+  // The board card carries no per-run verdict, but its position does: attempts
+  // that pushed the card to review/done delivered; attempts on a card still
+  // sitting anywhere earlier did not stick.
+  const delivered = card.status === "in_review" || card.status === "done";
+  return (
+    <span
+      className={`inline-flex items-center gap-0.5 ${delivered ? "text-success" : "text-destructive"}`}
+      title={delivered ? S.issues.runDelivered(card.attempts) : S.issues.runStalled(card.attempts)}
+    >
+      {delivered ? (
+        <Check aria-hidden="true" className="size-3" />
+      ) : (
+        <X aria-hidden="true" className="size-3" />
+      )}
+      {/* One attempt is the norm once any run exists — only a repeat count earns ink. */}
+      {card.attempts > 1 && <span dir="ltr" className="tabular-nums">{card.attempts}</span>}
+    </span>
+  );
+};
+RunChip.displayName = "RunChip";
+
+/**
+ * Priority as a GLYPH, matching the run mark beside it: an arrow whose
+ * direction is the rank, so it survives monochrome and colourblindness the way
+ * a coloured word never does. Normal earns nothing at all — deviation-only ink,
+ * which is what makes a critical card findable in a column of forty.
+ */
+const PriorityMark = ({ priority }: { priority: Priority }) => {
+  const { S } = useStrings();
+  if (priority === "normal") return null;
+  const Icon = priority === "critical" ? ChevronsUp : priority === "high" ? ChevronUp : ChevronDown;
+  const tone =
+    priority === "critical"
+      ? "text-destructive"
+      : priority === "high"
+        ? "text-warning"
+        : "text-muted-foreground";
+  return (
+    <span
+      className={`inline-flex shrink-0 items-center ${tone}`}
+      title={`${S.issues.priorityLabel}: ${S.issues.priorities[priority]}`}
+    >
+      <Icon aria-hidden="true" className="size-3.5" />
+      {/* The glyph is the whole visual; the word exists only for a reader. */}
+      <span className="sr-only">{S.issues.priorities[priority]}</span>
+    </span>
+  );
+};
+PriorityMark.displayName = "PriorityMark";
+
+/**
+ * A 16px face for the card's provenance row — the roster's identity system
+ * (photo, or initials on the agent's stable colour) at card scale, so a face
+ * learned on the fleet page is recognised here. The colour is fleet DATA
+ * (stored, or slug-derived by agentColor), not a design token, which is why it
+ * is the one inline style on the board — same precedent as AgentAvatar.
+ */
+const CardAgent = ({ agent }: { agent: Agent }) => (
+  <span className="inline-flex min-w-0 items-center gap-1.5">
+    {agent.avatarUrl ? (
+      <img src={agent.avatarUrl} alt="" className="size-4 shrink-0 rounded-full object-cover" />
+    ) : (
+      <span
+        aria-hidden="true"
+        className="flex size-4 shrink-0 items-center justify-center rounded-full text-[7px] font-semibold text-white"
+        style={{ background: agentColor(agent) }}
+      >
+        {initials(agent)}
+      </span>
+    )}
+    <span className="truncate">{agent.displayName || agent.slug}</span>
+  </span>
+);
+CardAgent.displayName = "CardAgent";
+
 export const Issues = () => {
   const { S } = useStrings();
   const [board, setBoard] = useState<Board | null>(null);
   const [err, setErr] = useState("");
   const [q, setQ] = useState("");
+  // Facets, not ink. Type left the card face when the card was cut back to the
+  // reference's four rows; it lives here instead, where a dimension you filter
+  // by belongs. "all" is the sentinel — Radix rejects an empty-string value.
+  const [fType, setFType] = useState("all");
+  const [fPriority, setFPriority] = useState("all");
+  const [fAgent, setFAgent] = useState("all");
   const [creating, setCreating] = useState(false);
   // Remembered: an operator who works in list view wants it next time too.
   const [view, setView] = useState<"board" | "list">(
@@ -78,10 +192,16 @@ export const Issues = () => {
     localStorage.setItem("builder.issues.view", v);
   };
 
+  // The fleet roster resolves assignee slugs into faces and names for the
+  // cards' provenance row. Best-effort: a board that cannot reach the fleet
+  // still renders, showing bare slugs instead of faces.
+  const [agents, setAgents] = useState<Agent[]>([]);
+
   const load = () => fetchBoard().then(setBoard).catch((e) => setErr(String(e.message ?? e)));
 
   useEffect(() => {
     void load();
+    listAgents().then(setAgents).catch(() => setAgents([]));
     // The board is a live queue — agents move cards without the browser asking.
     const t = setInterval(() => void load(), 10_000);
     return () => clearInterval(t);
@@ -116,13 +236,15 @@ export const Issues = () => {
           icon={<SquareKanban className="size-5" />}
           description={S.issues.descLoading}
         />
-        <StatSkeleton />
-        <div className="flex flex-1 gap-4 overflow-hidden" aria-hidden="true">
+        {view === "list" && <StatSkeleton />}
+        <div className="flex flex-1 gap-6 overflow-hidden" aria-hidden="true">
+          {/* Mirrors the chrome-less columns: a header LINE, then floating
+              cards — not a boxed header slab — so nothing re-shapes on load. */}
           {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="flex w-72 shrink-0 flex-col gap-2">
-              <Skeleton className="h-8 rounded-md" />
-              <Skeleton className="h-28 rounded-lg" />
-              <Skeleton className="h-28 rounded-lg" />
+            <div key={i} className="flex w-72 shrink-0 flex-col gap-2 px-2">
+              <Skeleton className="mb-1 h-4 w-24" />
+              <Skeleton className="h-24 rounded-lg" />
+              <Skeleton className="h-24 rounded-lg" />
             </div>
           ))}
         </div>
@@ -132,14 +254,18 @@ export const Issues = () => {
 
   const needle = q.trim().toLowerCase();
   const match = (c: Card) =>
-    !needle ||
-    c.title.toLowerCase().includes(needle) ||
-    String(c.number).includes(needle) ||
-    c.area.toLowerCase().includes(needle);
+    (!needle ||
+      c.title.toLowerCase().includes(needle) ||
+      String(c.number).includes(needle) ||
+      c.area.toLowerCase().includes(needle)) &&
+    (fType === "all" || c.type === fType) &&
+    (fPriority === "all" || c.priority === fPriority) &&
+    (fAgent === "all" || c.assignee === fAgent);
 
   const all = Object.values(board.cards).flat();
   const working = all.filter((c) => c.busy).length;
   const blocked = board.cards.blocked?.length ?? 0;
+  const agentBySlug = new Map(agents.map((a) => [a.slug, a] as const));
 
   return (
     <PageShell width="wide" fill className="gap-4">
@@ -148,21 +274,53 @@ export const Issues = () => {
         icon={<SquareKanban className="size-5" />}
         description={S.issues.desc}
         actions={
-          <div className="flex items-center gap-2">
+          /* Search, then the facets, then the view toggle at the trailing end —
+             the toggle is last because it changes the shape of the page, not
+             its contents. */
+          <div className="flex flex-wrap items-center gap-2">
             <Input
               value={q}
               onChange={(e) => setQ(e.target.value)}
               placeholder={S.issues.search}
-              className="h-9 w-64"
+              className="h-9 w-56"
             />
-            <ToggleGroup type="single" value={view} onValueChange={setViewMode}>
-              <ToggleGroupItem value="board" aria-label={S.issues.boardView} title={S.issues.board}>
-                <LayoutGrid className="size-4" />
-              </ToggleGroupItem>
-              <ToggleGroupItem value="list" aria-label={S.issues.listView} title={S.issues.list}>
-                <List className="size-4" />
-              </ToggleGroupItem>
-            </ToggleGroup>
+            <Select value={fType} onValueChange={setFType}>
+              <SelectTrigger className="h-9 w-auto gap-1.5 text-xs" aria-label={S.issues.typeLabel}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">{S.issues.filterType}</SelectItem>
+                {TYPES.map((t) => (
+                  <SelectItem key={t} value={t}>{S.issues.types[t]}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={fPriority} onValueChange={setFPriority}>
+              <SelectTrigger className="h-9 w-auto gap-1.5 text-xs" aria-label={S.issues.priorityLabel}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">{S.issues.filterPriority}</SelectItem>
+                {PRIORITIES.map((p) => (
+                  <SelectItem key={p} value={p}>{S.issues.priorities[p]}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {/* Offered only once the roster answered — an agent filter with one
+                empty option is a dead control. */}
+            {agents.length > 0 && (
+              <Select value={fAgent} onValueChange={setFAgent}>
+                <SelectTrigger className="h-9 w-auto gap-1.5 text-xs" aria-label={S.issues.assigneeLabel}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">{S.issues.filterAgent}</SelectItem>
+                  {agents.map((a) => (
+                    <SelectItem key={a.slug} value={a.slug}>{a.displayName || a.slug}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
             {/* Filing work directly.
                 The widget is for reporting what you just hit on a page. This is
                 for writing down work you already know you want, which had no
@@ -172,6 +330,14 @@ export const Issues = () => {
               <Plus className="me-1.5 size-4" />
               {S.issues.newIssue}
             </Button>
+            <ToggleGroup type="single" value={view} onValueChange={setViewMode}>
+              <ToggleGroupItem value="board" aria-label={S.issues.boardView} title={S.issues.board}>
+                <LayoutGrid className="size-4" />
+              </ToggleGroupItem>
+              <ToggleGroupItem value="list" aria-label={S.issues.listView} title={S.issues.list}>
+                <List className="size-4" />
+              </ToggleGroupItem>
+            </ToggleGroup>
           </div>
         }
       />
@@ -186,25 +352,38 @@ export const Issues = () => {
         />
       )}
 
-      <StatRow>
-        <Stat label={S.issues.statTotal} value={all.length} />
-        <Stat label={S.issues.statReady} value={board.cards.ready?.length ?? 0} tone="info" />
-        <Stat label={S.issues.statWorking} value={working} tone={working ? "success" : "muted"} />
-        <Stat label={S.issues.statBlocked} value={blocked} tone={blocked ? "warning" : "muted"} />
-      </StatRow>
+      {/* The strip is list-view furniture. On the board every number in it is
+          already printed beside a column name — total, ready, blocked — and a
+          row of four tiles between the header and the columns was the loudest
+          thing on a page whose whole point is that the cards are the content.
+          Working is the one figure the columns cannot show, and the spinner on
+          each held card shows it in place. */}
+      {view === "list" && (
+        <StatRow>
+          <Stat label={S.issues.statTotal} value={all.length} />
+          <Stat label={S.issues.statReady} value={board.cards.ready?.length ?? 0} tone="info" />
+          <Stat label={S.issues.statWorking} value={working} tone={working ? "success" : "muted"} />
+          <Stat label={S.issues.statBlocked} value={blocked} tone={blocked ? "warning" : "muted"} />
+        </StatRow>
+      )}
 
       {err && <Callout kind="warn" title={S.common.somethingWrong}>{err}</Callout>}
 
       {view === "list" ? (
         <IssueTable rows={all.filter(match)} />
       ) : (
-      <div className="flex flex-1 gap-4 overflow-x-auto pb-4 scrollbar-hide">
+      <div className="flex flex-1 gap-6 overflow-x-auto pb-4 scrollbar-hide">
         {board.columns.map((col) => {
           const cards = (board.cards[col] ?? []).filter(match);
           return (
             <section
               key={col}
-              className="flex w-72 shrink-0 flex-col rounded-lg"
+              // No box, no background: a dot, a name, a count, then cards
+              // floating on the page itself. Whitespace does the grouping —
+              // five bordered columns competed with the cards inside them.
+              // The section still stretches to the row's full height, so an
+              // empty column stays a full-height drop target.
+              className="flex w-72 shrink-0 flex-col"
               onDragOver={(e) => e.preventDefault()}
               onDrop={(e) => {
                 e.preventDefault();
@@ -220,93 +399,159 @@ export const Issues = () => {
                 void move(card, col);
               }}
             >
-              <h2 className="flex items-center justify-between px-3 py-2.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              {/* An empty column keeps this header and its zero — "Blocked 0"
+                  is information: it says nothing is stuck. */}
+              <h2 className="flex items-center gap-2 px-2 pb-2.5 pt-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                <span
+                  aria-hidden="true"
+                  className={`size-2 shrink-0 rounded-full bg-current ${STATUS_DOT[col]}`}
+                />
                 {S.issues.columns[col]}
-                <span className="tabular-nums">{cards.length}</span>
+                <span dir="ltr" className="font-normal tabular-nums text-muted-foreground/70">
+                  {cards.length}
+                </span>
               </h2>
 
               <div className="flex flex-col gap-2 overflow-y-auto px-2 pb-2 scrollbar-hide">
-                {cards.map((c, i) => (
+                {cards.map((c, i) => {
+                  const agent = agentBySlug.get(c.assignee);
+                  return (
                   <article
                     key={c.id}
                     draggable
                     onDragStart={(e) =>
                       e.dataTransfer.setData("application/json", JSON.stringify(c))
                     }
-                    // Same treatment as the skills catalogue and the fleet.
-                    //
-                    // Restrained here on purpose: a board is dragged, and a card
-                    // that lifts and glows on hover fights the drag affordance
-                    // rather than supporting it. Entrance only, plus a border
-                    // and shadow response — no translate.
+                    // Restrained on purpose: a board is dragged, and a card that
+                    // lifts and glows on hover fights the drag affordance rather
+                    // than supporting it. Entrance only, plus a border response
+                    // — no translate, and no shadow at all. The card is a
+                    // hairline border over a fill a few percent off the page;
+                    // that difference, not elevation, is what separates it.
                     style={{ animationDelay: `${Math.min(i, 10) * 20}ms`, animationFillMode: "backwards" }}
-                    className="group cursor-grab rounded-lg border border-border bg-background p-3 shadow-sm
-                               transition-all duration-200 ease-out
-                               hover:border-primary/60 hover:shadow-md
+                    className="group relative cursor-grab rounded-lg border border-border bg-card p-3
+                               transition-colors duration-200 ease-out
+                               hover:border-primary/60
                                active:cursor-grabbing
                                animate-in fade-in slide-in-from-bottom-1
                                motion-reduce:animate-none motion-reduce:transition-none"
                   >
-                    {/* Number and type as quiet marks, per the panel's row
-                        anatomy. A "normal" priority pill on every card was
-                        chrome — priority earns ink only when it deviates. */}
-                    <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
-                      {/* dir="ltr": "#42" must not render as "42#" inside an
-                          RTL paragraph — the hash is bidi-neutral. */}
-                      <span dir="ltr" className="text-[11px] tabular-nums text-muted-foreground">
-                        #{c.number}
-                      </span>
-                      <DotLabel tone={TYPE_TONE[c.type]}>{S.issues.types[c.type]}</DotLabel>
-                      {c.priority !== "normal" && (
-                        <StatusBadge tone={PRIORITY_TONE[c.priority]}>
-                          {S.issues.priorities[c.priority]}
-                        </StatusBadge>
-                      )}
-                      {c.humanOnly && (
-                        <span className="ms-auto" title={S.issues.humanOnlyTitle}>
-                          <StatusBadge tone="warning">{S.issues.humanOnly}</StatusBadge>
-                        </span>
-                      )}
-                    </div>
+                    {/* Provenance leads, metadata follows: who works it and
+                        where it lives, both quiet, so the title below is the
+                        only loud element. The old leading row of coloured
+                        pills made the eye hit priority before the work. */}
+                    {(c.humanOnly || !!c.assignee || !!c.area) && (
+                      <div className="mb-1.5 flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground">
+                        {c.humanOnly ? (
+                          // Human-only fills the "who" slot: the answer to
+                          // "which agent takes this" is nobody, ever — that
+                          // is provenance here, not a badge.
+                          <span
+                            className="inline-flex min-w-0 items-center gap-1"
+                            title={S.issues.humanOnlyTitle}
+                          >
+                            {/* Colour rides the glyph, not the word — the row
+                                stays one quiet weight either way. */}
+                            <UserRound aria-hidden="true" className="size-3.5 shrink-0 text-warning" />
+                            <span className="truncate">{S.issues.humanOnly}</span>
+                          </span>
+                        ) : agent ? (
+                          <CardAgent agent={agent} />
+                        ) : c.assignee ? (
+                          // Roster unreachable or the agent was fired — the
+                          // slug still names them. Machine name: mono + LTR.
+                          <span dir="ltr" className="truncate font-mono">{c.assignee}</span>
+                        ) : null}
+                        {c.area && (
+                          // Where the work lives, trailing — glyph plus bare
+                          // text, no chip. A filled pill here read as a badge
+                          // and pulled rank over the title underneath it.
+                          <span
+                            className="ms-auto inline-flex min-w-0 shrink-0 items-center gap-1"
+                            title={S.issues.areaTitle}
+                          >
+                            <Folder aria-hidden="true" className="size-3 shrink-0" />
+                            <bdi className="truncate font-mono text-[10px]">{c.area}</bdi>
+                          </span>
+                        )}
+                      </div>
+                    )}
 
+                    {/* The one loud thing on the card. Medium, not bold: it
+                        only has to beat two whispering rows, not shout. */}
                     <Link
                       to="/issues/$number"
                       params={{ number: String(c.number) }}
-                      className="block text-sm font-medium leading-snug hover:underline"
+                      className="block text-sm font-medium leading-snug text-foreground hover:underline"
                     >
                       {c.title}
                     </Link>
 
-                    <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
-                      {c.source === "feedback" && (
-                        <span className="rounded bg-muted px-1.5 py-0.5">{S.issues.feedbackTag}</span>
-                      )}
-                      {c.area && <span dir="ltr" className="rounded bg-muted px-1.5 py-0.5">{c.area}</span>}
+                    {/* The machine identity: mono, dim, LTR. The branch name
+                        carries the issue number, so the old "#N" chip was
+                        double ink. Constructed from the number — board cards
+                        do not ship the branch field, and builder/issue-N is
+                        the server's branch-naming contract. */}
+                    <div
+                      className="mt-1 flex items-center gap-1 text-muted-foreground/80"
+                      title={S.issues.branchTitle}
+                    >
+                      <GitBranch aria-hidden="true" className="size-3 shrink-0" />
+                      <span dir="ltr" className="truncate font-mono text-[11px]">
+                        builder/issue-{c.number}
+                      </span>
+                    </div>
+
+                    {/* The bottom row: identity and run state leading, age
+                        trailing, everything at one quiet weight. No coloured
+                        words survive here — the attempt verdict is a check, a
+                        spinner or a cross, and priority is an arrow. */}
+                    <div className="mt-2 flex items-center gap-2 text-[11px] text-muted-foreground">
+                      <span
+                        className="inline-flex shrink-0 items-center gap-0.5"
+                        title={S.issues.numberTitle(c.number)}
+                      >
+                        <Hash aria-hidden="true" className="size-3" />
+                        <bdi className="tabular-nums">{c.number}</bdi>
+                      </span>
+                      <RunChip card={c} />
+                      <PriorityMark priority={c.priority} />
                       {c.commentCount > 0 && (
-                        <span className="inline-flex items-center gap-0.5">
-                          <MessageSquare className="size-3" />
-                          {c.commentCount}
+                        <span
+                          className="inline-flex shrink-0 items-center gap-0.5"
+                          title={S.issues.commentsTitle(c.commentCount)}
+                        >
+                          <MessageSquare aria-hidden="true" className="size-3" />
+                          <bdi className="tabular-nums">{c.commentCount}</bdi>
                         </span>
                       )}
-                      {c.attempts > 0 && (
-                        <span className="inline-flex items-center gap-0.5" title={S.issues.attemptsTitle}>
-                          <RotateCw className="size-3" />
-                          {c.attempts}
-                        </span>
-                      )}
-                      {c.busy && <WorkingMark />}
-                      <span className="ms-auto">{S.issues.ago(c.createdAt)}</span>
+                      {/* Age is the last thing checked, so it sits trailing,
+                          quiet, out of the reading path. */}
+                      <span className="ms-auto shrink-0">{S.issues.ago(c.createdAt)}</span>
                     </div>
 
                     {/* Keyboard/assistive path — a drag-only board is unusable
-                        without a mouse, and the drag handle is the whole card. */}
+                        without a mouse, and the drag handle is the whole card.
+                        Revealed on hover/focus: the select is the fallback
+                        verb, not the main one, and always-on it was the
+                        loudest chrome on a quiet card. Overlaid rather than
+                        given its own band: reserving 40px on every card left a
+                        visible dead strip under each one, and absolute
+                        positioning gets the same no-layout-shift guarantee for
+                        free. Pointer events are off until it is revealed, so
+                        the whole card stays draggable until you reach for it. */}
                     <Select
                       value={c.status}
                       onValueChange={(v) => void move(c, v as IssueStatus)}
                     >
                       <SelectTrigger
                         aria-label={S.issues.statusOf(c.number)}
-                        className="mt-2 h-8 w-full text-xs"
+                        className="absolute inset-x-3 bottom-3 h-8 w-auto bg-background text-xs
+                                   pointer-events-none opacity-0 transition-opacity duration-150
+                                   group-hover:pointer-events-auto group-hover:opacity-100
+                                   group-focus-within:pointer-events-auto group-focus-within:opacity-100
+                                   data-[state=open]:pointer-events-auto data-[state=open]:opacity-100
+                                   motion-reduce:transition-none"
                         // The card is the drag handle, so a pointerdown inside
                         // the trigger would start a drag instead of opening it.
                         onPointerDown={(e) => e.stopPropagation()}
@@ -322,11 +567,8 @@ export const Issues = () => {
                       </SelectContent>
                     </Select>
                   </article>
-                ))}
-
-                {!cards.length && (
-                  <p className="px-1 py-3 text-xs text-muted-foreground">{S.issues.nothingHere}</p>
-                )}
+                  );
+                })}
               </div>
             </section>
           );

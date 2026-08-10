@@ -5,21 +5,12 @@ import {
 } from "@togo-framework/ui";
 import { BookOpen, Download, FolderSync, Github, Plus, X } from "lucide-react";
 import {
-  createSkill, importSkills, listSkills, syncSkills,
+  createSkill, importSkills, listSkills, saveSkill, syncSkills,
   type ImportResult, type Skill, type Skipped, type SyncResult,
 } from "../lib/skills";
 import { SkillCard } from "../components/skill-card";
 import { Field, FormCard, FormFooter, GridSkeleton, PageShell, Stat, StatRow } from "../components/page-shell";
-
-const ago = (iso: string) => {
-  const ms = Date.now() - new Date(iso).getTime();
-  if (!Number.isFinite(ms)) return "—";
-  const m = Math.round(ms / 60000);
-  if (m < 60) return `${Math.max(m, 0)}m`;
-  const h = Math.round(m / 60);
-  if (h < 48) return `${h}h`;
-  return `${Math.round(h / 24)}d`;
-};
+import { useStrings } from "../lib/i18n";
 
 /**
  * What a sync or an import actually did.
@@ -36,48 +27,51 @@ const OutcomeReport = ({
   updated: string[];
   skipped: Skipped[];
   onDismiss: () => void;
-}) => (
-  <div className="rounded-lg border border-border bg-card p-4">
-    <div className="flex items-start justify-between gap-2">
-      <h2 className="text-sm font-semibold">{title}</h2>
-      <button onClick={onDismiss} className="text-muted-foreground hover:text-foreground" aria-label="Dismiss">
-        <X className="size-4" />
-      </button>
-    </div>
-
-    <div className="mt-3 flex flex-col gap-2 text-sm">
-      {created.length > 0 && (
-        <p>
-          <span className="font-medium">Added:</span>{" "}
-          <span className="font-mono text-xs">{created.join(", ")}</span>
-        </p>
-      )}
-      {updated.length > 0 && (
-        <p>
-          <span className="font-medium">Updated:</span>{" "}
-          <span className="font-mono text-xs">{updated.join(", ")}</span>
-        </p>
-      )}
-      {created.length === 0 && updated.length === 0 && (
-        <p className="text-muted-foreground">Nothing changed.</p>
-      )}
-    </div>
-
-    {skipped.length > 0 && (
-      <div className="mt-3">
-        <Callout kind="warn" title={`${skipped.length} skipped`}>
-          <ul className="flex flex-col gap-1">
-            {skipped.map((s, i) => (
-              <li key={`${s.name}-${i}`}>
-                <span className="font-mono text-xs">{s.name || "(unnamed)"}</span> — {s.reason}
-              </li>
-            ))}
-          </ul>
-        </Callout>
+}) => {
+  const { S } = useStrings();
+  return (
+    <div className="rounded-lg border border-border bg-card p-4">
+      <div className="flex items-start justify-between gap-2">
+        <h2 className="text-sm font-semibold">{title}</h2>
+        <button onClick={onDismiss} className="text-muted-foreground hover:text-foreground" aria-label={S.common.dismiss}>
+          <X className="size-4" />
+        </button>
       </div>
-    )}
-  </div>
-);
+
+      <div className="mt-3 flex flex-col gap-2 text-sm">
+        {created.length > 0 && (
+          <p>
+            <span className="font-medium">{S.skills.added}</span>{" "}
+            <span dir="ltr" className="font-mono text-xs">{created.join(", ")}</span>
+          </p>
+        )}
+        {updated.length > 0 && (
+          <p>
+            <span className="font-medium">{S.skills.updated}</span>{" "}
+            <span dir="ltr" className="font-mono text-xs">{updated.join(", ")}</span>
+          </p>
+        )}
+        {created.length === 0 && updated.length === 0 && (
+          <p className="text-muted-foreground">{S.skills.nothingChanged}</p>
+        )}
+      </div>
+
+      {skipped.length > 0 && (
+        <div className="mt-3">
+          <Callout kind="warn" title={S.skills.skippedCount(skipped.length)}>
+            <ul className="flex flex-col gap-1">
+              {skipped.map((s, i) => (
+                <li key={`${s.name}-${i}`}>
+                  <span dir="ltr" className="font-mono text-xs">{s.name || S.skills.unnamed}</span> — {s.reason}
+                </li>
+              ))}
+            </ul>
+          </Callout>
+        </div>
+      )}
+    </div>
+  );
+};
 OutcomeReport.displayName = "OutcomeReport";
 
 // One page of the catalogue. Small enough that the first paint is immediate,
@@ -85,6 +79,7 @@ OutcomeReport.displayName = "OutcomeReport";
 const PAGE = 50;
 
 export const Skills = () => {
+  const { S } = useStrings();
   // null = not loaded yet, so the first paint is a skeleton rather than a
   // false "No skills yet" while the request is in flight.
   const [skills, setSkills] = useState<Skill[] | null>(null);
@@ -149,6 +144,15 @@ export const Skills = () => {
     }
   }
 
+  // Optimistic: the switch must answer instantly or it reads as broken; the
+  // reload afterwards is what makes the server's truth win.
+  const handleToggle = (name: string, enabled: boolean) => {
+    setSkills((prev) => (prev ? prev.map((s) => (s.name === name ? { ...s, enabled } : s)) : prev));
+    saveSkill(name, { enabled })
+      .catch((e) => setErr(String((e as Error).message)))
+      .finally(() => void load());
+  };
+
   const shown = skills ?? [];
   const inUse = shown.filter((s) => s.agents > 0).length;
   const unused = shown.filter((s) => s.agents === 0).length;
@@ -157,20 +161,20 @@ export const Skills = () => {
   return (
     <PageShell>
       <PageHeader
-        title="Skills"
+        title={S.skills.title}
         icon={<BookOpen className="size-5" />}
-        description="The instruction files agents load by name. Editing one here rewrites its SKILL.md on disk, which is what an agent actually reads on its next run."
+        description={S.skills.desc}
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <Input
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              placeholder="Search skills…"
+              placeholder={S.skills.search}
               className="h-9 w-56"
             />
             <Button variant="outline" size="sm" onClick={() => void runSync()} disabled={syncing}>
               <FolderSync className="me-1.5 size-4" />
-              {syncing ? "Scanning…" : "Sync from disk"}
+              {syncing ? S.skills.syncing : S.skills.sync}
             </Button>
             <Button
               variant="outline"
@@ -181,7 +185,7 @@ export const Skills = () => {
               }}
             >
               <Github className="me-1.5 size-4" />
-              Import from GitHub
+              {S.skills.importGh}
             </Button>
             <Button
               size="sm"
@@ -191,20 +195,20 @@ export const Skills = () => {
               }}
             >
               <Plus className="me-1.5 size-4" />
-              New skill
+              {S.skills.newSkill}
             </Button>
           </div>
         }
       />
 
       <StatRow>
-        <Stat label="Skills" value={shown.length} />
-        <Stat label="In use" value={inUse} tone={inUse ? "success" : "muted"} />
-        <Stat label="Nobody uses" value={unused} tone={unused ? "warning" : "muted"} />
-        <Stat label="Disabled" value={off} tone="muted" />
+        <Stat label={S.skills.statSkills} value={shown.length} />
+        <Stat label={S.skills.statInUse} value={inUse} tone={inUse ? "success" : "muted"} />
+        <Stat label={S.skills.statUnused} value={unused} tone={unused ? "warning" : "muted"} />
+        <Stat label={S.skills.statDisabled} value={off} tone="muted" />
       </StatRow>
 
-      {err && <Callout kind="warn" title="Something went wrong">{err}</Callout>}
+      {err && <Callout kind="warn" title={S.common.somethingWrong}>{err}</Callout>}
 
       {creating && (
         <CreateSkill
@@ -223,7 +227,7 @@ export const Skills = () => {
 
       {sync && (
         <OutcomeReport
-          title={`Scanned ${dir || ".claude/skills"} — ${sync.scanned} ${sync.scanned === 1 ? "directory" : "directories"}`}
+          title={S.skills.scannedTitle(dir || ".claude/skills", sync.scanned)}
           created={sync.created}
           updated={sync.updated}
           skipped={sync.skipped}
@@ -237,23 +241,15 @@ export const Skills = () => {
         <EmptyState
           // Search is server-side, so an empty RESULT with a query is "no
           // match" — the local array being empty says nothing about the fleet.
-          title={q.trim() ? "No skills match" : "No skills yet"}
-          description={
-            q.trim()
-              ? "Try a different search."
-              : `Sync from disk to pick up whatever is already in ${dir || ".claude/skills"}, import a repository, or write one here.`
-          }
+          title={q.trim() ? S.skills.noMatchTitle : S.skills.emptyTitle}
+          description={q.trim() ? S.skills.noMatchDesc : S.skills.emptyDesc(dir || ".claude/skills")}
         />
       ) : (
         <>
-          {/* A grid of tiles, not a table. 29 near-identical rows are read
-              linearly — you scan every line to find one. A tile with its own
-              icon and colour is recognised before any text is processed, which
-              is what a catalogue you return to repeatedly has to be. */}
-          {/* Three across, not four. At four the tiles are too narrow for a
-              description to be readable, and the point of a tile is that you
-              can judge it without opening it. */}
-          <div className="grid auto-rows-fr gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {/* Two columns, a generous gutter, hairline borders and no shadow —
+              the store grid from the reference. auto-rows-fr + h-full keep
+              every row's cards level even when descriptions differ in length. */}
+          <div className="grid auto-rows-fr gap-5 sm:grid-cols-2">
             {shown.map((s, i) => (
               <div
                 key={s.name}
@@ -263,13 +259,10 @@ export const Skills = () => {
                 //
                 // Staggered entrance, capped: past a dozen the stagger stops
                 // reading as sequence and starts reading as lag.
-                // h-full so every tile in a row is the same height. Without it
-                // the wrapper takes its natural height and the row is ragged,
-                // because descriptions differ in length.
                 className="h-full min-w-0 animate-in fade-in slide-in-from-bottom-2 duration-300 motion-reduce:animate-none"
                 style={{ animationDelay: `${Math.min(i, 12) * 25}ms`, animationFillMode: "backwards" }}
               >
-                <SkillCard skill={s} />
+                <SkillCard skill={s} onToggle={handleToggle} />
               </div>
             ))}
           </div>
@@ -286,7 +279,7 @@ export const Skills = () => {
               }}
               className="py-4 text-center text-xs text-muted-foreground"
             >
-              {loadingMore ? "Loading…" : `${shown.length} of ${total} — scroll for more`}
+              {loadingMore ? S.common.loading : S.skills.progress(shown.length, total)}
             </div>
           )}
         </>
@@ -304,6 +297,7 @@ const CreateSkill = ({
   onClose: () => void;
   onCreated: (name: string) => void;
 }) => {
+  const { S } = useStrings();
   const [name, setName] = useState("");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -311,7 +305,7 @@ const CreateSkill = ({
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
 
-  async function submit() {
+  const handleSubmit = async () => {
     setBusy(true);
     setErr("");
     try {
@@ -327,26 +321,24 @@ const CreateSkill = ({
     } finally {
       setBusy(false);
     }
-  }
+  };
 
   return (
-    <FormCard title="New skill" onClose={onClose}>
-      {err && <div className="mb-3"><Callout kind="warn" title="Could not create it">{err}</Callout></div>}
+    <FormCard title={S.skills.createTitle} onClose={onClose} closeLabel={S.common.cancel}>
+      {err && <div className="mb-3"><Callout kind="warn" title={S.skills.createErrTitle}>{err}</Callout></div>}
 
       <div className="grid gap-4 sm:grid-cols-2">
-        <Field
-          label="Name" htmlFor="skill-name" required
-          hint="Lowercase letters, digits and hyphens. This is also the directory name, and agents reference it — it cannot be changed later."
-        >
+        <Field label={S.skills.nameLabel} htmlFor="skill-name" required hint={S.skills.nameHint}>
           <Input
             id="skill-name"
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="verify"
+            dir="ltr"
             className="font-mono"
           />
         </Field>
-        <Field label="Title" htmlFor="skill-title" hint="The human name shown in the catalogue.">
+        <Field label={S.skills.titleLabel} htmlFor="skill-title" hint={S.skills.titleHint}>
           <Input
             id="skill-title"
             value={title}
@@ -355,8 +347,8 @@ const CreateSkill = ({
           />
         </Field>
         <Field
-          label="When an agent should reach for it" htmlFor="skill-desc" className="sm:col-span-2"
-          hint="Becomes the description in the file's frontmatter — what the model reads to decide whether the skill applies."
+          label={S.skills.whenLabel} htmlFor="skill-desc" className="sm:col-span-2"
+          hint={S.skills.whenHint}
         >
           <Input
             id="skill-desc"
@@ -367,7 +359,7 @@ const CreateSkill = ({
         </Field>
       </div>
 
-      <Field label="Instructions" required className="mt-4">
+      <Field label={S.skills.bodyLabel} required className="mt-4">
         <MarkdownEditor
           value={body}
           onChange={setBody}
@@ -379,14 +371,14 @@ const CreateSkill = ({
 
       <FormFooter
         note={
-          !name.trim() ? "Name it first — the name is the file path."
-            : !body.trim() ? "Write the instructions — an empty skill teaches nothing."
-              : "Written to .claude/skills/<name>/SKILL.md, then assign it to the agents that need it."
+          !name.trim() ? S.skills.noteNameFirst
+            : !body.trim() ? S.skills.noteBodyFirst
+              : S.skills.noteReady
         }
       >
-        <Button onClick={() => void submit()} disabled={busy || !name.trim() || !body.trim()}>
+        <Button onClick={() => void handleSubmit()} disabled={busy || !name.trim() || !body.trim()}>
           <Plus className="me-1.5 size-4" />
-          {busy ? "Creating…" : "Create skill"}
+          {busy ? S.skills.creating : S.skills.createCta}
         </Button>
       </FormFooter>
     </FormCard>
@@ -396,13 +388,14 @@ CreateSkill.displayName = "CreateSkill";
 
 /** Install every SKILL.md in a public GitHub repository. */
 const ImportSkills = ({ onClose, onDone }: { onClose: () => void; onDone: () => void }) => {
+  const { S } = useStrings();
   const [repo, setRepo] = useState("");
   const [path, setPath] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [result, setResult] = useState<ImportResult | null>(null);
 
-  async function run() {
+  const handleRun = async () => {
     setBusy(true);
     setErr("");
     setResult(null);
@@ -415,56 +408,46 @@ const ImportSkills = ({ onClose, onDone }: { onClose: () => void; onDone: () => 
     } finally {
       setBusy(false);
     }
-  }
+  };
 
   return (
-    <FormCard title="Import from GitHub" onClose={onClose} closeLabel="Close">
-      {err && <div className="mb-3"><Callout kind="warn" title="Could not import">{err}</Callout></div>}
+    <FormCard title={S.skills.importTitle} onClose={onClose} closeLabel={S.common.close}>
+      {err && <div className="mb-3"><Callout kind="warn" title={S.skills.importErrTitle}>{err}</Callout></div>}
 
       <div className="grid gap-4 sm:grid-cols-2">
-        <Field
-          label="Repository" htmlFor="import-repo" required
-          hint="owner/name, public. The default branch is what gets read."
-        >
+        <Field label={S.skills.repoLabel} htmlFor="import-repo" required hint={S.skills.repoHint}>
           <Input
             id="import-repo"
             value={repo}
             onChange={(e) => setRepo(e.target.value)}
             placeholder="anthropics/skills"
+            dir="ltr"
             className="font-mono text-xs"
           />
         </Field>
-        <Field
-          label="Folder inside it" htmlFor="import-path"
-          hint="Limits the search to one directory. Blank scans the whole repository."
-        >
+        <Field label={S.skills.folderLabel} htmlFor="import-path" hint={S.skills.folderHint}>
           <Input
             id="import-path"
             value={path}
             onChange={(e) => setPath(e.target.value)}
             placeholder=".claude/skills"
+            dir="ltr"
             className="font-mono text-xs"
           />
         </Field>
       </div>
 
-      <FormFooter
-        note={
-          !repo.trim()
-            ? "Name a repository first."
-            : "Every directory holding a SKILL.md becomes a skill, up to 50 per import."
-        }
-      >
-        <Button onClick={() => void run()} disabled={busy || !repo.trim()}>
+      <FormFooter note={!repo.trim() ? S.skills.noteRepoFirst : S.skills.noteImport}>
+        <Button onClick={() => void handleRun()} disabled={busy || !repo.trim()}>
           <Download className="me-1.5 size-4" />
-          {busy ? "Downloading…" : "Import"}
+          {busy ? S.skills.downloading : S.skills.importCta}
         </Button>
       </FormFooter>
 
       {result && (
         <div className="mt-4">
           <OutcomeReport
-            title={`${result.repo}${result.ref ? `@${result.ref}` : ""} — ${result.found} found`}
+            title={S.skills.foundTitle(`${result.repo}${result.ref ? `@${result.ref}` : ""}`, result.found)}
             created={result.installed}
             updated={result.updated}
             skipped={result.skipped}
@@ -476,4 +459,3 @@ const ImportSkills = ({ onClose, onDone }: { onClose: () => void; onDone: () => 
   );
 };
 ImportSkills.displayName = "ImportSkills";
-

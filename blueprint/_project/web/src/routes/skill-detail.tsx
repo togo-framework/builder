@@ -4,33 +4,47 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
   AlertDialogTrigger, Button, Callout, Checkbox, EmptyState, Input, Label,
-  MarkdownEditor, StatusBadge,
+  MarkdownEditor, Switch, Tabs, TabsContent, TabsList, TabsTrigger,
 } from "@togo-framework/ui";
-import { ArrowLeft, Trash2, Wand2 } from "lucide-react";
-import { Stat, StatRow } from "../components/page-shell";
 import {
-  SOURCE_LABEL, SOURCE_TONE, assignSkill, deleteSkill, fetchSkill,
-  fetchSkillActivity, regenerateSkill, saveSkill, unassignSkill,
+  ArrowLeft, CircleAlert, CircleCheck, CircleDashed, CircleX, Folder, Github,
+  HardDrive, LoaderCircle, PenLine, Trash2, Wand2,
+} from "lucide-react";
+import {
+  assignSkill, deleteSkill, fetchSkill, fetchSkillActivity, regenerateSkill,
+  saveSkill, unassignSkill,
   type Skill, type SkillAgent, type SkillUse,
 } from "../lib/skills";
 import { SkillMark } from "../components/skill-mark";
-
-const ago = (iso: string) => {
-  const s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
-  if (s < 60) return "just now";
-  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
-  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
-  return `${Math.floor(s / 86400)}d ago`;
-};
-
-const RUN_TONE: Record<string, "success" | "danger" | "warning" | "info" | "neutral"> = {
-  succeeded: "success",
-  failed: "danger",
-  needs_input: "warning",
-  running: "info",
-};
+import { PageShell } from "../components/page-shell";
+import { useStrings } from "../lib/i18n";
+import { appPath } from "../lib/base";
+import { AgentTile } from "./agents";
 
 const PAGE = 50;
+
+/**
+ * A run's outcome as a SHAPE-coded glyph — check, cross, alert, spinner — so it
+ * survives monochrome. Kept local rather than shared with agent-detail: five
+ * lines is cheaper than coupling two lazy route chunks together.
+ */
+const RunGlyph = ({ status }: { status: string }) => {
+  const cls = "mt-0.5 size-4 shrink-0";
+  if (status === "succeeded") return <CircleCheck className={`${cls} text-success`} />;
+  if (status === "failed") return <CircleX className={`${cls} text-destructive`} />;
+  if (status === "needs_input") return <CircleAlert className={`${cls} text-warning`} />;
+  if (status === "running")
+    return <LoaderCircle className={`${cls} animate-spin text-info motion-reduce:animate-none`} />;
+  return <CircleDashed className={`${cls} text-muted-foreground`} />;
+};
+RunGlyph.displayName = "RunGlyph";
+
+/** The provenance glyph, same mapping as the catalogue card. */
+const SOURCE_GLYPH = {
+  local: HardDrive,
+  github: Github,
+  operator: PenLine,
+} as const;
 
 /**
  * One skill, at its own address.
@@ -42,6 +56,7 @@ const PAGE = 50;
  * it.
  */
 export const SkillDetail = () => {
+  const { S } = useStrings();
   const { name } = useParams({ from: "/_app/skills/$name" });
 
   const [skill, setSkill] = useState<Skill | null>(null);
@@ -120,7 +135,7 @@ export const SkillDetail = () => {
     setErr("");
     try {
       await saveSkill(name, { title, description, bodyMd: body });
-      setSaved("Saved, and written to disk");
+      setSaved(S.skills.savedNote);
       await load();
     } catch (e) {
       setErr((e as Error).message);
@@ -136,10 +151,7 @@ export const SkillDetail = () => {
     try {
       const r = await regenerateSkill(name);
       await load();
-      setSaved(
-        `Rewritten — ${r.words} words, $${r.costUsd.toFixed(2)}` +
-          (r.grounded ? "" : " (no repository was available, so it is generic)"),
-      );
+      setSaved(S.skills.rewritten(r.words, `$${r.costUsd.toFixed(2)}`, r.grounded));
     } catch (e) {
       setErr((e as Error).message);
     } finally {
@@ -175,296 +187,350 @@ export const SkillDetail = () => {
     setErr("");
     try {
       await deleteSkill(name);
-      window.location.href = "/skills";
+      window.location.href = appPath("/skills");
     } catch (e) {
       setErr((e as Error).message);
     }
   }
+
+  const handleDiscard = () => {
+    if (!skill) return;
+    setTitle(skill.title);
+    setDescription(skill.description);
+    setBody(skill.bodyMd ?? "");
+  };
 
   const back = (
     <Link
       to="/skills"
       className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
     >
-      <ArrowLeft className="size-3.5" />
-      All skills
+      <ArrowLeft className="size-3.5 rtl:-scale-x-100" />
+      {S.skills.back}
     </Link>
   );
 
   if (!skill) {
     return (
-      <div className="flex min-w-0 flex-col gap-4 p-4">
+      <PageShell>
         {back}
         {err ? (
-          <Callout kind="warn" title="Could not open this skill">
-            {err}
-          </Callout>
+          <Callout kind="warn" title={S.skills.openErr}>{err}</Callout>
         ) : (
-          <p className="text-sm text-muted-foreground">Loading…</p>
+          <p className="text-sm text-muted-foreground">{S.common.loading}</p>
         )}
-      </div>
+      </PageShell>
     );
   }
 
   const holders = agents.filter((a) => a.has).length;
+  const SourceGlyph = SOURCE_GLYPH[skill.source] ?? HardDrive;
+  const sourceWord =
+    skill.source === "github"
+      ? S.skills.sourceGithub
+      : skill.source === "operator"
+        ? S.skills.sourceOperator
+        : S.skills.sourceLocal;
+
+  // The save/discard row appears in BOTH editing tabs (Overview owns the
+  // frontmatter, Body owns the document) because one PATCH carries all three
+  // fields — wherever the operator edited, the exit is in reach.
+  const saveRow = (showRegen: boolean) => (
+    <div className="flex flex-wrap items-center gap-2">
+      <Button onClick={() => void save()} disabled={busy || !dirty || !body.trim()}>
+        {busy ? S.common.saving : S.skills.save}
+      </Button>
+      {showRegen && (
+        /* Offered next to Save because the two are alternatives: write the
+           procedure yourself, or have it read the repository and write one.
+           Disabled while the editor is dirty — regenerating would discard
+           unsaved edits with no warning. */
+        <Button
+          variant="outline"
+          onClick={() => void regenerate()}
+          disabled={regenBusy || busy || dirty}
+          title={dirty ? S.skills.regenDirtyTitle : S.skills.regenTitle}
+        >
+          <Wand2 className="me-1.5 size-4" />
+          {regenBusy ? S.skills.regenerating : S.skills.regenerate}
+        </Button>
+      )}
+      {showRegen && regenBusy && (
+        <span className="text-xs text-muted-foreground">{S.skills.regenNote}</span>
+      )}
+      {dirty && (
+        <Button variant="outline" onClick={handleDiscard}>{S.common.discard}</Button>
+      )}
+      {saved && !dirty && <span className="text-xs text-success">{saved}</span>}
+    </div>
+  );
 
   return (
-    <div className="flex min-w-0 flex-col gap-4 p-4">
+    <PageShell>
       {back}
 
-      <div className="flex min-w-0 items-center gap-3">
-        <SkillMark skill={skill} className="size-11" />
-        <div className="min-w-0">
-          <h1 className="truncate font-mono text-lg font-semibold">{skill.name}</h1>
-          <p className="truncate text-sm text-muted-foreground">
-            {skill.title || "No title yet"}
+      {/* The hero band: big mark, name, one-line tagline, and the ONE primary
+          action — enabled — on the trailing side. */}
+      <header className="flex flex-wrap items-start gap-4 sm:gap-5">
+        <SkillMark skill={skill} className={`size-16 sm:size-20 ${skill.enabled ? "" : "opacity-40 grayscale"}`} />
+        <div className="min-w-0 flex-1">
+          {/* <bdi>, not a block-level dir="ltr": the name must keep its latin
+              glyph order AND sit on the reading edge — right in Arabic. A block
+              dir would drag it to the far left of an RTL page. */}
+          <h1 className="truncate font-mono text-2xl font-semibold tracking-tight">
+            <bdi>{skill.name}</bdi>
+          </h1>
+          <p className="mt-0.5 truncate text-sm text-muted-foreground">
+            {skill.title || S.skills.noTitle}
+          </p>
+          <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
+            <span className="inline-flex items-center gap-1">
+              <SourceGlyph className="size-3 shrink-0" />
+              {sourceWord}
+            </span>
+            <span dir="ltr" className="truncate font-mono text-[11px]">
+              {skill.installedPath || S.skills.notInstalled}
+            </span>
           </p>
         </div>
-      </div>
-
-      <div className="flex flex-wrap items-center gap-2">
-        <StatusBadge tone={SOURCE_TONE[skill.source] ?? "neutral"}>
-          {SOURCE_LABEL[skill.source] ?? skill.source}
-        </StatusBadge>
-        {!skill.enabled && <StatusBadge tone="warning">disabled</StatusBadge>}
-        {skill.sourceRef && (
-          <span className="truncate font-mono text-[11px] text-muted-foreground">
-            {skill.sourceRef}
-          </span>
-        )}
-        <span className="truncate font-mono text-[11px] text-muted-foreground">
-          {skill.installedPath || "not written to disk yet"}
-        </span>
-      </div>
-
-      {err && <Callout kind="warn" title="Something went wrong">{err}</Callout>}
-
-      <StatRow cols={3}>
-        <Stat label="Agents holding it" value={holders} tone={holders ? "success" : "warning"} />
-        <Stat label="Times loaded" value={useTotal} tone={useTotal ? "default" : "muted"} />
-        <Stat label="Agents that ran it" value={useAgents} tone="muted" />
-      </StatRow>
-
-      <div className="grid gap-3 sm:grid-cols-2">
-        <div>
-          <Label htmlFor="edit-title" className="mb-1 block text-xs text-muted-foreground">
-            Title
-          </Label>
-          <Input id="edit-title" value={title} onChange={(e) => setTitle(e.target.value)} />
-        </div>
-        <div>
-          <Label htmlFor="edit-desc" className="mb-1 block text-xs text-muted-foreground">
-            When an agent should reach for it
-          </Label>
-          <Input
-            id="edit-desc"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-          />
-        </div>
-      </div>
-
-      <div>
-        <Label className="mb-1 block text-xs text-muted-foreground">Instructions</Label>
-        <MarkdownEditor value={body} onChange={setBody} defaultView="write" minRows={18} />
-        <div className="mt-2 flex flex-wrap items-center gap-2">
-          <Button onClick={() => void save()} disabled={busy || !dirty || !body.trim()}>
-            {busy ? "Saving…" : "Save skill"}
-          </Button>
-          {/* Offered next to Save because the two are alternatives: write the
-              procedure yourself, or have it read the repository and write one.
-              Disabled while the editor is dirty — regenerating would discard
-              unsaved edits with no warning. */}
-          <Button
-            variant="outline"
-            onClick={() => void regenerate()}
-            disabled={regenBusy || busy || dirty}
-            title={
-              dirty
-                ? "Save or discard your edits first — regenerating replaces the whole body"
-                : "Read the repository and rewrite this skill as a full procedure"
-            }
-          >
-            <Wand2 className="me-1.5 size-4" />
-            {regenBusy ? "Reading the repo…" : "Regenerate"}
-          </Button>
-          {regenBusy && (
-            <span className="text-xs text-muted-foreground">
-              This runs a real Claude Code session — usually two or three minutes.
+        <div className="flex shrink-0 flex-col items-end gap-1 pt-1">
+          <label className="flex cursor-pointer items-center gap-2">
+            <span className={`text-sm font-medium ${skill.enabled ? "" : "text-warning"}`}>
+              {skill.enabled ? S.skills.enabledLabel : S.common.off}
             </span>
-          )}
-          {dirty && (
-            <Button
-              variant="outline"
-              onClick={() => {
-                setTitle(skill.title);
-                setDescription(skill.description);
-                setBody(skill.bodyMd ?? "");
-              }}
-            >
-              Discard
-            </Button>
-          )}
-          {saved && !dirty && <span className="text-xs text-success">{saved}</span>}
+            <Switch
+              checked={skill.enabled}
+              onCheckedChange={(v) => void toggleEnabled(v === true)}
+              aria-label={skill.enabled ? S.skills.disableAria(skill.name) : S.skills.enableAria(skill.name)}
+            />
+          </label>
+          <span className="max-w-44 text-end text-[11px] text-muted-foreground">
+            {S.skills.enabledHint}
+          </span>
         </div>
-      </div>
+      </header>
 
-      <section>
-        <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-          Agents using this skill — {holders} of {agents.length}
-        </h3>
-        {agents.length === 0 ? (
-          <EmptyState title="No agents yet" description="Hire an agent before assigning skills." />
-        ) : (
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-            {agents.map((a) => (
-              <div
-                key={a.slug}
-                className="flex min-w-0 items-start gap-2.5 rounded-lg border border-border p-2.5"
-              >
-                <Checkbox
-                  id={`assign-${a.slug}`}
-                  checked={a.has}
-                  onCheckedChange={(v) => void toggleAgent(a.slug, v === true)}
-                  className="mt-0.5"
-                />
-                <Label htmlFor={`assign-${a.slug}`} className="min-w-0 flex-1 cursor-pointer font-normal">
-                  <span className="block truncate text-sm font-medium">
-                    {a.displayName || a.slug}
-                  </span>
-                  <span className="block truncate font-mono text-[11px] text-muted-foreground">
-                    @{a.slug}
-                    {!a.enabled && " · disabled"}
-                  </span>
+      {err && <Callout kind="warn" title={S.common.somethingWrong}>{err}</Callout>}
+
+      {/* Content leads, the quiet meta rail trails — the same split as the
+          issue and agent pages. The grid follows the document direction, so
+          the rail changes side in Arabic by itself. */}
+      <div className="grid items-start gap-8 lg:grid-cols-[minmax(0,1fr)_280px]">
+        <Tabs defaultValue="overview" className="min-w-0">
+          <TabsList>
+            <TabsTrigger value="overview">{S.skills.tabOverview}</TabsTrigger>
+            <TabsTrigger value="body">{S.skills.tabBody}</TabsTrigger>
+            <TabsTrigger value="agents">{S.skills.tabAgents}</TabsTrigger>
+            <TabsTrigger value="activity">{S.skills.tabActivity}</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="overview" className="mt-4 flex min-w-0 flex-col gap-4">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <Label htmlFor="edit-title" className="mb-1 block text-xs text-muted-foreground">
+                  {S.skills.editTitleLabel}
                 </Label>
-                {/* Straight through to the agent — the assignment picker is the
-                    natural place to ask "who is this?". */}
-                <Link
-                  to="/agents/$slug"
-                  params={{ slug: a.slug }}
-                  className="shrink-0 self-center text-[11px] text-muted-foreground hover:text-foreground hover:underline"
-                >
-                  Open
-                </Link>
+                <Input id="edit-title" value={title} onChange={(e) => setTitle(e.target.value)} />
               </div>
-            ))}
-          </div>
-        )}
-      </section>
+              <div>
+                <Label htmlFor="edit-desc" className="mb-1 block text-xs text-muted-foreground">
+                  {S.skills.editDescLabel}
+                </Label>
+                <Input
+                  id="edit-desc"
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                />
+              </div>
+            </div>
+            {saveRow(false)}
+          </TabsContent>
 
-      <section>
-        <h3 className="mb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-          Activity
-        </h3>
-        {/* Stated plainly, because the distinction matters and the number would
-            otherwise be read as a count of times the agent chose this skill. */}
-        <p className="mb-2 text-xs text-muted-foreground">
-          Every run that carried this skill in its context. Claude Code reports a
-          run's result, not its individual tool calls, so this records that the
-          skill was loaded — not that the agent reached for it.
-        </p>
-        {uses.length === 0 ? (
-          <EmptyState
-            title="Not loaded yet"
-            description={
-              holders === 0
-                ? "No agent holds this skill, so no run has ever carried it. Assign it above."
-                : "It is assigned, but no run has started since. The log fills as agents work."
-            }
-          />
-        ) : (
-          <div className="flex flex-col gap-1.5">
-            {uses.map((u, i) => (
-              <div
-                key={`${u.runId}-${i}`}
-                className="flex min-w-0 flex-wrap items-center gap-2 rounded-lg border border-border px-3 py-2 text-xs"
-              >
-                <Link
-                  to="/agents/$slug"
-                  params={{ slug: u.agent }}
-                  className="font-mono font-medium hover:underline"
-                >
-                  @{u.agent}
-                </Link>
-                {u.issueNumber > 0 && (
-                  <Link
-                    to="/issues/$number"
-                    params={{ number: String(u.issueNumber) }}
-                    className="min-w-0 truncate text-muted-foreground hover:text-foreground hover:underline"
-                  >
-                    #{u.issueNumber} {u.issueTitle}
-                  </Link>
-                )}
-                {u.runStatus && (
-                  <StatusBadge tone={RUN_TONE[u.runStatus] ?? "neutral"}>
-                    {u.runStatus.replace(/_/g, " ")}
-                  </StatusBadge>
-                )}
-                <span className="ms-auto shrink-0 text-muted-foreground">{ago(u.loadedAt)}</span>
+          <TabsContent value="body" className="mt-4 flex min-w-0 flex-col gap-2">
+            <MarkdownEditor value={body} onChange={setBody} defaultView="write" minRows={18} />
+            {saveRow(true)}
+          </TabsContent>
+
+          <TabsContent value="agents" className="mt-4 min-w-0">
+            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              {S.skills.agentsHeading(holders, agents.length)}
+            </h3>
+            {agents.length === 0 ? (
+              <EmptyState title={S.skills.noAgentsTitle} description={S.skills.noAgentsDesc} />
+            ) : (
+              // The whole fleet as a plain list with hairline dividers — glyph,
+              // name, and the assignment checkbox trailing. No cards: this is a
+              // nested collection, not a page of its own.
+              <div className="divide-y divide-border">
+                {agents.map((a) => (
+                  <div key={a.slug} className="flex min-w-0 items-center gap-3 py-2.5">
+                    <AgentTile
+                      a={{ slug: a.slug, displayName: a.displayName, color: "", avatarUrl: "" }}
+                      className="size-9 text-xs"
+                      dimmed={!a.enabled}
+                    />
+                    <Label
+                      htmlFor={`assign-${a.slug}`}
+                      className="min-w-0 flex-1 cursor-pointer font-normal"
+                    >
+                      <span className="block truncate text-sm font-medium">
+                        {a.displayName || a.slug}
+                      </span>
+                      <span className="block truncate text-[11px] text-muted-foreground">
+                        <span dir="ltr" className="font-mono">@{a.slug}</span>
+                        {!a.enabled && ` · ${S.skills.agentDisabled}`}
+                      </span>
+                    </Label>
+                    {/* Straight through to the agent — the assignment picker is
+                        the natural place to ask "who is this?". */}
+                    <Link
+                      to="/agents/$slug"
+                      params={{ slug: a.slug }}
+                      className="shrink-0 text-[11px] text-muted-foreground hover:text-foreground hover:underline"
+                    >
+                      {S.common.open}
+                    </Link>
+                    <Checkbox
+                      id={`assign-${a.slug}`}
+                      checked={a.has}
+                      onCheckedChange={(v) => void toggleAgent(a.slug, v === true)}
+                      aria-label={S.skills.assignAria(a.displayName || a.slug)}
+                    />
+                  </div>
+                ))}
               </div>
-            ))}
-            <div ref={sentinel} className="h-4" />
-            {moreBusy && <p className="text-center text-xs text-muted-foreground">Loading…</p>}
-            {uses.length >= useTotal && useTotal > PAGE && (
-              <p className="text-center text-xs text-muted-foreground">
-                All {useTotal} shown.
+            )}
+          </TabsContent>
+
+          <TabsContent value="activity" className="mt-4 min-w-0">
+            {/* Stated plainly, because the distinction matters and the number
+                would otherwise be read as a count of times the agent chose
+                this skill. */}
+            <p className="mb-3 text-xs text-muted-foreground">{S.skills.activityNote}</p>
+            {uses.length === 0 ? (
+              <EmptyState
+                title={S.skills.notLoadedTitle}
+                description={holders === 0 ? S.skills.notLoadedNoHolder : S.skills.notLoadedAssigned}
+              />
+            ) : (
+              // Plain rows with hairline dividers: outcome glyph, who, what,
+              // when trailing.
+              <div className="divide-y divide-border">
+                {uses.map((u, i) => (
+                  <div key={`${u.runId}-${i}`} className="flex min-w-0 items-start gap-3 py-2.5">
+                    <RunGlyph status={u.runStatus} />
+                    <div className="min-w-0 flex-1">
+                      <Link
+                        to="/agents/$slug"
+                        params={{ slug: u.agent }}
+                        className="font-mono text-sm font-medium hover:underline"
+                      >
+                        <span dir="ltr">@{u.agent}</span>
+                      </Link>
+                      {u.issueNumber > 0 && (
+                        <Link
+                          to="/issues/$number"
+                          params={{ number: String(u.issueNumber) }}
+                          className="mt-0.5 block min-w-0 truncate text-xs text-muted-foreground hover:text-foreground hover:underline"
+                        >
+                          <span dir="ltr">#{u.issueNumber}</span> {u.issueTitle}
+                        </Link>
+                      )}
+                    </div>
+                    <span className="shrink-0 pt-0.5 text-xs text-muted-foreground">
+                      {S.skills.ago(u.loadedAt)}
+                    </span>
+                  </div>
+                ))}
+                <div ref={sentinel} className="h-4" />
+                {moreBusy && <p className="py-2 text-center text-xs text-muted-foreground">{S.common.loading}</p>}
+                {uses.length >= useTotal && useTotal > PAGE && (
+                  <p className="py-2 text-center text-xs text-muted-foreground">
+                    {S.skills.allShown(useTotal)}
+                  </p>
+                )}
+              </div>
+            )}
+          </TabsContent>
+        </Tabs>
+
+        {/* The quiet meta rail: counts and provenance, and the one destructive
+            act at the very end where it cannot be pressed by momentum. */}
+        <aside className="flex flex-col gap-4 text-sm">
+          <div className="divide-y divide-border border-t border-border text-xs">
+            <MetaLine k={S.skills.statHolders} v={String(holders)} tone={holders ? "" : "text-warning"} />
+            <MetaLine k={S.skills.statLoads} v={String(useTotal)} />
+            <MetaLine k={S.skills.statRan} v={String(useAgents)} />
+          </div>
+
+          <div>
+            <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              {S.skills.sourceLabel}
+            </p>
+            <p className="flex items-center gap-1.5 text-xs">
+              <SourceGlyph className="size-3.5 shrink-0 text-muted-foreground" />
+              {sourceWord}
+            </p>
+            {skill.sourceRef && (
+              <p dir="ltr" className="mt-1 break-all font-mono text-[11px] text-muted-foreground">
+                {skill.sourceRef}
               </p>
             )}
           </div>
-        )}
-      </section>
 
-      <footer className="flex flex-wrap items-center gap-4 border-t border-border pt-3">
-        <div className="flex items-start gap-2.5">
-          <Checkbox
-            id="skill-enabled"
-            checked={skill.enabled}
-            onCheckedChange={(v) => void toggleEnabled(v === true)}
-            className="mt-0.5"
-          />
-          <Label htmlFor="skill-enabled" className="cursor-pointer font-normal">
-            <span className="text-sm font-medium">Enabled</span>
-            <span className="block text-xs text-muted-foreground">
-              A disabled skill stays in the catalogue and keeps its assignments.
-            </span>
-          </Label>
-        </div>
+          <div>
+            <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              {S.skills.pathLabel}
+            </p>
+            <p className="flex items-start gap-1.5 text-xs">
+              <Folder className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+              <span dir="ltr" className="break-all font-mono text-[11px] text-muted-foreground">
+                {skill.installedPath || S.skills.notInstalled}
+              </span>
+            </p>
+          </div>
 
-        <AlertDialog>
-          <AlertDialogTrigger asChild>
-            <Button
-              variant="outline"
-              size="sm"
-              className="ms-auto text-destructive hover:bg-destructive/10 hover:text-destructive"
-            >
-              <Trash2 className="me-1.5 size-4" />
-              Delete skill
-            </Button>
-          </AlertDialogTrigger>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Delete {skill.name}?</AlertDialogTitle>
-              <AlertDialogDescription>
-                This removes the skill from the catalogue, unassigns it from the{" "}
-                {holders === 1 ? "one agent" : `${holders} agents`} that{" "}
-                {holders === 1 ? "loads" : "load"} it, and deletes{" "}
-                {skill.installedPath || `.claude/skills/${skill.name}`} from disk. It
-                cannot be undone.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>Keep it</AlertDialogCancel>
-              <AlertDialogAction
-                onClick={() => void remove()}
-                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                className="mt-2 self-start text-destructive hover:bg-destructive/10 hover:text-destructive"
               >
-                Delete
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
-      </footer>
-    </div>
+                <Trash2 className="me-1.5 size-4" />
+                {S.skills.delete}
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>{S.skills.deleteTitle(skill.name)}</AlertDialogTitle>
+                <AlertDialogDescription>
+                  {S.skills.deleteDesc(holders, skill.installedPath || `.claude/skills/${skill.name}`)}
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>{S.skills.keep}</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={() => void remove()}
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                >
+                  {S.skills.deleteConfirm}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        </aside>
+      </div>
+    </PageShell>
   );
 };
 SkillDetail.displayName = "SkillDetail";
+
+/** One quiet fact in the rail: label leading, tabular value trailing. */
+const MetaLine = ({ k, v, tone = "" }: { k: string; v: string; tone?: string }) => (
+  <div className="flex justify-between gap-3 py-1.5">
+    <span className="text-muted-foreground">{k}</span>
+    <span dir="ltr" className={`font-mono tabular-nums ${tone}`}>{v}</span>
+  </div>
+);
+MetaLine.displayName = "MetaLine";

@@ -1,6 +1,7 @@
 import { createRootRoute, createRoute, createRouter, lazyRouteComponent, Outlet, redirect } from "@tanstack/react-router";
 import { SentraLoading } from "@togo-framework/ui";
 import { Providers } from "./providers";
+import { BASE } from "./lib/base";
 import { sessionMe } from "./lib/auth";
 import { isSetupComplete } from "./lib/setup";
 import { Welcome } from "./routes/welcome";
@@ -30,6 +31,10 @@ const Chat = lazyRouteComponent(() => import("./routes/chat"), "Chat");
 const SkillDetail = lazyRouteComponent(() => import("./routes/skill-detail"), "SkillDetail");
 const Mcp = lazyRouteComponent(() => import("./routes/mcp"), "Mcp");
 const Terminal = lazyRouteComponent(() => import("./routes/terminal"), "Terminal");
+// ONE route for every user-added app. The component is generic — it resolves
+// the slug against the registry at run time — so installing a custom app never
+// adds a line to this file.
+const CustomApp = lazyRouteComponent(() => import("./routes/custom-app"), "CustomApp");
 
 const rootRoute = createRootRoute({ component: () => (<Providers><Outlet /></Providers>) });
 
@@ -89,14 +94,23 @@ const skillDetailRoute = createRoute({ getParentRoute: () => appRoute, path: "/s
 const mcpRoute = createRoute({ getParentRoute: () => appRoute, path: "/mcp", component: Mcp });
 const terminalRoute = createRoute({ getParentRoute: () => appRoute, path: "/terminal", component: Terminal });
 const issueDetailRoute = createRoute({ getParentRoute: () => appRoute, path: "/issues/$number", component: IssueDetail });
+const customAppRoute = createRoute({ getParentRoute: () => appRoute, path: "/apps/$slug", component: CustomApp });
 
 const routeTree = rootRoute.addChildren([
   indexRoute, loginRoute, registerRoute, resetRoute, setupRoute,
-  appRoute.addChildren([dashboardRoute, resourceRoute, profileRoute, issuesRoute, issueDetailRoute, vaultRoute, agentsRoute, agentDetailRoute, skillsRoute, skillDetailRoute, sourcesRoute, docsRoute, brainRoute, chatRoute, mcpRoute, terminalRoute]),
+  appRoute.addChildren([dashboardRoute, resourceRoute, profileRoute, issuesRoute, issueDetailRoute, vaultRoute, agentsRoute, agentDetailRoute, skillsRoute, skillDetailRoute, sourcesRoute, docsRoute, brainRoute, chatRoute, mcpRoute, terminalRoute, customAppRoute]),
 ]);
 
 export const router = createRouter({
   routeTree,
+  // Where the app is mounted, from vite's `base` (see lib/base.ts).
+  //
+  // Empty for a scaffolded product — its routes are the site. "/builder" for
+  // the plugin build, which is served inside a host application that owns the
+  // paths these routes would otherwise claim. Declaring it here means every
+  // <Link> and every navigate() in the 23 screens is prefixed automatically,
+  // and not one of them had to learn where it was mounted.
+  basepath: BASE || undefined,
   defaultPreload: "intent",
   // Branded full-screen loader while a route's beforeLoad (e.g. the auth check) runs.
   // 150ms delay so cached/instant navigations don't flash it.

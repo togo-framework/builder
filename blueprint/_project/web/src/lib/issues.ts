@@ -64,6 +64,18 @@ export interface BrowserContext {
   viewport?: { w: number; h: number; dpr: number };
   userAgent?: string;
   locale?: string;
+  /**
+   * Which hosted app the report came from, when it came through a builder
+   * shell framing several — app.co, auth.app.co, dashboard.app.co. Stamped by
+   * the shell from its own configured target list, so it is the shell's word
+   * and not the framed page's.
+   *
+   * Present on its own (no console, no network) whenever the app had no SDK
+   * loaded or the reporter opted out of the capture: attribution is not part
+   * of that bargain, because a report that does not say which surface it is
+   * about sends somebody to read the wrong code.
+   */
+  app?: { id?: string; name?: string; origin?: string };
 }
 
 export interface Detail extends Card {

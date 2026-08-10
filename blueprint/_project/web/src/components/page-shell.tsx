@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Label, Skeleton, cn } from "@togo-framework/ui";
+import { Label, cn } from "@togo-framework/ui";
 import { CircleAlert } from "lucide-react";
 
 /**
@@ -28,47 +28,167 @@ import { CircleAlert } from "lucide-react";
 /* Page container                                                      */
 /* ------------------------------------------------------------------ */
 
-const SHELL_WIDTH = {
-  /** Reading surfaces (vault, mcp, chat) — a form 1152px wide is a hallway. */
-  narrow: "max-w-4xl",
-  /** The default for list/catalogue pages. */
-  default: "max-w-6xl",
-  /** Boards and terminals that manage their own horizontal space. */
-  wide: "max-w-none",
+/**
+ * THE RAIL.
+ *
+ * Every page shares one gutter and one rail, and the content column inside the
+ * rail is anchored to the START edge. That single decision is what fixes the
+ * complaint that "internal pages don't have a correct layout":
+ *
+ * Before, a narrow page CENTRED its own column. On a 1440px screen that put the
+ * Vault's title 120px further inline than the Agents' title — (1136 - 896) / 2,
+ * the centring offset of a max-w-4xl column in the content area — so walking
+ * between two screens made the page heading physically jump sideways. Nothing
+ * else about either page was wrong; the jump alone is what read as "unfinished".
+ *
+ * Measured after this change: the h1 of /agents, /skills, /mcp, /vault, /brain,
+ * /sources, /issues, /terminal and /chat all begin 288px from the inline-start
+ * edge, in English and in Arabic.
+ *
+ * Now `width` no longer moves the page; it only decides how wide the column
+ * inside it is allowed to grow:
+ *
+ *   narrow   960px measure for forms and reading columns (vault, mcp, chat)
+ *   default  fills the rail — catalogues, lists, dashboards
+ *   wide     fills the rail AND removes the rail cap, for surfaces that manage
+ *            their own horizontal space (the board, the terminal)
+ *
+ * The rail itself (--page-rail, 1408px) is a no-op on a laptop and only starts
+ * doing work on an ultrawide, where it stops a list of cards from stretching
+ * into an unreadable 2000px line.
+ */
+const MEASURE = {
+  narrow: "measure-narrow",
+  default: "",
+  wide: "",
 } as const;
 
 /**
- * One container for every page: same max-width scale, same padding, and one
- * page-level gap so vertical rhythm is a property of the shell rather than a
- * per-block `mt-4` that every page tunes differently.
+ * One container for every page: same gutter, same rail, same page-level gap so
+ * vertical rhythm is a property of the shell rather than a per-block `mt-4`
+ * that every page tunes differently.
  *
  * `fill` is for screens with an internal scroller (board, chat, terminal):
  * they must claim the full column height or their flex-1 children resolve
- * against nothing and the inner scroll never engages.
+ * against nothing and the inner scroll never engages. The flex/min-h-0 chain
+ * is carried through all three nested elements for exactly that reason.
+ *
+ * `title` is optional. Pages that already render their own <PageHeader> as the
+ * first child keep working untouched; pages that pass `title` get the shared
+ * header rhythm for free and can never drift from it.
  */
 const PageShell = ({
   width = "default",
   fill = false,
+  title,
+  description,
+  icon,
+  actions,
+  above,
   className,
   children,
 }: {
-  width?: keyof typeof SHELL_WIDTH;
+  width?: keyof typeof MEASURE;
   fill?: boolean;
+  /** Renders the shared page header. Omit to supply your own header as a child. */
+  title?: string;
+  description?: string;
+  icon?: ReactNode;
+  /** Trailing controls on the title line (search, primary action). */
+  actions?: ReactNode;
+  /** A back link / breadcrumb above the title. */
+  above?: ReactNode;
   className?: string;
   children: ReactNode;
 }) => (
-  <div
-    className={cn(
-      "mx-auto flex w-full min-w-0 flex-col gap-5 p-4 sm:p-6",
-      SHELL_WIDTH[width],
-      fill && "h-full",
-      className,
-    )}
-  >
-    {children}
+  <div className={cn("page-gutter w-full min-w-0", fill && "flex h-full flex-col")}>
+    {/* The rail. mx-auto only bites past 1408px, so on every normal screen the
+        page starts exactly at the gutter — the same x on every route. */}
+    <div
+      className={cn(
+        "mx-auto w-full min-w-0",
+        width !== "wide" && "page-rail",
+        fill && "flex min-h-0 flex-1 flex-col",
+      )}
+    >
+      {/* The measure. me-auto (not mx-auto) is deliberate: a centred column has
+          no start edge, which is exactly what made the heading move between
+          pages, and it also reads identically in LTR and RTL — losing the
+          directional anchor that Arabic layout depends on. */}
+      <div
+        className={cn(
+          "flex w-full min-w-0 flex-col gap-6",
+          MEASURE[width],
+          fill && "min-h-0 flex-1",
+          className,
+        )}
+      >
+        {title !== undefined && (
+          <PageTitle
+            title={title}
+            description={description}
+            icon={icon}
+            actions={actions}
+            above={above}
+          />
+        )}
+        {children}
+      </div>
+    </div>
   </div>
 );
 PageShell.displayName = "PageShell";
+
+/**
+ * The page header, in the shape every screen should use.
+ *
+ * Type matches the kit's PageHeader exactly (text-2xl, icon at size-5, muted
+ * description) so a page that still imports the kit's version is visually
+ * indistinguishable from one using the shell's — during a migration the two
+ * must not be tellable apart, or the migration itself becomes the inconsistency.
+ *
+ * `items-start` rather than the kit's `items-center`: when the description wraps
+ * to two lines, centring drags the action buttons half a line down and the
+ * whole header looks untethered.
+ */
+const PageTitle = ({
+  title,
+  description,
+  icon,
+  actions,
+  above,
+  className,
+}: {
+  title: string;
+  description?: string;
+  icon?: ReactNode;
+  actions?: ReactNode;
+  above?: ReactNode;
+  className?: string;
+}) => (
+  <header className={cn("flex min-w-0 flex-col gap-2", className)}>
+    {above}
+    <div className="flex min-w-0 flex-wrap items-start justify-between gap-x-4 gap-y-3">
+      <div className="min-w-0">
+        <h1 className="flex items-center gap-2 text-2xl font-bold text-foreground">
+          {icon ? (
+            <span className="text-muted-foreground [&>svg]:size-5" aria-hidden="true">
+              {icon}
+            </span>
+          ) : null}
+          <span className="min-w-0 truncate">{title}</span>
+        </h1>
+        {description ? (
+          <p className="mt-1 max-w-[68ch] text-sm text-muted-foreground">{description}</p>
+        ) : null}
+      </div>
+      {actions ? (
+        <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div>
+      ) : null}
+    </div>
+  </header>
+);
+PageTitle.displayName = "PageTitle";
 
 /* ------------------------------------------------------------------ */
 /* Stat strip                                                          */
@@ -97,7 +217,7 @@ const StatRow = ({
 }) => (
   <div
     className={cn(
-      "grid gap-px overflow-hidden rounded-lg border border-border bg-border",
+      "grid gap-px overflow-hidden rounded-card border border-border bg-border",
       cols === 3 ? "grid-cols-3" : "grid-cols-2 sm:grid-cols-4",
       className,
     )}
@@ -143,7 +263,7 @@ const Stat = ({
     </span>
     <span
       className={cn(
-        "truncate text-lg font-semibold leading-tight tabular-nums",
+        "numeric truncate text-lg font-semibold leading-tight",
         mono && "font-mono text-base",
         STAT_TONE[tone],
       )}
@@ -181,13 +301,13 @@ const Section = ({
   className?: string;
   children: ReactNode;
 }) => (
-  <section className={cn("flex min-w-0 flex-col gap-2", className)}>
+  <section className={cn("flex min-w-0 flex-col gap-2.5", className)}>
     <div className="flex items-center gap-2">
       <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
         {title}
       </h2>
       {count !== undefined && (
-        <span className="rounded-full bg-muted px-1.5 text-[11px] tabular-nums text-muted-foreground">
+        <span className="numeric rounded-pill bg-muted px-1.5 text-[11px] text-muted-foreground">
           {count}
         </span>
       )}
@@ -212,7 +332,7 @@ Section.displayName = "Section";
 const Rows = ({ className, children }: { className?: string; children: ReactNode }) => (
   <div
     className={cn(
-      "divide-y divide-border overflow-hidden rounded-lg border border-border bg-card",
+      "divide-y divide-border overflow-hidden rounded-card border border-border bg-card",
       className,
     )}
   >
@@ -230,6 +350,10 @@ Rows.displayName = "Rows";
  * colourblindness and a monochrome screenshot because the broken row is
  * physically marked, not merely tinted. The transparent bar on healthy rows
  * keeps every row's content at the same x-position.
+ *
+ * `motion-hover` (not `transition-all`) is the shell's named hover response:
+ * colour and border only, at --duration-fast. A row that also MOVES under the
+ * cursor makes a long list feel unstable to read.
  */
 const Row = ({
   leading,
@@ -248,7 +372,7 @@ const Row = ({
 }) => (
   <article
     className={cn(
-      "border-s-2 transition-colors",
+      "motion-hover border-s-2",
       danger
         ? "border-s-destructive bg-destructive/5"
         : "border-s-transparent hover:bg-muted/40",
@@ -292,7 +416,9 @@ RowMeta.displayName = "RowMeta";
  *  Never used to carry status colour; that job belongs to DotLabel and
  *  StatusBadge. */
 const MonoBadge = ({ className, children }: { className?: string; children: ReactNode }) => (
-  <span className={cn("rounded bg-muted px-1.5 py-0.5 font-mono text-xs", className)}>
+  <span
+    className={cn("rounded-field bg-muted px-1.5 py-0.5 font-mono text-xs", className)}
+  >
     {children}
   </span>
 );
@@ -346,23 +472,37 @@ DotLabel.displayName = "DotLabel";
 /* ------------------------------------------------------------------ */
 
 /**
+ * The loading block.
+ *
+ * A sweeping highlight, not a pulse. A pulsing rectangle says "something is
+ * here"; a sweep says "something is ARRIVING", and direction is the only cue
+ * that distinguishes a placeholder from a disabled control. The sweep and its
+ * timing live in the token layer (.skeleton-shimmer) so a reduced-motion
+ * preference kills it in one place for the whole app.
+ */
+const Shimmer = ({ className }: { className?: string }) => (
+  <div aria-hidden="true" className={cn("skeleton-shimmer rounded-field", className)} />
+);
+Shimmer.displayName = "Shimmer";
+
+/**
  * List loading state, shaped like the grouped list it will become — one card,
  * hairline dividers — so nothing jumps or re-borders when data lands.
  */
 const ListSkeleton = ({ rows = 3, className }: { rows?: number; className?: string }) => (
   <div
     className={cn(
-      "divide-y divide-border overflow-hidden rounded-lg border border-border bg-card",
+      "divide-y divide-border overflow-hidden rounded-card border border-border bg-card",
       className,
     )}
     aria-hidden="true"
   >
     {Array.from({ length: rows }).map((_, i) => (
       <div key={i} className="flex items-start gap-3 px-3 py-3">
-        <Skeleton className="size-8 shrink-0 rounded-md" />
+        <Shimmer className="size-8 shrink-0 rounded-md" />
         <div className="flex-1 space-y-2 py-0.5">
-          <Skeleton className="h-3.5 w-1/3" />
-          <Skeleton className="h-3 w-2/3" />
+          <Shimmer className="h-3.5 w-1/3" />
+          <Shimmer className="h-3 w-2/3" />
         </div>
       </div>
     ))}
@@ -374,16 +514,16 @@ ListSkeleton.displayName = "ListSkeleton";
 const GridSkeleton = ({ count = 6, className }: { count?: number; className?: string }) => (
   <div className={cn("grid gap-3 md:grid-cols-2 xl:grid-cols-3", className)} aria-hidden="true">
     {Array.from({ length: count }).map((_, i) => (
-      <div key={i} className="flex flex-col gap-3 rounded-xl border border-border bg-card p-4">
+      <div key={i} className="flex flex-col gap-3 rounded-card border border-border bg-card p-4">
         <div className="flex items-center gap-3">
-          <Skeleton className="size-10 shrink-0 rounded-full" />
+          <Shimmer className="size-10 shrink-0 rounded-full" />
           <div className="flex-1 space-y-2">
-            <Skeleton className="h-4 w-2/5" />
-            <Skeleton className="h-3 w-3/5" />
+            <Shimmer className="h-4 w-2/5" />
+            <Shimmer className="h-3 w-3/5" />
           </div>
         </div>
-        <Skeleton className="h-3 w-full" />
-        <Skeleton className="h-3 w-4/5" />
+        <Shimmer className="h-3 w-full" />
+        <Shimmer className="h-3 w-4/5" />
       </div>
     ))}
   </div>
@@ -396,14 +536,14 @@ const StatSkeleton = ({ cols = 4 }: { cols?: 3 | 4 }) => (
   <div
     aria-hidden="true"
     className={cn(
-      "grid gap-px overflow-hidden rounded-lg border border-border bg-border",
+      "grid gap-px overflow-hidden rounded-card border border-border bg-border",
       cols === 3 ? "grid-cols-3" : "grid-cols-2 sm:grid-cols-4",
     )}
   >
     {Array.from({ length: cols }).map((_, i) => (
       <div key={i} className="flex flex-col gap-1.5 bg-card px-3 py-2.5">
-        <Skeleton className="h-2.5 w-14" />
-        <Skeleton className="h-5 w-8" />
+        <Shimmer className="h-2.5 w-14" />
+        <Shimmer className="h-5 w-8" />
       </div>
     ))}
   </div>
@@ -466,7 +606,8 @@ Field.displayName = "Field";
  * The container for an inline create/edit form: a card with a clear title and
  * a quiet dismiss. Forms live in a card because they are a temporary mode of
  * the page — the border is what says "this block is an activity, the rest is
- * the record".
+ * the record". It arrives with the shell's entrance motion for the same
+ * reason: a block that appears with no transition reads as a page reload.
  */
 const FormCard = ({
   title,
@@ -481,14 +622,19 @@ const FormCard = ({
   className?: string;
   children: ReactNode;
 }) => (
-  <section className={cn("rounded-lg border border-border bg-card p-4", className)}>
+  <section
+    className={cn(
+      "motion-entrance rounded-card border border-border bg-card p-4 shadow-xs",
+      className,
+    )}
+  >
     <div className="mb-3 flex items-center justify-between gap-2">
       <h2 className="text-sm font-semibold">{title}</h2>
       {onClose && (
         <button
           type="button"
           onClick={onClose}
-          className="text-xs text-muted-foreground hover:underline"
+          className="motion-hover rounded-field px-1 text-xs text-muted-foreground hover:text-foreground"
         >
           {closeLabel}
         </button>
@@ -514,7 +660,12 @@ const FormFooter = ({
   className?: string;
   children: ReactNode;
 }) => (
-  <div className={cn("mt-4 flex flex-wrap items-center gap-2 border-t border-border/60 pt-3", className)}>
+  <div
+    className={cn(
+      "mt-4 flex flex-wrap items-center gap-2 border-t border-border/60 pt-3",
+      className,
+    )}
+  >
     {children}
     {note && <span className="min-w-0 text-xs text-muted-foreground">{note}</span>}
   </div>
@@ -549,7 +700,7 @@ const FilterChip = ({
     title={title}
     aria-pressed={active}
     className={cn(
-      "inline-flex max-w-full items-center gap-1 rounded-full border px-3 py-1 text-xs transition-colors",
+      "motion-hover motion-press inline-flex max-w-full items-center gap-1 rounded-pill border px-3 py-1 text-xs",
       active
         ? "border-primary bg-primary/10 text-foreground"
         : "border-border text-muted-foreground hover:border-primary/40 hover:text-foreground",
@@ -571,11 +722,13 @@ export {
   ListSkeleton,
   MonoBadge,
   PageShell,
+  PageTitle,
   Row,
   RowMeta,
   RowTitle,
   Rows,
   Section,
+  Shimmer,
   Stat,
   StatRow,
   StatSkeleton,

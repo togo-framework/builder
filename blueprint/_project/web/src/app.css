@@ -3,24 +3,485 @@
 @source "../node_modules/@togo-framework/ui/dist";
 @custom-variant dark (&:where(.dark, .dark *));
 
-body { margin: 0; font-family: var(--tg-font); }
+/* ═══════════════════════════════════════════════════════════════════════════
+ * builder — design system foundation
+ *
+ * This file is the product's token layer. It sits on top of @togo-framework/ui
+ * and does three things, in this order:
+ *
+ *   1. RETUNES the value of tokens the kit already defines (--background,
+ *      --card, --border, --muted-foreground, --shadow-*, …). Nothing is
+ *      renamed and nothing is removed: every semantic class the app and the
+ *      kit already use (bg-card, text-muted-foreground, border-border, …)
+ *      keeps working and simply gets a better colour.
+ *   2. ADDS the layers the kit has no opinion about — a page rhythm, a motion
+ *      vocabulary, a shimmer, an elevation ladder — as new tokens and new
+ *      utility classes.
+ *   3. Sets the base-layer floor: focus rings, selection, scrollbars, heading
+ *      typography, and the RTL corrections those require.
+ *
+ * CASCADE ORDER MATTERS. The kit declares `:root, [data-theme="light"]` and
+ * then `.dark, [data-theme="dark"]` — same specificity, dark wins by source
+ * order. Everything below is written to preserve that: light values are
+ * scoped `:root:not(.dark)` (which cannot match a dark document) so they can
+ * safely be authored before the dark block without leaking into it.
+ * ═══════════════════════════════════════════════════════════════════════════ */
 
-/* Base surface + text colour from the active theme tokens — so unstyled text
-   (plain headings like "Welcome back", dashboard titles) is legible in dark
-   mode instead of inheriting the browser-default black. */
-@layer base {
-  body { @apply bg-background text-foreground antialiased; }
+/* ------------------------------------------------------------------------ */
+/* 1. Neutral, surface + signal palette                                      */
+/* ------------------------------------------------------------------------ */
+/*
+ * The neutral is hue-biased, not a dead grey. Every surface and every border
+ * sits on hue ~207 (dark) / ~212 (light) — a cool slate that leans toward the
+ * Gopher-cyan accent without ever becoming blue. A true grey (S = 0) under a
+ * saturated cyan accent reads as "unfinished"; the colour has to belong to the
+ * same family as the brand or the chrome and the content look bolted together.
+ *
+ * Saturation falls as lightness rises: 20–24% at the darkest surfaces, 13% at
+ * muted text, 0% at pure white. Holding S constant across a ramp is what makes
+ * a palette look muddy — the tint that reads as "considered" at 6% lightness
+ * reads as "dirty" at 96%.
+ *
+ * Every foreground/surface pair below is measured, not eyeballed. Numbers are
+ * WCAG 2.1 contrast ratios against --card, the surface most text sits on.
+ */
+
+:root:not(.dark) {
+  /* Surfaces — a five-step ladder, not two tones.
+     sidebar (96%) recedes, background (97.5%) is the canvas, card (100%) is
+     the raised working surface. In light mode the raised surface must be the
+     LIGHTEST thing on screen or nothing reads as lifted. */
+  --background: 210 20% 97.5%;        /* #F7F9FA */
+  --background-medium: 210 19% 95.5%;
+  --card: 0 0% 100%;                  /* #FFFFFF */
+  --card-foreground: 213 28% 12%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 213 28% 12%;
+
+  --foreground: 213 28% 12%;          /* #161E27 — 16.8:1 on card */
+  --muted-foreground: 213 13% 41%;    /* #5B6776 —  5.8:1 on card, AA at 13px */
+
+  --muted: 210 18% 94.5%;             /* #EEF1F3 — chips, inert fills */
+  --secondary: 210 18% 94.5%;
+  --secondary-foreground: 213 28% 12%;
+  --accent: 210 16% 91%;              /* #E4E8EC — hover fill */
+  --accent-foreground: 213 28% 12%;
+
+  /* border is the hairline BETWEEN things; input is the edge OF a control and
+     is deliberately one step stronger — a form field whose boundary is as
+     faint as a list divider does not read as interactive. */
+  --border: 214 19% 85%;              /* #D1D8E0 */
+  --input: 214 20% 79%;               /* #BAC4D0 */
+  --ring: 209 82% 46%;
+
+  --primary: 217 82% 42%;             /* #1357C3 — 6.6:1 both directions */
+  --primary-foreground: 0 0% 100%;
+
+  /* Signals, darkened until small text passes AA on white. The kit's originals
+     were tuned for 16px+ and failed at the 11–13px this app actually uses. */
+  --success: 157 74% 27%;             /* #127851 — 5.5:1 */
+  --warning: 30 92% 32%;              /* #9D5207 — 5.8:1 */
+  --destructive: 353 66% 47%;         /* #C7293B — 5.5:1 */
+  --destructive-foreground: 0 0% 100%;
+  --info: 209 80% 42%;                /* #156EC1 — 5.2:1 */
+  --event: 262 62% 45%;
+  --alert-amber: 30 92% 32%;
+  --alert-cyan: 190 80% 30%;
+
+  --sidebar-background: 210 22% 96%;
+  --sidebar-foreground: 213 13% 41%;
+  --sidebar-primary: 217 82% 42%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 210 18% 92%;
+  --sidebar-accent-foreground: 213 28% 12%;
+  --sidebar-border: 214 19% 88%;
+  --sidebar-ring: 209 82% 46%;
+
+  /* Elevation. Light mode gets tight, low-alpha, blue-black shadows: the depth
+     cue in light UI is the border, and a shadow's only job is to say "this
+     floats above the thing behind it". A soft grey blur at 20% alpha is the
+     single fastest way to make a tool look like a 2014 admin template. */
+  --shadow-xs: 0 1px 1px 0 hsl(213 30% 20% / 0.04);
+  --shadow-sm: 0 1px 2px 0 hsl(213 30% 20% / 0.06), 0 1px 1px -0.5px hsl(213 30% 20% / 0.05);
+  --shadow-md: 0 4px 8px -2px hsl(213 30% 20% / 0.08), 0 2px 4px -2px hsl(213 30% 20% / 0.06);
+  --shadow-lg: 0 12px 24px -6px hsl(213 30% 20% / 0.12), 0 4px 8px -4px hsl(213 30% 20% / 0.07);
+  --shadow-xl: 0 24px 48px -12px hsl(213 30% 20% / 0.16), 0 8px 16px -8px hsl(213 30% 20% / 0.09);
+  --shadow-brand: 0 6px 20px -6px hsl(var(--primary) / 0.30);
+
+  /* The rim light that separates a floating panel from the page behind it.
+     In light mode it is a darker hairline; in dark mode it is a bright one. */
+  --rim: inset 0 0 0 1px hsl(214 19% 85% / 0.9);
+
+  /* The skeleton sweep. It has to travel in the direction of MORE light in
+     both themes, or the shimmer reads as a shadow passing over the block: on
+     a light grey placeholder that means near-white, on a dark one it means a
+     tint of the foreground. */
+  --shimmer-highlight: hsl(0 0% 100% / 0.95);
 }
 
-/* Scrollable regions (the kanban's horizontal board scroll, its per-column
-   card lists) stay scrollable but don't show the browser's default
-   scrollbar chrome — it's a work surface, not a document. */
+.dark {
+  /* Surfaces — sidebar (4.5%) SINKS below the canvas (6%) and the card (10%)
+     rises above it. The kit had the sidebar lighter than the page, which
+     inverts the mental model: the navigation is the back plane, the content is
+     the front one. Five distinct steps so a popover over a card over the page
+     is legible as three layers without a single shadow. */
+  --background: 206 24% 6%;           /* #0C1013 */
+  --background-medium: 207 21% 8.5%;
+  --card: 207 20% 10%;                /* #141A1F */
+  --card-foreground: 200 22% 96%;
+  --popover: 207 20% 12.5%;           /* #1A2126 */
+  --popover-foreground: 200 22% 96%;
+
+  --foreground: 200 22% 96%;          /* #F3F6F7 — 16.1:1 on card */
+  --muted-foreground: 206 13% 64%;    /* #97A5AF —  6.9:1 on card */
+
+  --muted: 207 16% 16%;               /* #22292F */
+  --secondary: 207 16% 16%;
+  --secondary-foreground: 200 22% 96%;
+  --accent: 207 16% 20%;              /* #2B343B — hover fill */
+  --accent-foreground: 200 22% 96%;
+
+  --border: 207 16% 22%;              /* #2F3941 — 12 points over the card */
+  --input: 207 16% 26%;
+  --ring: 187 78% 56%;
+
+  --primary: 187 75% 52%;             /* #29CBE0 — 9.0:1 on card */
+  --primary-foreground: 206 24% 6%;
+
+  --success: 157 58% 48%;             /* #33C18B — 7.7:1 */
+  --warning: 40 82% 58%;              /* #ECB13C — 9.1:1 */
+  --destructive: 353 68% 63%;         /* #E1606F — 5.1:1 */
+  --destructive-foreground: 206 24% 6%;
+  --info: 209 80% 62%;                /* #51A1EC — 6.4:1 */
+  --event: 262 66% 68%;
+  --alert-amber: 40 82% 58%;
+  --alert-cyan: 187 75% 52%;
+
+  --sidebar-background: 206 26% 4.5%;
+  --sidebar-foreground: 206 13% 64%;
+  --sidebar-primary: 187 75% 52%;
+  --sidebar-primary-foreground: 206 24% 6%;
+  --sidebar-accent: 207 18% 12%;
+  --sidebar-accent-foreground: 200 22% 96%;
+  --sidebar-border: 207 16% 15%;
+  --sidebar-ring: 187 78% 56%;
+
+  /* A shadow on a near-black background is almost invisible; the elevation cue
+     that actually works in dark UI is a 1px light rim along the top edge. It is
+     added to md/lg/xl only — the surfaces that genuinely float (popover,
+     dialog, sheet). xs/sm stay pure shadow so buttons don't grow a highlight. */
+  --shadow-xs: 0 1px 2px 0 hsl(0 0% 0% / 0.40);
+  --shadow-sm: 0 1px 3px 0 hsl(0 0% 0% / 0.50), 0 1px 2px -1px hsl(0 0% 0% / 0.40);
+  --shadow-md: inset 0 1px 0 0 hsl(0 0% 100% / 0.04), 0 6px 14px -4px hsl(0 0% 0% / 0.60);
+  --shadow-lg: inset 0 1px 0 0 hsl(0 0% 100% / 0.05), 0 16px 32px -8px hsl(0 0% 0% / 0.70);
+  --shadow-xl: inset 0 1px 0 0 hsl(0 0% 100% / 0.06), 0 32px 64px -16px hsl(0 0% 0% / 0.80);
+  --shadow-brand: 0 8px 28px -8px hsl(var(--primary) / 0.45);
+
+  --rim: inset 0 0 0 1px hsl(0 0% 100% / 0.06);
+  --shimmer-highlight: hsl(var(--foreground) / 0.09);
+}
+
+/* ------------------------------------------------------------------------ */
+/* 2. Rhythm, radii, motion — theme-independent                              */
+/* ------------------------------------------------------------------------ */
+:root {
+  /* Page rhythm. One gutter, one page gap, one rail width — consumed by
+     page-shell so vertical and horizontal spacing is a property of the SHELL
+     and not a per-page `mt-4` that each screen tunes differently. */
+  --page-gutter: 1.25rem;   /* 20px — phones */
+  --page-gap: 1.5rem;       /* 24px — between page-level blocks */
+  --block-gap: 0.625rem;    /* 10px — a section heading to its content */
+  --page-rail: 88rem;       /* 1408px — the widest a page ever gets */
+  --measure-narrow: 60rem;  /* 960px — forms and reading columns */
+
+  /* Motion. Four durations and four curves, named for what they are FOR.
+     A design system that ships `transition-all duration-300` everywhere has no
+     motion layer — it has a default. These are the only timings this app needs:
+
+       instant  70ms  — a state that must feel like a direct consequence
+                        (checkbox, toggle, press)
+       fast    120ms  — hover and focus response
+       base    180ms  — entrances, expands, tab changes
+       slow    260ms  — panels, sheets, dialogs travelling a real distance
+
+     standard   the general-purpose curve: leaves immediately, settles softly
+     entrance   decelerate-only, for things arriving on screen
+     exit       accelerate-only, for things leaving (never linger on the way out)
+     spring     a 4% overshoot, reserved for a control the operator just pressed */
+  --duration-instant: 70ms;
+  --duration-fast: 120ms;
+  --duration-base: 180ms;
+  --duration-slow: 260ms;
+
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-entrance: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-exit: cubic-bezier(0.4, 0, 1, 1);
+  --ease-spring: cubic-bezier(0.22, 1.2, 0.36, 1);
+  /* kept for the kit's existing references */
+  --ease-emphasized: var(--ease-spring);
+  --ease-out: var(--ease-entrance);
+  --ease-in: var(--ease-exit);
+
+  /* Directional distance for panel motion. Flipped under RTL below so a side
+     sheet slides in from the correct physical edge in both languages without
+     any component knowing which language it is in. */
+  --motion-slide: 0.75rem;
+  --motion-panel: 1.5rem;
+}
+
+@media (min-width: 640px) {
+  :root { --page-gutter: 2rem; }   /* 32px from the sm breakpoint up */
+}
+
+[dir="rtl"] {
+  --motion-slide: -0.75rem;
+  --motion-panel: -1.5rem;
+}
+
+/* ------------------------------------------------------------------------ */
+/* 3. Tailwind theme surface for the additions                               */
+/* ------------------------------------------------------------------------ */
+@theme inline {
+  /* shadow-rim — the elevation rim as a standalone utility */
+  --shadow-rim: var(--rim);
+
+  /* Motion keyframes exposed as animate-* utilities. Durations and easings are
+     plain custom properties (above) — reference them in a class list with
+     Tailwind's CSS-variable shorthand: duration-(--duration-base),
+     ease-(--ease-entrance). */
+  --animate-shimmer: shimmer 1.6s var(--ease-standard) infinite;
+  --animate-rise: rise var(--duration-base) var(--ease-entrance) both;
+  --animate-fade: fade var(--duration-base) var(--ease-entrance) both;
+  --animate-panel-in: panel-in var(--duration-slow) var(--ease-entrance) both;
+}
+
+@theme {
+  /* Radii. --radius (0.5rem) is the kit's control radius and is deliberately
+     left alone — every kit component derives from it. These are ADDITIVE names
+     for the shapes this product repeats: rounded-card / rounded-field /
+     rounded-pill. */
+  --radius-card: 0.625rem;  /* 10px — grouped lists, panels, cards */
+  --radius-field: 0.375rem; /* 6px  — inputs, small buttons, chips */
+  --radius-pill: 9999px;
+
+  /* The display end of the type ramp. Sizes are unchanged (so nothing in the
+     app reflows) — what is added is the line-height and the optical tracking
+     that a heading needs and Tailwind's defaults do not provide. Large type
+     set at default tracking is the single most common reason an interface
+     reads as "a website" instead of "a tool". */
+  --text-xl: 1.25rem;
+  --text-xl--line-height: 1.65rem;
+  --text-xl--letter-spacing: -0.014em;
+
+  --text-2xl: 1.5rem;
+  --text-2xl--line-height: 1.9rem;
+  --text-2xl--letter-spacing: -0.02em;
+
+  --text-3xl: 1.875rem;
+  --text-3xl--line-height: 2.25rem;
+  --text-3xl--letter-spacing: -0.022em;
+
+  --text-4xl: 2.25rem;
+  --text-4xl--line-height: 2.6rem;
+  --text-4xl--letter-spacing: -0.026em;
+
+  --text-5xl: 3rem;
+  --text-5xl--line-height: 3.25rem;
+  --text-5xl--letter-spacing: -0.03em;
+}
+
+@keyframes shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+@keyframes rise {
+  from { opacity: 0; transform: translate3d(0, 0.375rem, 0); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes panel-in {
+  from { opacity: 0; transform: translate3d(var(--motion-panel), 0, 0); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* ------------------------------------------------------------------------ */
+/* 4. Base layer                                                             */
+/* ------------------------------------------------------------------------ */
+body { margin: 0; font-family: var(--tg-font); }
+
+@layer base {
+  body {
+    @apply bg-background text-foreground antialiased;
+    /* Tabular figures in the UI face: this app is full of counts, costs and
+       run numbers that update in place. Proportional digits make 9 → 10 shift
+       the whole row. `tnum` here is a floor; prose can opt out. */
+    font-variant-numeric: tabular-nums;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Prose reverts to proportional figures — tabular digits in a sentence look
+     like a spreadsheet leaked into the copy. */
+  p, .tg-md { font-variant-numeric: normal; }
+
+  /* Headings wrap by meaning, not by measure. */
+  h1, h2, h3, h4 { text-wrap: balance; }
+  p { text-wrap: pretty; }
+
+  /* Arabic must never be optically tracked. Lusail's letterforms JOIN; the
+     negative tracking that makes a Latin heading feel tight visibly damages an
+     Arabic one. Scoped to headings so mono paths and Latin fragments inside an
+     RTL page are untouched. */
+  [dir="rtl"] :is(h1, h2, h3, h4, .text-xl, .text-2xl, .text-3xl, .text-4xl, .text-5xl) {
+    letter-spacing: 0;
+  }
+
+  /* A focus ring on everything focusable, as a FLOOR: `:where()` carries zero
+     specificity so any component that styles its own focus still wins. Nothing
+     in this app should ever be reachable by keyboard and invisible. */
+  :where(a, button, summary, input, select, textarea, [role="button"], [role="tab"], [tabindex]):focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
+  }
+
+  ::selection {
+    background-color: hsl(var(--primary) / 0.28);
+    color: hsl(var(--foreground));
+  }
+
+  /* Scrollbars belong to the tool, not to the browser. Overlay-thin, tinted
+     with the neutral, and only visible against the surface they scroll. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--border)) transparent;
+  }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background-color: hsl(var(--border));
+    border: 3px solid transparent;
+    background-clip: content-box;
+    border-radius: 9999px;
+  }
+  ::-webkit-scrollbar-thumb:hover { background-color: hsl(var(--muted-foreground) / 0.55); }
+  ::-webkit-scrollbar-corner { background: transparent; }
+}
+
+/* ------------------------------------------------------------------------ */
+/* 5. Utilities                                                              */
+/* ------------------------------------------------------------------------ */
 @layer utilities {
+  /* Scrollable work surfaces (the kanban board, its column lists) stay
+     scrollable but show no scrollbar chrome. */
   .scrollbar-hide {
     scrollbar-width: none;
     -ms-overflow-style: none;
   }
-  .scrollbar-hide::-webkit-scrollbar {
-    display: none;
+  .scrollbar-hide::-webkit-scrollbar { display: none; }
+
+  /* ── Page rhythm ──────────────────────────────────────────────────────
+     Real class names (not Tailwind arbitrary values) so a route's own
+     className cannot accidentally clobber them through tailwind-merge. */
+  .page-gutter {
+    padding-inline: var(--page-gutter);
+    padding-block: var(--page-gutter);
+  }
+  .page-rail { max-width: var(--page-rail); }
+  .measure-narrow { max-width: var(--measure-narrow); }
+
+  /* ── Motion vocabulary ────────────────────────────────────────────────
+     Four named transitions. Anything that moves in this app should be one of
+     these; if it is not, the interaction probably has not been named yet. */
+
+  /* motion-hover — the response to a pointer. Colour, border and shadow only:
+     a row that also MOVES under the cursor makes a list feel unstable. */
+  .motion-hover {
+    transition-property: color, background-color, border-color, box-shadow, opacity;
+    transition-duration: var(--duration-fast);
+    transition-timing-function: var(--ease-standard);
+  }
+
+  /* motion-press — the acknowledgement of a click, on the element pressed. */
+  .motion-press {
+    transition: transform var(--duration-instant) var(--ease-spring);
+  }
+  .motion-press:active { transform: scale(0.975); }
+
+  /* motion-entrance — content arriving: fade + a 6px rise. Used with a small
+     staggered delay for lists; never longer than a dozen items, past which the
+     stagger stops reading as sequence and starts reading as lag. */
+  .motion-entrance {
+    animation: rise var(--duration-base) var(--ease-entrance) both;
+  }
+  .motion-fade { animation: fade var(--duration-base) var(--ease-entrance) both; }
+
+  /* motion-panel — a side sheet / inspector rail arriving from the inline end.
+     Direction comes from --motion-panel, which flips under [dir="rtl"], so the
+     same class is correct in both languages. */
+  .motion-panel {
+    animation: panel-in var(--duration-slow) var(--ease-entrance) both;
+  }
+
+  /* ── Skeleton shimmer ─────────────────────────────────────────────────
+     A sweeping highlight rather than a pulse. A pulsing block says "something
+     is here"; a sweep says "something is LOADING", and the direction of the
+     sweep is the only cue that distinguishes a loading placeholder from a
+     disabled one. Overrides the kit Skeleton's animate-pulse when composed. */
+  .skeleton-shimmer {
+    position: relative;
+    overflow: hidden;
+    animation: none;
+    background-color: hsl(var(--muted));
+    background-image: linear-gradient(
+      90deg,
+      transparent 0%,
+      var(--shimmer-highlight) 45%,
+      var(--shimmer-highlight) 55%,
+      transparent 100%
+    );
+    background-size: 200% 100%;
+    background-repeat: no-repeat;
+    animation: shimmer 1.6s var(--ease-standard) infinite;
+  }
+
+  /* ── Elevation helpers ────────────────────────────────────────────────
+     surface-raised is the one class a floating panel needs: the theme's
+     elevation shadow plus the rim light that actually does the separating in
+     dark mode. */
+  .surface-raised { box-shadow: var(--rim), var(--shadow-lg); }
+  .surface-sunken { background-color: hsl(var(--background)); box-shadow: var(--rim); }
+
+  /* ── Numeric readouts ─────────────────────────────────────────────────
+     Any figure the operator compares across rows: costs, counts, durations.
+     dir=ltr is on the class because a currency figure or a version string is
+     LTR content even inside an Arabic page. */
+  .numeric {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum" 1;
+  }
+}
+
+/* ------------------------------------------------------------------------ */
+/* 6. Reduced motion — a single, total kill switch                           */
+/* ------------------------------------------------------------------------ */
+/*
+ * Outside @layer so it beats every utility above regardless of layer order.
+ * `prefers-reduced-motion` is an accessibility setting, not a preference to be
+ * partially honoured: anything that animates stops, and anything that would
+ * have arrived animated simply IS there.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .motion-press:active { transform: none; }
+  .skeleton-shimmer {
+    background-image: none;
+    animation: none !important;
   }
 }

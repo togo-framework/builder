@@ -4,6 +4,7 @@ import { ShieldCheck, Terminal } from "lucide-react";
 import { AuthCard, AuthErrorAlert, Input, Label, Button, type AuthCardBrand } from "@togo-framework/ui";
 import { auth, clearSession } from "../lib/auth";
 import { API, APP_NAME } from "../lib/api";
+import { appPath } from "../lib/base";
 
 const BRAND: AuthCardBrand = { name: APP_NAME, icon: <ShieldCheck className="h-10 w-10" />, tagline: { en: "Authentication & identity", ar: "المصادقة والهوية" } };
 
@@ -16,7 +17,7 @@ function Methods() {
       <div className="my-4 flex items-center gap-3 text-xs text-muted-foreground"><span className="h-px flex-1 bg-border" />or<span className="h-px flex-1 bg-border" /></div>
       {methods.map((m) => (
         <Button key={m.name} variant="outline" className="w-full" onClick={async () => {
-          if (m.type === "dev") { await fetch(`${API}${m.url}`, { method: "POST", credentials: "include" }); window.location.href = "/dashboard"; }
+          if (m.type === "dev") { await fetch(`${API}${m.url}`, { method: "POST", credentials: "include" }); window.location.href = appPath("/dashboard"); }
           else window.location.href = `${API}${m.url}`;
         }}>{m.type === "dev" ? <Terminal className="h-4 w-4" /> : null}{m.label}</Button>
       ))}

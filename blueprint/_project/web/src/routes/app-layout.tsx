@@ -12,6 +12,7 @@ import { auth, sessionMe, clearSession, type Me } from "../lib/auth";
 import { metaResources, adminList, type ResourceMeta } from "../lib/admin";
 import { ToastProvider } from "../components/admin/toast";
 import { API, APP_NAME } from "../lib/api";
+import { appPath, routePath } from "../lib/base";
 import { AgentAlerts } from "../components/agent-alerts";
 import { FleetProgressBar } from "../components/fleet-progress-bar";
 import { onLiveChange } from "../lib/alerts";
@@ -97,11 +98,20 @@ export function AppLayout() {
   const STANDALONE_ROUTES = [
     "/agents", "/skills", "/issues", "/vault",
     "/mcp", "/terminal", "/sources", "/library", "/brain", "/chat",
+    // Every user-added app, by prefix. A custom app is one of the builder's
+    // screens in every way that matters here, and enumerating them would mean
+    // this list needs an edit each time one is dropped in — which is the exact
+    // coupling the extension point exists to remove.
+    "/apps",
   ];
 
   let embedded = false;
   if (typeof window !== "undefined") {
-    const path = window.location.pathname;
+    // Stripped of the mount point: under the plugin build these arrive as
+    // /builder/issues, and every entry in STANDALONE_ROUTES is written as the
+    // route the router knows. Comparing the raw pathname matched nothing and
+    // the standalone mode silently never engaged.
+    const path = routePath(window.location.pathname);
     const isAppRoute = STANDALONE_ROUTES.some(
       (p) => path === p || path.startsWith(p + "/"),
     );
@@ -130,7 +140,7 @@ export function AppLayout() {
     }
     // A screen opened directly, with no launcher and nothing recorded.
     if (window.history.length > 1) window.history.back();
-    else window.location.assign("/");
+    else window.location.assign(appPath("/"));
   };
 
   if (embedded) {
