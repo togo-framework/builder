@@ -16,14 +16,14 @@ Shipped from the togo blueprint at `{{blueprint_version}}`.
 | **10–19** | **Engineering** | How this codebase is built: generator-first sequencing, service boundaries, no DB client in `web/`, Go conventions, component/UI design, bilingual content | Strong, and specific. Violating one usually means the change is wrong, not merely impolite. |
 | **20–27** | **Safety** | What must never happen: direct DDL, direct DB writes, wiping a database, the schema-change workflow, IaC mirroring infra, fixing in IaC rather than on the deploy, deploys never setting env, the promotion path | **Absolute.** No exceptions clause, no "just this once", and most are backed by a `PreToolUse` guard that blocks before execution. |
 | **28–29** | — | Deliberately empty. Headroom between safety and autonomy. |
-| **30–42** | **Autonomy** | How an agent runs unattended: the grant, containment, and spend (30–36), then evidence, self-modification, stop conditions, memory, external comms, and provenance (37–42) | Strong. These are what make an autonomous loop auditable instead of merely fast. |
-| **43–49** | **Reserved** | Future blueprint rules. Do not claim a number here in a project — a blueprint upgrade will collide with you. |
+| **30–43** | **Autonomy** | How an agent runs unattended: the grant, containment, and spend (30–36), then evidence, self-modification, stop conditions, memory, external comms, provenance, and batch durability (37–43) | Strong. These are what make an autonomous loop auditable instead of merely fast. |
+| **44–49** | **Reserved** | Future blueprint rules. Do not claim a number here in a project — a blueprint upgrade will collide with you. |
 | **`local/`** | **Project-local** | Rules specific to this project that the blueprint does not and will not ship | Same force as any rule. Never overwritten by an upgrade. |
 
 Filenames are `NN-kebab-case-title.md`; the title line inside is `# Rule NN: Title`. Not every
 number in a band is occupied — gaps are headroom, not omissions.
 
-### The autonomy band (30–42)
+### The autonomy band (30–43)
 
 | File | Contract |
 |---|---|
@@ -40,6 +40,7 @@ number in a band is occupied — gaps are headroom, not omissions.
 | `40-memory-discipline.md` | *(conditional)* Recall before acting, cite what you recalled, admit blanks, retain decisions only, scope every write correctly. |
 | `41-external-communication.md` | Nothing leaves the org boundary without a human. Draft, hand over, stop. |
 | `42-provenance-and-scoped-commits.md` | Agent, model, run id, and issue on every commit. Never `git add -A`. |
+| `43-batch-sessions-persist-per-item.md` | A batch of model sessions persists each item as it returns and skips what exists on a re-run. Failure costs 1, not N. Concurrency only after durability. |
 
 Read 30 first — it is the band's root. Every other rule in the band describes a limit on the
 authority that 30 grants.
