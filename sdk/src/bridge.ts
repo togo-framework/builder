@@ -37,6 +37,26 @@ import type { BridgeContext, ConsoleEntry, NetworkEntry, PinAnchor } from "./typ
  * put a page in an iframe, so nothing is patched, captured or answered until
  * a parent proves it speaks the protocol, and an optional origin allowlist
  * can restrict who is believed even then.
+ *
+ * SEVERAL FRAMES IN ONE SHELL — why this file needs no per-app bookkeeping
+ *
+ * A shell can host app.co, auth.app.co and dashboard.app.co side by side. This
+ * file is unchanged by that, and deliberately so: each framed document is its
+ * own JavaScript realm, so each runs its OWN installBridge with its own
+ * `shell` lock, its own ring buffers, its own picker and its own `shooting`
+ * flag. First-framer-wins is therefore already per frame, not global — there
+ * is no shared state here for a sibling to reach, and no way for one app's
+ * console to end up in another's payload, because the buffers are not in the
+ * same heap.
+ *
+ * What the siblings DO share is the parent window: `shell.win` is the same
+ * object in all of them, so N conversations arrive on the shell's single
+ * listener interleaved. Telling them apart is the shell's job and it does it
+ * with event.source (the window the browser says sent it), not with the origin
+ * — two hosted apps may legitimately share an origin. Nothing this file sends
+ * identifies the app, and nothing it sends should: the shell stamps every
+ * forwarded answer from its own configured registry, so a frame cannot claim
+ * to be a different app than the one the shell put in that slot.
  */
 
 export const BRIDGE_MSG = {

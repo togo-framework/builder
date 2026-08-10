@@ -136,6 +136,60 @@ func TestSanitizeContextDropsMalformedJSON(t *testing.T) {
 	}
 }
 
+// The app stamp survives on its own.
+//
+// A shell hosting several products can file a report from an app whose SDK
+// never loaded, or from a reporter who opted out of the console and network
+// capture. Either way the payload is nothing but the app — and that row must
+// still be stored, because "which of the three surfaces was this?" is the one
+// question a multi-app board cannot answer without it.
+func TestSanitizeContextKeepsAnAppOnlySnapshot(t *testing.T) {
+	in := []byte(`{"app":{"id":"auth","name":"auth","origin":"https://auth.app.co"}}`)
+	out, reason := sanitizeContext(in)
+	if reason != "" {
+		t.Fatalf("dropped an app-only context: %s", reason)
+	}
+	if out == nil {
+		t.Fatal("an app-only context stored NULL — the report would not say which app it came from")
+	}
+	var c browserContext
+	if err := json.Unmarshal(out, &c); err != nil {
+		t.Fatal(err)
+	}
+	if c.App == nil || c.App.ID != "auth" || c.App.Origin != "https://auth.app.co" {
+		t.Fatalf("app mangled: %+v", c.App)
+	}
+}
+
+// An app object naming nothing is not an app. Dropped, so the issue page's
+// "do we know where this came from" stays one nil check.
+func TestSanitizeContextDropsANamelessApp(t *testing.T) {
+	out, reason := sanitizeContext([]byte(`{"app":{"origin":"https://x.co"}}`))
+	if out != nil || reason != "" {
+		t.Fatalf("a nameless app must vanish; got (%q, %q)", out, reason)
+	}
+}
+
+// The app fields are bounded like every other string on this payload — the
+// ingress is public and a name is a claim, not a fact.
+func TestSanitizeContextBoundsTheAppFields(t *testing.T) {
+	in := fmt.Sprintf(`{"app":{"id":%q,"name":%q,"origin":%q}}`,
+		strings.Repeat("i", maxAppID*2),
+		strings.Repeat("n", maxAppName*2),
+		strings.Repeat("o", maxAppOrigin*2))
+	out, reason := sanitizeContext([]byte(in))
+	if reason != "" {
+		t.Fatalf("dropped instead of bounded: %s", reason)
+	}
+	var c browserContext
+	if err := json.Unmarshal(out, &c); err != nil {
+		t.Fatal(err)
+	}
+	if len(c.App.ID) > maxAppID || len(c.App.Name) > maxAppName || len(c.App.Origin) > maxAppOrigin {
+		t.Fatalf("app fields not bounded: %+v", c.App)
+	}
+}
+
 // Multi-byte text at the truncation boundary must stay valid UTF-8 — the same
 // bug truncate() exists for, at the console-line ceiling this time.
 func TestSanitizeContextTruncatesLongLinesOnRuneBoundaries(t *testing.T) {

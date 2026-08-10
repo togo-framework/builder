@@ -39,8 +39,13 @@ const en = {
   // The disclosure is a requirement, not a nicety: a report that quietly
   // ships the page's console and network activity is surveillance, not
   // feedback. Say what is attached, and offer the way out.
-  ctxAttached: (c: number, n: number) =>
-    `Console and network activity from the product page will be attached (${c} console line${c === 1 ? "" : "s"}, ${n} request${n === 1 ? "" : "s"}).`,
+  //
+  // The app is NAMED. A shell can host several at once, and "the product page"
+  // is not an answer when the reporter has switched between three of them —
+  // they have to be able to see, before they send, that the console about to
+  // be attached is auth's and not the dashboard's.
+  ctxAttached: (app: string, c: number, n: number) =>
+    `Console and network activity from ${app} will be attached (${c} console line${c === 1 ? "" : "s"}, ${n} request${n === 1 ? "" : "s"}).`,
   ctxOptOut: "Send without console & network activity",
   created: (n: number) => `Reported as #${n}`,
   failed: "Could not submit. Try again.",
@@ -101,8 +106,8 @@ const ar: Dict = {
   screenshot: "لقطة شاشة",
   submit: "إرسال",
   submitting: "جارٍ الإرسال…",
-  ctxAttached: (c: number, n: number) =>
-    `سيتم إرفاق نشاط وحدة التحكم والشبكة من صفحة المنتج (${c} سطر، ${n} طلب).`,
+  ctxAttached: (app: string, c: number, n: number) =>
+    `سيتم إرفاق نشاط وحدة التحكم والشبكة من ${app} (${c} سطر، ${n} طلب).`,
   ctxOptOut: "الإرسال دون نشاط وحدة التحكم والشبكة",
   created: (n: number) => `تم الإبلاغ برقم #${n}`,
   failed: "تعذّر الإرسال. حاول مرة أخرى.",

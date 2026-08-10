@@ -157,9 +157,37 @@ const ICONS = {
     ["path", { d: "M11 13h4" }],
     ["rect", { width: "18", height: "18", x: "3", y: "3", rx: "2", ry: "2" }],
   ],
+  // layers — the shell's app switcher. Several apps stacked in one shell is
+  // exactly what the glyph draws, and it reads as "there is more than one of
+  // these here" at 14px, which is the whole job.
+  layers: [
+    ["path", { d: "M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z" }],
+    ["path", { d: "M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12" }],
+    ["path", { d: "M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17" }],
+  ],
+  // layout-grid — the generic tile. A custom app names whichever lucide glyph
+  // it likes; this bundle carries twenty, so anything it does not have lands
+  // here rather than throwing and emptying the launcher.
+  app: [
+    ["rect", { width: "7", height: "7", x: "3", y: "3", rx: "1" }],
+    ["rect", { width: "7", height: "7", x: "14", y: "3", rx: "1" }],
+    ["rect", { width: "7", height: "7", x: "14", y: "14", rx: "1" }],
+    ["rect", { width: "7", height: "7", x: "3", y: "14", rx: "1" }],
+  ],
 } satisfies Record<string, IconNode>;
 
 export type IconName = keyof typeof ICONS;
+
+/**
+ * hasIcon narrows an arbitrary string to a glyph this bundle carries.
+ *
+ * Needed because icon names now arrive from outside: a custom app's manifest is
+ * a file an operator wrote, and `ICONS[name]` on a miss is `undefined`, whose
+ * for..of throws — one typo in one app.json would have emptied the whole grid.
+ */
+export function hasIcon(name: string): name is IconName {
+  return Object.prototype.hasOwnProperty.call(ICONS, name);
+}
 
 /**
  * icon builds an SVG element.

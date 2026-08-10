@@ -103,6 +103,25 @@ export interface NetworkEntry {
   ts: number;
 }
 
+/**
+ * Which hosted app a bridge payload came from.
+ *
+ * A shell can host several apps at once — app.co, auth.app.co,
+ * dashboard.app.co — each in its own frame. This is stamped by the SHELL, from
+ * its own configured registry, onto every message it forwards from a frame; it
+ * is never taken from the frame, which has no way to know what the operator
+ * named it and no business asserting it. That is what makes it impossible for
+ * one app's console to be filed against another.
+ */
+export interface BridgeApp {
+  /** Slug from the shell's config. Stable across a URL change. */
+  id: string;
+  /** What the operator called it, and what the filed issue will say. */
+  name: string;
+  /** The one origin that frame is allowed to speak from. */
+  origin: string;
+}
+
 /** The payload of `builder:context:done` — what the frame volunteers to the shell. */
 export interface BridgeContext {
   console: ConsoleEntry[];
@@ -112,6 +131,13 @@ export interface BridgeContext {
   locale: string;
   url: string;
   title: string;
+  /**
+   * The app this snapshot came from. Absent when the SDK is not in a shell —
+   * an unframed product is one app and naming it would be noise. Present, it
+   * rides all the way into the issue's stored browser context, which is how a
+   * report from auth.app.co says so on the board.
+   */
+  app?: BridgeApp;
 }
 
 export interface Transport {
@@ -123,6 +149,20 @@ export interface Transport {
 export interface MountOptions {
   /** API origin. Same-origin by default, which is what keeps cookies working. */
   apiBase?: string;
+  /**
+   * Where the builder's screens are mounted, under `apiBase`.
+   *
+   * Defaults to "/builder", which is where the plugin serves them from its
+   * embedded bundle. The launcher used to open "/issues", "/agents" and the
+   * rest at the ROOT of whatever page the widget was on — which is correct only
+   * for a project scaffolded from the blueprint, whose own router happens to
+   * define those paths. Installed into an existing application, every tile in
+   * the launcher opened a 404: the host owns "/" and has never heard of
+   * "/agents".
+   *
+   * Override only if the plugin was mounted somewhere else.
+   */
+  screensBase?: string;
   /** `en` | `ar`. Drives copy and text direction. */
   locale?: string;
   /** Accent colour. Falls back to the builder default. */
@@ -134,16 +174,17 @@ export interface MountOptions {
   /** Override the transport — used by the host app to inject session auth. */
   transport?: Transport;
   /**
-   * The page this widget sits on is a shell framing another origin.
+   * The page this widget sits on is a shell framing one or more other origins.
    *
    * Pinning and screenshots both read the DOM, and a cross-origin iframe is
    * opaque to both: the picker sees one element it cannot look inside, and
    * html-to-image serialises the frame as a blank rectangle — which on a shell
-   * page, where the frame IS the page, is a black image.
+   * page, where the frames ARE the page, is a black image.
    *
-   * So the controls are disabled and say why. A button that produces a black
-   * screenshot is worse than no button: it looks like a bug in the tool and it
-   * costs the operator the time to find out otherwise.
+   * So the panel does not read them. It posts requests to its own window; the
+   * shell's relay forwards each to the frame it names and stamps every answer
+   * with the app it came from. The panel keeps per-app state and files the
+   * report against the app in view — see the framedHost block in index.ts.
    */
   framedHost?: boolean;
   /**

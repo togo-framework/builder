@@ -69,6 +69,16 @@ export function createDetail(
   locale: string,
   transport: DetailTransport,
   onBack: () => void,
+  /**
+   * The full page for one issue.
+   *
+   * Passed in rather than built here, because only the caller knows where the
+   * builder's screens are mounted. This used to open "/issues/39" on whatever
+   * origin the widget was sitting on — right for a project scaffolded from the
+   * blueprint, a 404 in any application that owns "/issues" itself or does not
+   * define it at all.
+   */
+  issueURL: (number: number) => string = (n) => `/builder/issues/${n}`,
 ): DetailView {
   const t = dict(locale);
   const el = document.createElement("div");
@@ -96,7 +106,7 @@ export function createDetail(
     const open = button("ghost", "↗");
     open.title = t.report;
     open.addEventListener("click", () =>
-      window.open(`/issues/${d.number}`, "_blank", "noopener"),
+      window.open(issueURL(d.number), "_blank", "noopener"),
     );
     head.append(back, open);
     el.appendChild(head);

@@ -23,7 +23,31 @@ const (
 	maxConsoleText = 4 << 10 // one log line; a dumped object is truncated, not stored
 	maxContextURL  = 2048    // matches the page_url ceiling
 	maxUserAgent   = 512
+
+	maxAppID     = 64  // a config slug, not free text
+	maxAppName   = 128 // what the operator called it
+	maxAppOrigin = 512 // scheme://host:port, generously
 )
+
+// contextApp names the hosted app a report came from.
+//
+// A builder shell can frame several surfaces of one product at once —
+// app.co, auth.app.co, dashboard.app.co — and a report that does not say which
+// of them it is about sends somebody to read the wrong code. The shell stamps
+// this from its own configured target list before the payload ever reaches the
+// panel, so it is the shell's word and not the framed page's: a compromised
+// product cannot file under its neighbour's name.
+//
+// Stored inside browser_context rather than as its own column: it is the same
+// kind of fact as the viewport and the user agent — a description of where the
+// report was taken — and it arrives on the same payload, through the same
+// disclosure, bounded by the same limits. A column would have meant a
+// migration and a second write path for a field that is already here.
+type contextApp struct {
+	ID     string `json:"id,omitempty"`
+	Name   string `json:"name,omitempty"`
+	Origin string `json:"origin,omitempty"`
+}
 
 type consoleEntry struct {
 	Level string `json:"level"`
@@ -56,6 +80,7 @@ type browserContext struct {
 	Viewport  *viewportInfo  `json:"viewport,omitempty"`
 	UserAgent string         `json:"userAgent,omitempty"`
 	Locale    string         `json:"locale,omitempty"`
+	App       *contextApp    `json:"app,omitempty"`
 }
 
 var validConsoleLevel = map[string]bool{
@@ -138,11 +163,29 @@ func sanitizeContext(raw json.RawMessage) ([]byte, string) {
 		}
 	}
 
+	if c.App != nil {
+		c.App.ID = truncate(c.App.ID, maxAppID)
+		c.App.Name = truncate(c.App.Name, maxAppName)
+		c.App.Origin = truncate(c.App.Origin, maxAppOrigin)
+		// An app with no id and no name names nothing. Dropped rather than
+		// stored, so the issue page's test for "do we know where this came
+		// from" stays a simple nil check.
+		if c.App.ID == "" && c.App.Name == "" {
+			c.App = nil
+		}
+	}
+
 	// Nothing survived → store NULL, not "{}". The column's NULL is what lets
 	// the issue page skip the section entirely; an empty object would render
 	// an empty "Browser context" on a report that carried none.
+	//
+	// App counts as something surviving. A report filed from a hosted app whose
+	// SDK never loaded — or one whose reporter opted out of the console and
+	// network capture — carries the app and nothing else, and that row is the
+	// whole point: it is the difference between "a bug somewhere in the
+	// product" and "a bug in auth".
 	if len(c.Console) == 0 && len(c.Network) == 0 && c.Viewport == nil &&
-		c.UserAgent == "" && c.Locale == "" {
+		c.UserAgent == "" && c.Locale == "" && c.App == nil {
 		return nil, ""
 	}
 

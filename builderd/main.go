@@ -34,6 +34,8 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -41,8 +43,11 @@ import (
 
 	"github.com/togo-framework/togo"
 
-	// The builder itself. Its init() registers every provider.
-	_ "github.com/togo-framework/builder"
+	// The builder itself. Its init() registers every provider — including the
+	// one that mounts the embedded dashboard, which is why this is a named
+	// import now: WebMount is where those pages are, and the daemon's front
+	// door redirects there rather than repeating the path as a literal.
+	"github.com/togo-framework/builder"
 
 	// The togo plugins the builder actually depends on, and no others.
 	//
@@ -89,17 +94,31 @@ func main() {
 	if os.Getenv("BUILDER_RUNNER") != "1" {
 		fmt.Print("  agents    idle (set BUILDER_RUNNER=1 to start the loop)\n")
 	}
-	origin := "http://localhost" + os.Getenv("ADDR")
 	fmt.Printf("\n  Embed in your product:\n"+
 		"    <script src=\"%s/sdk/builder-sdk.js\"></script>\n"+
-		"    <script>BuilderIssues.mount({ apiBase: \"%s\" })</script>\n\n", origin, origin)
+		"    <script>BuilderIssues.mount({ apiBase: \"%s\" })</script>\n\n", origin(), origin())
 
-	// The dashboard itself, served by the daemon.
+	// The health probe the dashboard actually asks for.
 	//
-	// Without this the daemon keeps the DATA alive and gives you nowhere to
-	// look at it: the product's frontend is what serves /issues, so when it is
-	// down the browser gets a connection refusal and there is no page for the
-	// widget to sit on. Surviving the product means serving the pages too.
+	// The dashboard is built from the product's repository, and the product
+	// registers /api/health in its OWN server — so served from here it polled
+	// an endpoint nobody answered, took the 404 as "down", and drew its status
+	// dot grey with "API offline". The daemon was running perfectly and its own
+	// front page said it was not, which is the worst possible first impression
+	// for a binary whose whole promise is that it stays up when the product
+	// does not.
+	serveHealth(k)
+
+	if t := strings.TrimSpace(os.Getenv("BUILDER_TARGETS")); t == "" {
+		fmt.Print("  targets   one (set BUILDER_TARGETS=\"app=…,auth=…\" to host several at /shell)\n")
+	}
+
+	// The daemon's front door. The pages come from the plugin's embedded
+	// bundle at /builder/*; this points "/" at them.
+	//
+	// Surviving the product means serving the pages too: the product's
+	// frontend is what used to serve /issues, so when it is down the browser
+	// gets a connection refusal and there is no page for the widget to sit on.
 	serveWeb(k)
 	// Your product, framed, with the builder outside it.
 	serveShell(k)
@@ -109,53 +128,73 @@ func main() {
 	}
 }
 
-// serveWeb mounts the dashboard, with an SPA fallback.
+// serveHealth answers the dashboard's liveness probe.
 //
-// A directory rather than an embedded bundle, for now: the UI is built from
-// the app repository and embedding it here would make every plugin release
-// carry a megabyte of somebody else's compiled JavaScript. BUILDER_WEB_DIR
-// points at the built dist.
+// The shape matches the product's own /api/health, because the same compiled
+// dashboard reads both and only looks at .status. "service" is what tells an
+// operator WHICH of the two answered — on a machine running the product on
+// 8080 and the daemon on 8099, that field is the difference between "I am
+// looking at the builder" and "I am looking at the product".
 //
-// The fallback is the whole trick with a client-routed app: /issues exists
-// only in the browser's router, so a request for it must return index.html and
-// let the router resolve it. Returning 404 — which a plain file server does —
-// means every deep link and every refresh lands on nothing.
-func serveWeb(k *togo.Kernel) {
-	dir := strings.TrimSpace(os.Getenv("BUILDER_WEB_DIR"))
-	if dir == "" {
-		fmt.Print("  dashboard not served — set BUILDER_WEB_DIR to the built web/dist\n")
-		return
-	}
-	index := filepath.Join(dir, "index.html")
-	if _, err := os.Stat(index); err != nil {
-		fmt.Printf("  ! BUILDER_WEB_DIR has no index.html: %s\n", dir)
-		return
-	}
+// Registered on the router directly rather than behind auth: a liveness probe
+// that requires a session cannot report that the thing handing out sessions is
+// broken.
+func serveHealth(k *togo.Kernel) {
+	k.Router.Get("/api/health", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		// No-store: a cached "ok" outliving the process it describes is worse
+		// than no probe at all.
+		w.Header().Set("Cache-Control", "no-store")
+		if _, err := io.WriteString(w, `{"status":"ok","service":"builderd"}`); err != nil {
+			// The client hung up mid-write. Nothing to recover and nothing to
+			// say to them; log it rather than discarding the error silently.
+			slog.Debug("health response write failed", "err", err)
+		}
+	})
+}
 
-	files := http.FileServer(http.Dir(dir))
-	k.Router.NotFound(func(w http.ResponseWriter, r *http.Request) {
-		// The API and the SDK are real routes and must keep their own 404s: a
-		// mistyped endpoint answering with a page of HTML is a debugging
-		// session nobody needs.
-		if strings.HasPrefix(r.URL.Path, "/api/") || strings.HasPrefix(r.URL.Path, "/sdk/") {
-			http.NotFound(w, r)
+// serveWeb points the daemon's front door at the dashboard.
+//
+// The pages themselves are NOT served here. The builder plugin mounts them at
+// /builder/* from a bundle embedded in the binary (see web.go and web_embed.go
+// in the plugin), which is what makes them work in a host application too —
+// one implementation, mounted once, wherever the kernel happens to be running.
+//
+// This function used to BE the dashboard, reading BUILDER_WEB_DIR and file-
+// serving whatever it found. That default was ../../builder-dev/web/dist — a
+// sibling development checkout — so the "standalone" daemon was not standalone
+// at all: on any machine without that project cloned AND built, it started,
+// reported itself healthy, and served no pages. On a server it could never
+// have worked. BUILDER_WEB_DIR still exists, still overrides, and is now read
+// by the plugin as a development convenience rather than as the only source of
+// a UI.
+//
+// What is left is the redirect. An operator opens http://localhost:8099 and
+// must land on the board; they should not have to know the mount point.
+func serveWeb(k *togo.Kernel) {
+	k.Router.Get("/", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, builder.WebMount+"/", http.StatusFound)
+	})
+
+	// Anything else that is not a mounted route is a genuine 404. The daemon
+	// hosts an API, the SDK, the shell and the dashboard; a catch-all that
+	// answered every unknown path with the app shell would make a mistyped
+	// endpoint look like a working page.
+	k.Router.NotFound(http.NotFound)
+
+	if dir := strings.TrimSpace(os.Getenv("BUILDER_WEB_DIR")); dir != "" {
+		if _, err := os.Stat(filepath.Join(dir, "index.html")); err != nil {
+			fmt.Printf("  ! BUILDER_WEB_DIR has no index.html (%s) — serving the embedded dashboard\n", dir)
+		} else {
+			fmt.Printf("  dashboard %s%s/  (override: %s)\n", origin(), builder.WebMount, dir)
 			return
 		}
-		// A real file wins; anything else is a client route.
-		if p := filepath.Join(dir, filepath.Clean(r.URL.Path)); r.URL.Path != "/" {
-			if st, err := os.Stat(p); err == nil && !st.IsDir() {
-				files.ServeHTTP(w, r)
-				return
-			}
-		}
-		// No-store on the shell only. The hashed assets beside it are
-		// immutable and cached by the file server above; the shell is what
-		// must not go stale after a deploy.
-		w.Header().Set("Cache-Control", "no-store")
-		http.ServeFile(w, r, index)
-	})
-	fmt.Printf("  dashboard %s\n", dir)
+	}
+	fmt.Printf("  dashboard %s%s/  (embedded in this binary)\n", origin(), builder.WebMount)
 }
+
+// origin is where this daemon answers, as an operator would type it.
+func origin() string { return "http://localhost" + os.Getenv("ADDR") }
 
 func setDefault(key, val string) {
 	if strings.TrimSpace(os.Getenv(key)) == "" {
@@ -203,8 +242,21 @@ the board is what you reach for when the product is broken.
   BUILDER_WORKDIR  the repository agents work in
   BUILDER_VAULT_KEY  required for the secrets vault
   BUILDER_RUNNER=1   start the agent loop (off by default: it spends money)
-  BUILDER_WEB_DIR    the built dashboard (web/dist) — without it there are no pages to look at
-  BUILDER_TARGET     the product to frame at /shell (default: http://localhost:3000)
+  BUILDER_WEB_DIR    OPTIONAL. The dashboard is compiled into this binary and served at
+                     /builder/ — nothing needs to be built or checked out for it to work.
+                     Set this only when developing the dashboard itself, to serve a
+                     web/dist from disk instead. A path with no index.html is ignored.
+  BUILDER_TARGET     one product to frame at /shell (default: http://localhost:3000)
+  BUILDER_TARGETS    several, as name=url separated by commas or newlines. The shell
+                     hosts them all at once and switches between them without losing
+                     the panel; every report records which one it came from. Takes
+                     precedence over BUILDER_TARGET, which stays the single-app shorthand:
+
+                       BUILDER_TARGETS="app=https://app.co,auth=https://auth.app.co,dashboard=https://dashboard.app.co"
+
+                     A bare url with no name= takes its host as the name.
+  BUILDER_LOCALE     en (default) or ar — the shell's own copy and text direction.
+                     Overridable per visit with /shell?lang=ar
 
 Embed in any product, on any stack:
 

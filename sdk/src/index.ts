@@ -8,6 +8,7 @@ import { CSS, HOST_CSS } from "./styles";
 import { httpTransport } from "./transport";
 import type {
   Attachment,
+  BridgeApp,
   BridgeContext,
   Handle,
   IssueSummary,
@@ -15,7 +16,7 @@ import type {
   MountOptions,
   PinAnchor,
 } from "./types";
-import { icon, label as iconLabel } from "./icons";
+import { hasIcon, icon, label as iconLabel } from "./icons";
 
 const FAB_POS_KEY = "builder.fab.position";
 const TYPES: IssueType[] = ["bug", "feature", "question", "discussion"];
@@ -68,14 +69,26 @@ export function mount(opts: MountOptions = {}): Handle {
   // shell renders the UI from the outer page; ours goes away entirely.
   let bridged = false;
   // Bridge-mode state, meaningful only with framedHost. The shell page's own
-  // location is /shell — the page a report is ABOUT is the one inside the
-  // frame, and these carry what the frame last told us about it.
+  // location is /shell — the page a report is ABOUT is inside one of the
+  // frames, and these mirror what the app IN VIEW last told us about itself.
+  //
+  // Mirrors rather than the source of truth: the per-app records live in the
+  // framedHost block below, and paintActive() copies the active one out to
+  // here. That keeps every path that files or lists a report — open(),
+  // refresh(), submit() — reading exactly one page's worth of state, so none
+  // of them had to learn that there is now more than one app.
   let innerPage: { url: string; title: string } | null = null;
   let frameCtx: BridgeContext | null = null;
-  // A pick running INSIDE the frame. Separate from cancelPick (a pick on this
-  // page) because the two flows must never interleave: Escape on the shell
-  // must cancel the frame's picker, not dismiss the form under the reporter.
-  let bridgePick = false;
+  // The app in view, as the shell last announced it. Rides into the filed
+  // issue's context so the report says which of the hosted apps it came from.
+  let activeApp: BridgeApp | null = null;
+  // A pick running INSIDE a frame, holding the id of the app it was started
+  // in. Separate from cancelPick (a pick on this page) because the two flows
+  // must never interleave: Escape on the shell must cancel the frame's picker,
+  // not dismiss the form under the reporter. Scoped to an app rather than a
+  // bare flag because a pick armed in auth must not be satisfied by a
+  // pin:done that arrives from the dashboard.
+  let bridgePick: string | null = null;
   let cancelBridgePick: () => void = () => {};
 
   // ---- markup ------------------------------------------------------------
@@ -212,64 +225,132 @@ export function mount(opts: MountOptions = {}): Handle {
   const pinBtn = $<HTMLButtonElement>(".pin");
   // See MountOptions.framedHost. Both of these read the DOM, and the DOM of a
   // framed product is not ours to read.
-  // The shell panel asks the FRAME to pin and capture.
   //
-  // Both read the DOM, and on a shell page the product's DOM belongs to a
-  // different origin. Rather than disable the controls — which is what this
-  // did first, and which left the operator with a feature that visibly could
-  // not work — the panel now posts a request to its own window. The shell
-  // relays it into the frame, the SDK loaded inside the product does the work
-  // where the DOM actually is, and the answer comes back the same way.
+  // The shell panel asks a FRAME to pin and capture.
+  //
+  // Both read the DOM, and on a shell page the products' DOMs belong to other
+  // origins. Rather than disable the controls — which is what this did first,
+  // and which left the operator with a feature that visibly could not work —
+  // the panel posts a request to its own window. The shell relays it into the
+  // frame, the SDK loaded inside that product does the work where the DOM
+  // actually is, and the answer comes back the same way.
   //
   // Same-window postMessage rather than a direct call: the shell is the only
-  // thing that knows the frame's origin, and it must stay the only thing that
-  // talks to it. A panel reaching for contentWindow itself would be a second
-  // place to get targetOrigin wrong.
+  // thing that knows each frame's origin, and it must stay the only thing that
+  // talks to them. A panel reaching for contentWindow itself would be a second
+  // place to get targetOrigin wrong — and with several frames, a second place
+  // to send app A's request to app B.
+  //
+  // SEVERAL APPS
+  //
+  // The shell can host app.co, auth.app.co and dashboard.app.co at once. Every
+  // answer it forwards is stamped with {app:{id,name,origin}} from its own
+  // config, so this panel never infers who sent what: it files each payload
+  // into that app's record and reads the report's context out of the record
+  // for the app in view. A console line from the dashboard therefore cannot
+  // reach a report filed against auth — not because the panel is careful about
+  // it, but because they were never in the same box.
   if (opts.framedHost) {
-    const askFrame = (type: string) =>
-      window.postMessage({ v: 1, type }, location.origin);
+    /** One hosted app's half of the conversation. */
+    type AppRecord = {
+      app: BridgeApp;
+      /** A builder:ready arrived for that frame's CURRENT document. */
+      ready: boolean;
+      /** Where that app last said it was — the page a report about it attaches to. */
+      page: { url: string; title: string } | null;
+      /** Its own console/network snapshot. Never shared, never merged. */
+      ctx: BridgeContext | null;
+    };
+    const records = new Map<string, AppRecord>();
 
-    // Until the framed product answers a hello there is no SDK in there to do
-    // the work. The controls say so rather than failing silently.
-    let frameReady = false;
+    const recordFor = (app: BridgeApp): AppRecord => {
+      let r = records.get(app.id);
+      if (!r) {
+        r = { app, ready: false, page: null, ctx: null };
+        records.set(app.id, r);
+      } else {
+        r.app = app; // the shell is authoritative; keep the freshest stamp
+      }
+      return r;
+    };
+
+    /** Read the shell's stamp off an inbound message, or nothing. */
+    const readApp = (v: unknown): BridgeApp | null => {
+      const a = v as Partial<BridgeApp> | null;
+      if (!a || typeof a.id !== "string" || !a.id) return null;
+      return {
+        id: a.id,
+        name: typeof a.name === "string" && a.name ? a.name : a.id,
+        origin: typeof a.origin === "string" ? a.origin : "",
+      };
+    };
+
+    // Requests name the app they are for. The shell resolves the id against
+    // its own registry and refuses pin/screenshot for anything but the frame
+    // in view, so a stale id here cannot act on the wrong product — it is
+    // simply dropped.
+    const askFrame = (type: string, appId: string | undefined) => {
+      if (!appId) return;
+      window.postMessage({ v: 1, type, appId }, location.origin);
+    };
+    const askActive = (type: string) => askFrame(type, activeApp?.id);
+
+    // Until the app in view answers a hello there is no SDK in there to do the
+    // work. The controls say so rather than failing silently.
     const noSdk =
-      "The product has not loaded the builder script, so there is nothing " +
+      "This app has not loaded the builder script, so there is nothing " +
       "inside the frame to read the page with. Add the script tag to enable " +
       "pinning and screenshots.";
 
     const pinB = $<HTMLButtonElement>(".pin");
     const shotB = $<HTMLButtonElement>(".shot");
-    for (const b of [pinB, shotB]) {
-      b.disabled = true;
-      b.title = noSdk;
-      b.setAttribute("aria-disabled", "true");
-    }
-
     const ctxRow = $<HTMLElement>(".ctxrow");
     const ctxNote = $<HTMLParagraphElement>(".ctx-note");
     $(".ctx-opt-txt").textContent = t.ctxOptOut;
 
-    const updateCtxDisclosure = () => {
-      const has =
-        !!frameCtx && (frameCtx.console.length > 0 || frameCtx.network.length > 0);
+    /**
+     * Copy the app in view out of its record and into the panel.
+     *
+     * The single place the mirrors above are written, so there is one answer
+     * to "which app is this report about" and every other path just reads it.
+     */
+    const paintActive = () => {
+      const r = activeApp ? records.get(activeApp.id) : undefined;
+      innerPage = r?.page ?? null;
+      frameCtx = r?.ctx ?? null;
+
+      const ready = !!r?.ready;
+      for (const b of [pinB, shotB]) {
+        b.disabled = !ready;
+        b.title = ready ? "" : noSdk;
+        if (ready) b.removeAttribute("aria-disabled");
+        else b.setAttribute("aria-disabled", "true");
+      }
+
+      urlIn.value = innerPage?.url ?? "";
+      // Name the app beside the route. With several hosted apps "/login" is
+      // ambiguous on its own — auth has one and so does the dashboard — and
+      // the panel header is where the reporter checks what they are filing
+      // against before they write a word. dir=auto because an operator may
+      // have named an app in Arabic while the route stays LTR.
+      const route = normalizeRoute(innerPage?.url);
+      const sub = $<HTMLElement>(".brand-sub");
+      sub.setAttribute("dir", "auto");
+      sub.textContent = activeApp ? `${activeApp.name} · ${route}` : route;
+
+      const has = !!frameCtx && (frameCtx.console.length > 0 || frameCtx.network.length > 0);
       ctxRow.classList.toggle("hidden", !has);
-      if (frameCtx) {
-        ctxNote.textContent = t.ctxAttached(frameCtx.console.length, frameCtx.network.length);
+      if (frameCtx && activeApp) {
+        ctxNote.textContent = t.ctxAttached(
+          activeApp.name,
+          frameCtx.console.length,
+          frameCtx.network.length,
+        );
       }
     };
 
-    // What the frame says about its own location becomes what the report
-    // attaches to. The shell page's location is /shell — scoping issues to it
-    // would file every report from every framed product on one route.
-    const syncInner = (d: { url?: unknown; title?: unknown }) => {
-      if (typeof d.url !== "string" || !d.url) return;
-      innerPage = { url: d.url, title: typeof d.title === "string" ? d.title : "" };
-      urlIn.value = d.url;
-      $(".brand-sub").textContent = normalizeRoute(d.url);
-    };
-
     const endBridgePick = () => {
-      bridgePick = false;
+      bridgePick = null;
       // Only the modal comes back if the form is what was open — same rule as
       // the local pick's restore.
       if (formOpen) modal.dataset.open = "true";
@@ -277,18 +358,23 @@ export function mount(opts: MountOptions = {}): Handle {
       renderPins(); // restores the pin button's label and pressed state
     };
     cancelBridgePick = () => {
-      askFrame(BRIDGE_MSG.pinCancel);
+      // Cancel in the app the pick was STARTED in, which may no longer be the
+      // one in view. Sending the cancel to the active app instead would leave
+      // a picker armed in a frame nobody is looking at.
+      askFrame(BRIDGE_MSG.pinCancel, bridgePick ?? undefined);
       endBridgePick();
     };
 
     window.addEventListener("message", (e: MessageEvent) => {
       // Only our own window, only our own origin. The shell has already
-      // checked the frame; this is the second half of the same rule, and
-      // without it any page could post a forged pin result into the panel.
+      // checked which frame spoke and that it was still on its own origin;
+      // this is the second half of the same rule, and without it any page
+      // could post a forged pin result into the panel.
       if (e.source !== window || e.origin !== location.origin) return;
       const d = e.data as {
         v?: number;
         type?: string;
+        app?: unknown;
         anchor?: PinAnchor | null;
         dataUrl?: string | null;
         error?: string;
@@ -297,27 +383,63 @@ export function mount(opts: MountOptions = {}): Handle {
       } & Partial<BridgeContext>;
       if (!d || d.v !== 1 || typeof d.type !== "string") return;
 
+      // Which app this is about. Every bridge payload carries it, stamped by
+      // the shell; one that does not is not a payload we can attribute, and an
+      // unattributable payload is exactly what must not reach a report.
+      const app = readApp(d.app);
+      if (!app) return;
+
+      // The shell announcing a switch. Not a frame answer — no frame is
+      // involved — so it is handled before the per-app records are touched.
+      if (d.type === "builder:app:active") {
+        // A pick still running in the app being switched AWAY from would be
+        // armed in a frame that is now hidden: its highlight is invisible and
+        // its click can never happen. Cancel it rather than leaving it there.
+        if (bridgePick && bridgePick !== app.id) cancelBridgePick();
+        activeApp = app;
+        recordFor(app);
+        paintActive();
+        // Its context may be stale, or never fetched. Ask now so the
+        // disclosure counts what would actually be sent from THIS app.
+        askFrame(BRIDGE_MSG.context, app.id);
+        void refresh();
+        return;
+      }
+
+      const r = recordFor(app);
+
       switch (d.type) {
         case BRIDGE_MSG.ready:
-          frameReady = true;
-          for (const b of [pinB, shotB]) {
-            b.disabled = false;
-            b.removeAttribute("aria-disabled");
-            b.title = "";
+          r.ready = true;
+          if (typeof d.url === "string" && d.url) {
+            r.page = { url: d.url, title: typeof d.title === "string" ? d.title : "" };
           }
-          syncInner(d);
-          // Prime the disclosure and re-scope the listing to the inner page.
-          askFrame(BRIDGE_MSG.context);
-          void refresh();
+          askFrame(BRIDGE_MSG.context, app.id);
+          if (app.id === activeApp?.id) {
+            paintActive();
+            void refresh();
+          }
           return;
 
         case BRIDGE_MSG.url:
-          syncInner(d);
-          void refresh();
+          if (typeof d.url === "string" && d.url) {
+            r.page = { url: d.url, title: typeof d.title === "string" ? d.title : "" };
+          }
+          // A navigation in a hidden frame is recorded and nothing else: the
+          // listing and the URL field describe the app in view, and repainting
+          // them for a background app would rewrite the form under the
+          // reporter's hands.
+          if (app.id === activeApp?.id) {
+            paintActive();
+            void refresh();
+          }
           return;
 
         case BRIDGE_MSG.pinDone: {
-          if (!bridgePick) return;
+          // Only the app the pick was started in may satisfy it. Without this,
+          // a stray pin:done from another frame would attach its anchor to a
+          // report about a page it does not belong to.
+          if (bridgePick !== app.id) return;
           const a = d.anchor;
           // anchor null = the reporter pressed Escape inside the frame.
           if (a && typeof a === "object" && pins.length < MAX_PINS) pins = [...pins, a];
@@ -326,6 +448,9 @@ export function mount(opts: MountOptions = {}): Handle {
         }
 
         case BRIDGE_MSG.shotDone: {
+          // The relay only ever routes a shot to the app in view, so an answer
+          // from anywhere else is not ours to act on.
+          if (app.id !== activeApp?.id) return;
           shotB.disabled = false;
           if (typeof d.dataUrl === "string" && d.dataUrl.startsWith("data:")) {
             const att = dataUrlToAttachment(d.dataUrl);
@@ -344,7 +469,10 @@ export function mount(opts: MountOptions = {}): Handle {
         }
 
         case BRIDGE_MSG.contextDone: {
-          frameCtx = {
+          // Filed under the app that sent it, and stamped with that app —
+          // the stamp travels all the way into the stored issue, which is how
+          // the board can say a report came from auth.app.co.
+          r.ctx = {
             console: Array.isArray(d.console) ? d.console : [],
             network: Array.isArray(d.network) ? d.network : [],
             viewport:
@@ -355,38 +483,41 @@ export function mount(opts: MountOptions = {}): Handle {
             locale: typeof d.locale === "string" ? d.locale : "",
             url: typeof d.url === "string" ? d.url : "",
             title: typeof d.title === "string" ? d.title : "",
+            app,
           };
-          updateCtxDisclosure();
+          if (app.id === activeApp?.id) paintActive();
           return;
         }
       }
     });
 
     pinB.addEventListener("click", () => {
-      if (!frameReady) return;
+      if (!activeApp || !records.get(activeApp.id)?.ready) return;
       if (bridgePick) {
         cancelBridgePick();
         return;
       }
-      bridgePick = true;
+      bridgePick = activeApp.id;
       // The reporter aims INSIDE the frame; the shell's own surfaces get out
       // of the way exactly as the local pick does.
       panel.dataset.open = "false";
       modal.dataset.open = "false";
       pinB.setAttribute("aria-pressed", "true");
       pinB.textContent = t.pinning;
-      askFrame(BRIDGE_MSG.pinStart);
+      askActive(BRIDGE_MSG.pinStart);
     });
     shotB.addEventListener("click", () => {
-      if (!frameReady) return;
+      if (!activeApp || !records.get(activeApp.id)?.ready) return;
       shotB.disabled = true; // until shot:done — a double click is one capture
-      askFrame(BRIDGE_MSG.shot);
+      askActive(BRIDGE_MSG.shot);
     });
     // A fresh snapshot each time the form opens, so the disclosure counts what
     // would actually be sent, not what was true at handshake time.
-    $(".report").addEventListener("click", () => {
-      if (frameReady) askFrame(BRIDGE_MSG.context);
-    });
+    $(".report").addEventListener("click", () => askActive(BRIDGE_MSG.context));
+
+    // Nothing is known until the shell announces an app, so start honest: both
+    // controls disabled with the reason on them.
+    paintActive();
   }
   const clearPinBtn = $<HTMLButtonElement>(".clearpin");
   const pinPreview = $<HTMLElement>(".pin-preview");
@@ -532,12 +663,17 @@ export function mount(opts: MountOptions = {}): Handle {
     if (bridged) return; // the shell owns the UI; this panel no longer exists
     panel.dataset.open = "true";
     fab.setAttribute("aria-expanded", "true");
-    // On a shell page the report is about the FRAMED page, not /shell — show
-    // the URL the issue will attach to, not the one the browser is on.
-    urlIn.value = innerPage?.url ?? location.href;
-    // Re-read on every open: in an SPA the route changes without a remount,
-    // and a header pinned to the mount-time route would quietly lie.
-    $(".brand-sub").textContent = normalizeRoute(innerPage?.url);
+    // On a shell page the framedHost block owns the URL field and the header
+    // subline: they name the APP in view as well as its route, and rewriting
+    // them from here would drop the app name every time the panel opened —
+    // which is precisely when the reporter is checking what they are about to
+    // file against.
+    if (!opts.framedHost) {
+      // Re-read on every open: in an SPA the route changes without a remount,
+      // and a header pinned to the mount-time route would quietly lie.
+      urlIn.value = location.href;
+      $(".brand-sub").textContent = normalizeRoute();
+    }
     void refresh();
   }
   function close() {
@@ -585,10 +721,27 @@ export function mount(opts: MountOptions = {}): Handle {
     }
   }
 
-  const appURL = (path: string, embed: boolean) =>
-    `${appOrigin()}${path}${embed ? "?embed=1" : ""}`;
+  // Where the screens are mounted under that origin.
+  //
+  // "/builder" by default, because that is where the plugin serves its embedded
+  // bundle. Every path in APPS is written as the route the app's own router
+  // knows ("/agents"), and this is what turns it into a URL that exists on the
+  // server ("/builder/agents"). Without it the launcher pointed at the host
+  // product's root, where those paths belong to the host — and in an app that
+  // was not scaffolded from the blueprint, every tile was a 404.
+  //
+  // Normalised without a trailing slash so the join below is never "//agents".
+  const screensBase = (opts.screensBase ?? "/builder").replace(/\/+$/, "");
 
-  for (const app of APPS) {
+  const appURL = (path: string, embed: boolean) =>
+    `${appOrigin()}${screensBase}${path}${embed ? "?embed=1" : ""}`;
+
+  // One tile, whether the app is one of the ten above or one somebody dropped
+  // into the apps directory this morning. The launcher does not distinguish
+  // them, because to the operator they are the same thing: a screen.
+  type Tile = { key: string; path: string; color: string; label: string };
+
+  function addTile(app: Tile) {
     const b = document.createElement("button");
     b.type = "button";
     b.className = "app";
@@ -600,7 +753,10 @@ export function mount(opts: MountOptions = {}): Handle {
     // The earlier 22%-alpha tint washed ten distinct surfaces into one grey
     // smear — the tile colour IS the identity, so it gets full strength.
     chip.style.background = app.color;
-    chip.appendChild(icon(app.key, 18));
+    // A custom app names a lucide glyph the widget may not carry; the generic
+    // tile is the fallback, so an unknown icon costs an icon rather than a
+    // throw that empties the whole grid.
+    chip.appendChild(icon(hasIcon(app.key) ? app.key : "app", 18));
 
     const name = document.createElement("span");
     name.textContent = app.label;
@@ -609,6 +765,44 @@ export function mount(opts: MountOptions = {}): Handle {
     b.addEventListener("click", () => openApp(app));
     appGrid.appendChild(b);
   }
+
+  for (const app of APPS) addTile(app);
+
+  // Custom apps, appended after the built-in ten.
+  //
+  // Fetched rather than compiled in: they are discovered by the server at boot
+  // and this widget must not need a rebuild when one is added. Every failure is
+  // swallowed — an unauthenticated visitor, a registry that is down, a response
+  // that will not parse. The feedback button's whole promise is that it works
+  // when the thing around it is broken, and a launcher that throws on a missing
+  // optional list would break it over an app nobody has installed.
+  void (async () => {
+    try {
+      const base = (opts.apiBase ?? "").replace(/\/$/, "");
+      const res = await fetch(`${base}/api/builder/apps`, {
+        credentials: "include",
+        headers: { Accept: "application/json" },
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      const list = Array.isArray(data?.apps) ? data.apps : [];
+      const isAr = t.dir === "rtl";
+      for (const a of list) {
+        const slug = typeof a?.slug === "string" ? a.slug : "";
+        if (!slug) continue;
+        const en = typeof a?.title?.en === "string" ? a.title.en : slug;
+        const ar = typeof a?.title?.ar === "string" ? a.title.ar : "";
+        addTile({
+          key: slug,
+          path: `/apps/${slug}`,
+          color: typeof a?.color === "string" && a.color ? a.color : "#64748b",
+          label: isAr && ar ? ar : en,
+        });
+      }
+    } catch {
+      // Deliberately silent: see above.
+    }
+  })();
 
   // Opening an app NAVIGATES. It does not open a layer.
   //
@@ -625,7 +819,7 @@ export function mount(opts: MountOptions = {}): Handle {
   // the operator back inside the application they just left, which is the
   // thing the launcher exists to escape. The app persists the mode for the
   // session, so a Link deeper into the screen keeps it.
-  function openApp(app: (typeof APPS)[number]) {
+  function openApp(app: Tile) {
     const origin = appOrigin();
     const url = appURL(app.path, true);
 
@@ -986,9 +1180,33 @@ export function mount(opts: MountOptions = {}): Handle {
     sendBtn.textContent = t.submitting;
     try {
       // In a shell, the report is about the framed page: route and URL come
-      // from what the frame reported, and the context rides along only when
-      // the disclosure was shown and the reporter did not opt out.
+      // from what the frame reported, and the console/network snapshot rides
+      // along only when the disclosure was shown and the reporter did not opt
+      // out.
+      //
+      // WHICH APP it came from is not part of that bargain. A shell can host
+      // three surfaces of one product, and a report that does not say whether
+      // it is about app.co or auth.app.co is worse than no report — it sends
+      // somebody to read the wrong code. So the app survives an opt-out and
+      // survives an app with no SDK loaded at all: those cost the console and
+      // the network lines, never the attribution.
       const ctxOff = $<HTMLInputElement>(".ctx-optout");
+      const attribution: BridgeContext | undefined = activeApp
+        ? {
+            console: [],
+            network: [],
+            // Zeroed rather than read from this window: the shell's own
+            // viewport, user agent and locale describe the BUILDER, and
+            // labelling them as the product's environment would be a lie the
+            // reader has no way to catch.
+            viewport: { w: 0, h: 0, dpr: 1 },
+            userAgent: "",
+            locale: "",
+            url: innerPage?.url ?? "",
+            title: innerPage?.title ?? "",
+            app: activeApp,
+          }
+        : undefined;
       const r = await transport.create({
         type,
         title,
@@ -998,7 +1216,7 @@ export function mount(opts: MountOptions = {}): Handle {
         locale,
         pins,
         attachments: files,
-        context: frameCtx && !ctxOff?.checked ? frameCtx : undefined,
+        context: frameCtx && !ctxOff?.checked ? frameCtx : attribution,
       });
       setNote(t.created(r.number), "ok");
       opts.onCreated?.(r);
@@ -1079,7 +1297,7 @@ export function mount(opts: MountOptions = {}): Handle {
         $(".apps").classList.remove("hidden");
         panel.dataset.detail = "false";
         void refresh();
-      });
+      }, (n) => appURL(`/issues/${n}`, true));
       $(".body").appendChild(detail.el);
     }
     listing.classList.add("hidden");
@@ -1197,6 +1415,17 @@ function sanitizeColor(c: string): string {
 
 /** The shell↔frame message types — exported so the shell side can be checked against them. */
 export { BRIDGE_MSG } from "./bridge";
+
+/**
+ * The icon set, for the shell page.
+ *
+ * The shell's app switcher needs glyphs and the shell is a plain HTML page
+ * with no build step — it already loads this bundle for the panel, so lending
+ * it the same lucide set is the difference between one icon family on that
+ * page and two. Exported rather than duplicated: a second copy of the paths in
+ * shell.go would drift the first time one is redrawn.
+ */
+export { icon, hasIcon } from "./icons";
 
 export type {
   MountOptions,
