@@ -98,6 +98,34 @@ func (s *Service) agentsServer(c *caller) *mcp.Server {
 		return s.listSecretNames(ctx)
 	})
 
+	// Custom apps.
+	//
+	// On this surface and not the feedback one: an app ships an ES module the
+	// dashboard imports and executes in an authenticated origin, which is a very
+	// different blast radius from filing a bug. The feedback token is the one
+	// documented as safe to wire into a shared editor; it must not also be able
+	// to put running code in front of an operator. `agents` and `all` reach
+	// these; `feedback` does not.
+	mcp.AddTool(srv, &mcp.Tool{
+		Name: "list_apps",
+		Description: "List the custom apps installed on this builder, and what the " +
+			"last scan rejected. Call this before create_app, so you extend the app " +
+			"that already exists instead of adding a second tile that does the same job.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
+		return s.listApps(ctx)
+	})
+
+	mcp.AddTool(srv, &mcp.Tool{
+		Name: "create_app",
+		Description: "Add a screen to this builder: a tile in the feedback launcher " +
+			"and a route at /apps/<slug>. Discovered at boot, so it is live on a rescan " +
+			"with no restart and no edit to builder's source. You get a working demo — " +
+			"replace apps/<slug>/ui.js with the real screen before calling it done. " +
+			"Bilingual strings and logical CSS (ms-/me-, never ml-/mr-) are required.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, a createAppArgs) (*mcp.CallToolResult, any, error) {
+		return s.createApp(ctx, c, a)
+	})
+
 	return srv
 }
 

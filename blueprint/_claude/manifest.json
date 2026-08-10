@@ -568,6 +568,11 @@
       "path": ".claude/skills/find-pinned-component/SKILL.md",
       "sha256": "{{sha256:.claude/skills/find-pinned-component/SKILL.md}}",
       "sinceVersion": "1.0.0"
+    },
+    {
+      "path": ".claude/skills/custom-app/SKILL.md",
+      "sha256": "{{sha256:.claude/skills/custom-app/SKILL.md}}",
+      "sinceVersion": "1.0.0"
     }
   ],
   "blueprintVersion": "{{blueprint_version}}",

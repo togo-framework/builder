@@ -5,11 +5,13 @@
 // Two servers rather than one, because they have very different blast radii:
 //
 //	/mcp/feedback — the issue plane. File issues, read them, comment, move them.
-//	/mcp/agents   — the fleet: personas, skills, and each agent's brain.
+//	/mcp/agents   — the fleet: personas, skills, each agent's brain, and the
+//	                custom apps an agent can add to this builder mid-run.
 //
 // A token wired into a shared editor should be able to file bugs without also
-// being able to read what every agent has learned, so the scope is part of the
-// credential rather than a convention.
+// being able to read what every agent has learned — or to put executable code on
+// a dashboard screen — so the scope is part of the credential rather than a
+// convention.
 package mcp
 
 import (
@@ -23,11 +25,20 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
+
+	"github.com/togo-framework/builder/customapps"
 )
 
 type Service struct {
 	db  *sql.DB
 	log *slog.Logger
+
+	// The live custom-app registry, wired by SetApps after boot. Guarded
+	// because the apps provider sets it while these servers are already
+	// mountable — see apps.go for why there must be exactly one.
+	appsMu sync.RWMutex
+	apps   *customapps.Service
 }
 
 func New(db *sql.DB, log *slog.Logger) *Service {

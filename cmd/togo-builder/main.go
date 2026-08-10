@@ -25,7 +25,7 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: togo-builder <new|doctor|seed|version>")
+		fmt.Fprintln(os.Stderr, "usage: togo-builder <new|app|doctor|seed|version>")
 		os.Exit(2)
 	}
 	switch os.Args[1] {
@@ -33,6 +33,8 @@ func main() {
 		os.Exit(doctor(jsonFlag()))
 	case "new":
 		os.Exit(newProject(os.Args[2:]))
+	case "app":
+		os.Exit(appCmd(os.Args[2:]))
 	case "seed":
 		os.Exit(seed(os.Args[2:]))
 	case "version":
