@@ -57,15 +57,15 @@ type Session struct {
 
 // Result is the terminal `result` event plus what we derived from it.
 type Result struct {
-	Text         string        `json:"text"`
-	IsError      bool          `json:"is_error"`
-	Subtype      string        `json:"subtype"`
-	CostUSD      float64       `json:"cost_usd"`
-	InputTokens  int64         `json:"input_tokens"`
-	OutputTokens int64         `json:"output_tokens"`
-	NumTurns     int           `json:"num_turns"`
-	DurationMS   int64         `json:"duration_ms"`
-	SessionID    string        `json:"session_id"`
+	Text         string  `json:"text"`
+	IsError      bool    `json:"is_error"`
+	Subtype      string  `json:"subtype"`
+	CostUSD      float64 `json:"cost_usd"`
+	InputTokens  int64   `json:"input_tokens"`
+	OutputTokens int64   `json:"output_tokens"`
+	NumTurns     int     `json:"num_turns"`
+	DurationMS   int64   `json:"duration_ms"`
+	SessionID    string  `json:"session_id"`
 	// TmuxSession is the session the run actually executed in, or empty when
 	// tmux was unavailable and the process was spawned directly. Returned so a
 	// caller that did not choose the name can still persist and display it.
@@ -101,7 +101,20 @@ func (s Session) Run(ctx context.Context) (Result, error) {
 	ctx, cancel := context.WithTimeout(ctx, s.Timeout)
 	defer cancel()
 
-	args := []string{"-p", s.Prompt, "--output-format", "json"}
+	// The prompt travels on STDIN, never in argv.
+	//
+	// `claude -p <prompt>` parses the prompt as an option when it begins with a
+	// dash, and a prompt beginning with `---` is not exotic — YAML frontmatter
+	// starts that way, so every skill file, doc and pasted snippet carries it.
+	// The operator-visible symptom was `error: unknown option '---'` and a run
+	// that died before it began. `-p` reads the prompt from stdin when stdin is
+	// piped, so the flag stays and the text leaves argv entirely.
+	//
+	// Two things fall out of that for free, and both are worth keeping:
+	// argv is no longer bounded by ARG_MAX, so a long prompt cannot fail to
+	// spawn; and the prompt no longer appears in `ps`, where until now the full
+	// instruction of every running agent was readable by any local user.
+	args := []string{"-p", "--output-format", "json"}
 	if s.ID != "" {
 		args = append(args, "--session-id", s.ID)
 	}
@@ -137,10 +150,10 @@ func (s Session) Run(ctx context.Context) (Result, error) {
 	// command failed — so everything below this block is shared.
 	name := s.sessionLabel()
 	start := time.Now()
-	out, errText, err, viaTmux := tmuxRun(ctx, log, name, dir, env, claudeBin(), args)
+	out, errText, err, viaTmux := tmuxRun(ctx, log, name, dir, env, s.Prompt, claudeBin(), args)
 	if !viaTmux {
 		name = ""
-		out, errText, err = directRun(ctx, dir, env, claudeBin(), args)
+		out, errText, err = directRun(ctx, dir, env, s.Prompt, claudeBin(), args)
 	}
 	took := time.Since(start)
 
@@ -169,12 +182,18 @@ func (s Session) Run(ctx context.Context) (Result, error) {
 }
 
 // directRun is the pre-tmux spawn, kept intact as the fallback path.
-func directRun(ctx context.Context, dir string, env []string, bin string, args []string) (string, string, error) {
+//
+// stdin is the prompt. It is the easy half of the stdin move: an
+// exec.Cmd takes a reader and the kernel hands it to the child as fd 0, with
+// no file, no shell and no race. The tmux half is the interesting one — see
+// tmuxRun.
+func directRun(ctx context.Context, dir string, env []string, stdin, bin string, args []string) (string, string, error) {
 	cmd := exec.CommandContext(ctx, bin, args...)
 	if dir != "" {
 		cmd.Dir = dir
 	}
 	cmd.Env = env
+	cmd.Stdin = strings.NewReader(stdin)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

@@ -160,11 +160,31 @@ func (s Session) sessionLabel() string {
 // tmuxRun executes cmdline inside a tmux session and returns stdout, stderr and
 // the command's exit status.
 //
+// stdin is the prompt, and delivering it is the hard half of keeping prompt
+// text out of argv. `tmux new-session -d` DETACHES: the pane's process is a
+// grandchild of a server we do not own, so there is no fd to write to after the
+// fact. The three ways to get bytes in were weighed:
+//
+//   - send-keys types the text into the pane. It would land on a command line
+//     again — the bug, restored — and the shell would expand `$(...)`, backticks
+//     and newlines inside a prompt that is, by design, partly untrusted.
+//   - load-buffer + paste-buffer avoids argv, but pastes into the pane's TTY,
+//     which is a race against the process getting far enough to read, and offers
+//     no way to send EOF. `-p` reads until EOF, so it would hang.
+//   - a FILE the pane's script redirects in. The fd is opened by the shell
+//     before claude is exec'd, so there is no race and nothing to synchronise;
+//     the content is never parsed by anything; there is no size ceiling; and the
+//     only thing on any command line is a path.
+//
+// The file wins, and it is also the mechanism this file already uses for the
+// environment — one pattern to understand instead of two. Same handling: 0o600
+// inside the 0o700 run directory, and removed the moment it has been read.
+//
 // ok is false when tmux could not be used at all, which tells Run to spawn
 // directly instead. An error with ok=true is a real failure of the wrapped
 // command (or of the run itself) and is reported as such.
 func tmuxRun(ctx context.Context, log *slog.Logger, name, dir string, env []string,
-	bin string, args []string) (stdout, stderr string, exitErr error, ok bool) {
+	stdin, bin string, args []string) (stdout, stderr string, exitErr error, ok bool) {
 
 	tmux, err := tmuxPath()
 	if err != nil {
@@ -194,6 +214,7 @@ func tmuxRun(ctx context.Context, log *slog.Logger, name, dir string, env []stri
 	rcPath := filepath.Join(runDir, "rc")
 	envPath := filepath.Join(runDir, "env.sh")
 	shPath := filepath.Join(runDir, "run.sh")
+	promptPath := filepath.Join(runDir, "prompt")
 
 	// The environment travels in a FILE, not in `tmux -e` flags and not on the
 	// command line.
@@ -214,7 +235,15 @@ func tmuxRun(ctx context.Context, log *slog.Logger, name, dir string, env []stri
 		log.Warn("could not write the tmux env file; running directly", "err", err)
 		return "", "", nil, false
 	}
-	if err := os.WriteFile(shPath, []byte(runScript(envPath, rcPath, outPath, errPath, bin, args)), 0o700); err != nil {
+	// The prompt travels the same way and for a related reason: not because it
+	// is a credential, but because argv is the wrong channel for it — a leading
+	// dash makes it an option, and `ps` makes it public. 0o600 for the second
+	// reason; a prompt carries whatever the issue and its comments contained.
+	if err := os.WriteFile(promptPath, []byte(stdin), 0o600); err != nil {
+		log.Warn("could not write the tmux prompt file; running directly", "err", err)
+		return "", "", nil, false
+	}
+	if err := os.WriteFile(shPath, []byte(runScript(envPath, rcPath, outPath, errPath, promptPath, bin, args)), 0o700); err != nil {
 		log.Warn("could not write the tmux run script; running directly", "err", err)
 		return "", "", nil, false
 	}
@@ -360,7 +389,14 @@ func killTmuxSession(log *slog.Logger, tmux, name string, linger time.Duration) 
 // The exit code is captured inside the group so `$?` is the command's, not
 // tee's, and is moved into place only after the pipeline has drained. The Go
 // side waits on that file, so seeing it means every byte is on disk.
-func runScript(envPath, rcPath, outPath, errPath, bin string, args []string) string {
+//
+// `< promptPath` is the other half of the stdin fix. It is attached to the
+// claude command alone, inside the group, so it does not disturb the stdout /
+// stderr split above it; the shell opens the file before exec, so the prompt is
+// already on fd 0 when the process starts. The file is removed as soon as the
+// pipeline drains rather than left for the caller's RemoveAll, so it outlives
+// its use by as little as the env file does.
+func runScript(envPath, rcPath, outPath, errPath, promptPath, bin string, args []string) string {
 	var b strings.Builder
 	b.WriteString("#!/bin/sh\n")
 	b.WriteString(". " + shQuote(envPath) + "\n")
@@ -371,6 +407,10 @@ func runScript(envPath, rcPath, outPath, errPath, bin string, args []string) str
 	b.WriteString("printf '%s\\n' '── builder agent run ──────────────────────────────'\n")
 	b.WriteString("printf 'cmd: %s\\n' " + shQuote(bin+" "+strings.Join(args, " ")) + " | cut -c1-400\n")
 	b.WriteString("printf 'dir: %s\\n' \"$PWD\"\n")
+	// The prompt is deliberately NOT printed. It is on stdin precisely so it is
+	// not on a command line, and echoing it into the scrollback of a session any
+	// local user can attach to would give back what the move just took away.
+	b.WriteString("printf 'prompt: %s bytes on stdin\\n' \"$(wc -c < " + shQuote(promptPath) + " | tr -d ' ')\"\n")
 	b.WriteString("printf '%s\\n' 'stderr is streamed below; stdout is captured for the runner.'\n")
 	b.WriteString("printf '%s\\n' '──────────────────────────────────────────────────'\n")
 
@@ -378,8 +418,10 @@ func runScript(envPath, rcPath, outPath, errPath, bin string, args []string) str
 	for _, a := range args {
 		b.WriteString(" " + shQuote(a))
 	}
+	b.WriteString(" < " + shQuote(promptPath))
 	b.WriteString("; printf '%s\\n' \"$?\" > " + shQuote(rcPath+".tmp") + "; }")
 	b.WriteString(" 2>&1 1>" + shQuote(outPath) + " | tee " + shQuote(errPath) + "\n")
+	b.WriteString("rm -f " + shQuote(promptPath) + "\n")
 	b.WriteString("mv -f " + shQuote(rcPath+".tmp") + " " + shQuote(rcPath) + "\n")
 	return b.String()
 }
