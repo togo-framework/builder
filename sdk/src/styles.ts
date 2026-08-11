@@ -37,6 +37,9 @@ export const CSS = /* css */ `
   --accent-soft: color-mix(in srgb, var(--accent) 9%, transparent);
   --danger: #d92d20;
   --ok: #087443;
+  /* The third state colour. Review and high priority are neither a failure nor
+     a success, and borrowing --danger for them was reading as "broken". */
+  --warn: #b54708;
   /* issue-type colours: one hue per type, re-tuned per theme below */
   --c-bug: #d92d20;
   --c-feature: #1570ef;
@@ -99,7 +102,7 @@ export const CSS = /* css */ `
     --border: #2b303c; --border-strong: #414957;
     --text: #edeef1; --text-2: #aab2c0; --muted: #8a93a5;
     --accent-ink: color-mix(in srgb, var(--accent) 55%, #ffffff);
-    --ok: #75e0a7; --danger: #f97066;
+    --ok: #75e0a7; --danger: #f97066; --warn: #fdb022;
     --c-bug: #f97066; --c-feature: #84adff; --c-question: #fdb022; --c-discussion: #b692f6;
     --shadow-1: 0 1px 2px rgba(0,0,0,.5), 0 8px 24px -8px rgba(0,0,0,.6);
     --shadow-2: 0 2px 6px rgba(0,0,0,.5), 0 24px 64px -16px rgba(0,0,0,.75);
@@ -110,7 +113,7 @@ export const CSS = /* css */ `
   --border: #2b303c; --border-strong: #414957;
   --text: #edeef1; --text-2: #aab2c0; --muted: #8a93a5;
   --accent-ink: color-mix(in srgb, var(--accent) 55%, #ffffff);
-  --ok: #75e0a7; --danger: #f97066;
+  --ok: #75e0a7; --danger: #f97066; --warn: #fdb022;
   --c-bug: #f97066; --c-feature: #84adff; --c-question: #fdb022; --c-discussion: #b692f6;
   --shadow-1: 0 1px 2px rgba(0,0,0,.5), 0 8px 24px -8px rgba(0,0,0,.6);
   --shadow-2: 0 2px 6px rgba(0,0,0,.5), 0 24px 64px -16px rgba(0,0,0,.75);
@@ -554,30 +557,240 @@ textarea { min-height: 96px; resize: vertical; }
 .ctx-opt input { accent-color: var(--accent); margin: 0; }
 .hidden { display: none !important; }
 
-/* ---- in-panel issue detail ---- */
-.detail { display: flex; flex-direction: column; gap: 10px; }
-.d-head { display: flex; align-items: center; justify-content: space-between; }
-.d-meta { display: flex; flex-wrap: wrap; gap: var(--sp-2); align-items: center; }
-.d-meta .num { color: var(--muted); font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
-.d-title {
-  margin: 2px 0 0; font-size: var(--fs-xl); font-weight: 650;
-  letter-spacing: -.01em; line-height: 1.35;
+/* ---- in-panel issue detail ----
+   The same object as the dashboard's issue page, in a column a third of the
+   width. Matched: plain title, quiet labelled properties, state as a dot, one
+   activity stream at two weights, hairline borders and fills a few percent
+   apart. Adapted: the 264px properties rail lies DOWN under the title and
+   wraps into as many columns as the panel is wide, because beside the content
+   it would leave nothing readable to sit next to. */
+
+/* Three bands: a fixed top bar, a scrolling document, a pinned composer. The
+   panel body stops padding and stops scrolling in detail mode so the bar and
+   the composer can reach the panel's own edges — a sticky footer inset by the
+   body's 16px leaves content sliding through the gap beneath it. */
+.panel[data-detail="true"] .body { padding: 0; overflow: hidden; }
+/* The panel's standing intro ("Found a bug…?") belongs to the report flow. It
+   was left showing above the detail view, where it reads as a caption on
+   somebody else's issue — and with the body's padding gone it went full-bleed
+   and looked broken. */
+.panel[data-detail="true"] .intro { display: none; }
+.detail { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+
+.d-nav {
+  display: flex; align-items: center; gap: var(--sp-2);
+  padding: 9px var(--sp-3) 9px 10px;
+  border-bottom: 1px solid var(--border); flex: 0 0 auto;
 }
-.d-body { margin: 0; font-size: var(--fs-md); line-height: var(--lh-body);
-          background: var(--surface); border: 1px solid var(--border);
-          border-radius: var(--r-sm); padding: 10px var(--sp-3); }
-.d-pin { display: flex; align-items: flex-start; gap: var(--sp-2); font-size: var(--fs-sm);
-         background: var(--surface); border: 1px solid var(--border);
-         border-radius: var(--r-sm); padding: 7px 10px; }
+.d-back {
+  display: inline-flex; align-items: center; gap: 5px;
+  min-height: 28px; padding: 4px 8px; border: 0; border-radius: var(--r-sm);
+  background: transparent; color: var(--muted);
+  font-size: var(--fs-xs); font-weight: 500;
+  transition: background var(--t-1) var(--ease), color var(--t-1) var(--ease);
+}
+.d-back:hover { background: var(--surface-2); color: var(--text); }
+.d-num {
+  font-size: var(--fs-xs); font-weight: 600; color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+.d-iconbtn {
+  flex: none; width: 28px; height: 28px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 0; border-radius: var(--r-sm); background: transparent; color: var(--muted);
+  transition: background var(--t-1) var(--ease), color var(--t-1) var(--ease);
+}
+.d-iconbtn:hover { background: var(--surface-2); color: var(--text); }
+.d-open { margin-inline-start: auto; }
+
+/* The document. One scroll context — the nav and the composer sit outside it. */
+.d-main {
+  flex: 1 1 auto; min-height: 0; overflow-y: auto;
+  padding: var(--sp-4);
+  scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent;
+}
+
+/* Large and plain: no box, no chip beside it, nothing competing. */
+.d-title {
+  margin: 0; font-size: var(--fs-xl); font-weight: 650;
+  letter-spacing: -.015em; line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+.d-sub {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+  margin: 6px 0 0; font-size: var(--fs-xs); color: var(--muted);
+}
+.d-sep { color: var(--border-strong); }
+.d-live { display: inline-flex; align-items: center; gap: 5px; }
+.d-pulse {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: color-mix(in srgb, var(--text) 70%, transparent);
+  animation: d-pulse 1.6s ease-in-out infinite;
+}
+@keyframes d-pulse { 50% { opacity: .35; } }
+
+/* ---- properties ----
+   auto-fit, not a fixed count: two columns at the panel's full 640px, one on
+   a phone, without a media query that would have to know the panel's width. */
+.d-props {
+  display: grid; gap: 1px var(--sp-4);
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  margin-top: var(--sp-4);
+}
+.d-prop { display: flex; align-items: baseline; gap: var(--sp-2); min-height: 24px; }
+/* A fixed key column so the values line up into a column of their own — the
+   block reads as a table of facts, never as a form. */
+.d-prop-k {
+  flex: 0 0 auto; width: 84px;
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: var(--fs-xs); color: var(--muted);
+  overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+}
+.d-prop-k .ico { flex: none; color: var(--muted); }
+.d-prop-v {
+  flex: 1 1 auto; min-width: 0;
+  font-size: var(--fs-xs); color: var(--text);
+  overflow-wrap: anywhere; word-break: break-word;
+}
+.d-prop-v.muted { color: var(--muted); }
+.d-prop-v .mono { font-family: var(--mono); font-size: var(--fs-2xs); }
+
+/* State is a dot. Never a coloured word — that is the one rule every
+   reference shares, and a row of tinted pills is decoration, not information.
+   Both scales are the issue page's, so the same state is the same colour on
+   both surfaces. */
+.d-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.d-dot[data-status="triage"]      { background: color-mix(in srgb, var(--muted) 60%, transparent); }
+.d-dot[data-status="ready"]       { background: color-mix(in srgb, var(--accent) 70%, transparent); }
+.d-dot[data-status="in_progress"] { background: var(--accent); }
+.d-dot[data-status="blocked"]     { background: var(--danger); }
+.d-dot[data-status="in_review"]   { background: var(--warn); }
+.d-dot[data-status="done"]        { background: var(--ok); }
+.d-dot[data-status="rejected"]    { background: color-mix(in srgb, var(--muted) 40%, transparent); }
+.d-dot[data-priority="low"]      { background: color-mix(in srgb, var(--muted) 40%, transparent); }
+.d-dot[data-priority="normal"]   { background: color-mix(in srgb, var(--muted) 70%, transparent); }
+.d-dot[data-priority="high"]     { background: var(--warn); }
+.d-dot[data-priority="critical"] { background: var(--danger); }
+
+/* ---- description ---- */
+.d-body {
+  margin-top: var(--sp-4);
+  font-size: var(--fs-sm); line-height: var(--lh-body); color: var(--text);
+}
+.d-empty { margin: 0; font-size: var(--fs-sm); color: var(--muted); }
+
+/* ---- section headers ----
+   Sentence case and quiet, with the count trailing and muted — the reference's
+   header, not this sheet's uppercase .label, which is a form idiom. */
+.d-sect {
+  display: flex; align-items: center; gap: 6px;
+  margin: var(--sp-5) 0 var(--sp-2);
+  padding-top: var(--sp-4); border-top: 1px solid var(--border);
+}
+.d-sect-t { margin: 0; font-size: var(--fs-xs); font-weight: 600; color: var(--text-2); }
+.d-sect-n { font-size: var(--fs-xs); color: var(--muted); font-variant-numeric: tabular-nums; }
+
+/* ---- captured objects (the pins) ----
+   A tile, a name, and the one fact that says whether it can be found again.
+   Deliberately an object rather than a link: it is a thing the report carries. */
+.d-objs { display: flex; flex-direction: column; gap: 6px; }
+.d-obj {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px; border: 1px solid var(--border); border-radius: var(--r-sm);
+}
+.d-obj-ico {
+  flex: none; width: 32px; height: 32px; border-radius: var(--r-sm);
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--border); background: var(--surface); color: var(--muted);
+}
 /* min-width:0 lets the flex item shrink below its content width — without it
    a long accessible name (the pinned node's whole text) forces the panel wider
    and the WHOLE slide-over scrolls sideways. */
-.d-pin .nm { flex: 1; min-width: 0; font-family: var(--mono);
-             overflow-wrap: anywhere; word-break: break-word; }
-.d-comment { border: 1px solid var(--border); border-radius: var(--r-sm); padding: 9px var(--sp-3); }
-.d-comment .who { margin: 0 0 var(--sp-1); font-size: var(--fs-xs); font-weight: 600; color: var(--muted);
-                  display: flex; align-items: center; gap: 6px; }
-.d-comment .txt { margin: 0; font-size: var(--fs-sm); line-height: var(--lh-body); white-space: pre-wrap; }
+.d-obj-txt { flex: 1 1 auto; min-width: 0; }
+.d-obj-nm {
+  margin: 0; font-size: var(--fs-sm); font-weight: 500;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.d-obj-meta {
+  margin: 1px 0 0; font-size: var(--fs-2xs); color: var(--muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.d-obj-meta .mono { font-family: var(--mono); }
+
+/* ---- activity: one stream, two weights ---- */
+.d-thread { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.d-item { position: relative; display: flex; gap: 10px; padding-bottom: var(--sp-4); }
+.d-evt { align-items: center; }
+.d-item:last-child { padding-bottom: 0; }
+/* The faint thread. Inline-start so it runs down the avatars in both
+   directions, and behind them — the avatar's own fill is what breaks it. */
+.d-line {
+  position: absolute; inset-block: 0; inset-inline-start: 11px;
+  width: 1px; background: var(--border);
+}
+.d-item:last-child .d-line { block-size: 12px; }
+.d-avatar {
+  position: relative; z-index: 1; flex: none;
+  width: 23px; height: 23px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--border); background: var(--bg); color: var(--muted);
+  font-size: var(--fs-2xs); font-weight: 600;
+}
+/* An event is a fact: a knot on the thread, not a face. The wrapper stays
+   transparent and the DOT carries the ring that breaks the line — a 23px
+   filled circle erased almost the whole segment and left the thread reading
+   as a dashed rule rather than one continuous line. */
+.d-knot {
+  position: relative; z-index: 1; flex: none;
+  width: 23px; height: 23px;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.d-knot span {
+  width: 5px; height: 5px; border-radius: 50%;
+  background: color-mix(in srgb, var(--muted) 55%, transparent);
+  box-shadow: 0 0 0 3px var(--bg);
+}
+
+/* A comment carries reasoning, so it keeps card weight. */
+.d-card {
+  flex: 1 1 auto; min-width: 0;
+  border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--bg);
+}
+.d-card-h {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px;
+  margin: 0; padding: 6px 10px; border-bottom: 1px solid var(--border);
+  font-size: var(--fs-2xs); color: var(--muted);
+}
+.d-card-h .d-who { font-weight: 600; color: var(--text); }
+.d-badge {
+  padding: 1px 6px; border-radius: var(--r-full);
+  border: 1px solid var(--border); background: var(--surface);
+  font-size: var(--fs-2xs); font-weight: 600; color: var(--text-2);
+}
+.d-card-b {
+  padding: 8px 10px; font-size: var(--fs-sm); line-height: var(--lh-body);
+  overflow-wrap: anywhere;
+}
+
+/* An event is one quiet line. */
+.d-evt-t {
+  display: flex; align-items: center; gap: 6px; min-width: 0;
+  margin: 0; font-size: var(--fs-xs); color: var(--muted);
+}
+.d-evt-w { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.d-evt-t .d-who { color: var(--text-2); }
+.d-evt-at { flex: none; }
+
+/* ---- composer ----
+   Pinned, so answering never means finding the end of the thread first. */
+.d-composer {
+  flex: 0 0 auto; padding: 10px var(--sp-4) var(--sp-3);
+  border-top: 1px solid var(--border); background: var(--bg);
+}
+.d-draft { min-height: 60px; font-size: var(--fs-sm); }
+.d-composer-act { display: flex; justify-content: flex-end; margin-top: var(--sp-2); }
+.d-send { width: auto; height: 32px; padding: 0 var(--sp-3); font-size: var(--fs-sm); }
+.d-composer .note { margin: 0 0 var(--sp-2); }
 
 /* ---- rendered markdown (see markdown.ts) ----
    These style elements INSIDE the shadow root, so they must live in CSS —
@@ -614,8 +827,40 @@ textarea { min-height: 96px; resize: vertical; }
 .md-em { font-style: italic; }
 .md-del { opacity: .65; }
 .md-a { color: var(--accent-ink); text-decoration: underline; text-underline-offset: 2px; }
-.d-body hr, .txt hr { margin: 10px 0; border: 0; border-top: 1px solid var(--border); }
-.txt { margin: 0; font-size: var(--fs-sm); }
+.d-body hr, .d-card-b hr { margin: 10px 0; border: 0; border-top: 1px solid var(--border); }
+
+/* ---- markdown tables ----
+   Agents write these on every run and the panel used to print the pipes. Two
+   shapes, decided in markdown.ts: a headerless two-column table is a list of
+   labelled facts and renders as one, which survives a 640px column; anything
+   else is a real table and scrolls sideways inside its own box rather than
+   widening the panel. */
+.md-kv {
+  display: grid; grid-template-columns: minmax(0, 96px) minmax(0, 1fr);
+  gap: 3px var(--sp-3);
+  margin: 0 0 var(--sp-2); padding: 9px 10px;
+  border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--surface);
+  font-size: var(--fs-xs);
+}
+.md-kv:last-child { margin-bottom: 0; }
+.md-kv dt { color: var(--muted); overflow-wrap: anywhere; }
+.md-kv dd { margin: 0; color: var(--text); overflow-wrap: anywhere; }
+.md-tablewrap {
+  margin: 0 0 var(--sp-2); overflow-x: auto;
+  border: 1px solid var(--border); border-radius: var(--r-sm);
+  scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent;
+}
+.md-tablewrap:last-child { margin-bottom: 0; }
+.md-table { border-collapse: collapse; width: 100%; font-size: var(--fs-xs); }
+.md-table th, .md-table td {
+  padding: 6px 10px; text-align: start; vertical-align: top;
+  border-bottom: 1px solid var(--border); overflow-wrap: anywhere;
+}
+.md-table thead th { background: var(--surface); font-weight: 600; color: var(--text-2); white-space: nowrap; }
+.md-table tbody tr:last-child td { border-bottom: 0; }
+/* A code span is machine text sitting inside prose that may run the other way;
+   isolating it stops a branch name from reordering the sentence around it. */
+.md-code { unicode-bidi: isolate; }
 
 /* Inline SVG icons (see icons.ts). Sized in em so they track the label they
    sit beside, and flex:none so a long label never squashes them. */
@@ -627,6 +872,8 @@ button .ico, a .ico { margin-inline-end: 2px; vertical-align: -0.125em; }
 /* Directional glyphs flip with the layout; translate direction flips with the
    scaleX so the hover nudge still points "forward". */
 :host([dir="rtl"]) .board-link .ico,
+:host([dir="rtl"]) .d-back .ico,
+:host([dir="rtl"]) .d-send .ico,
 :host([dir="rtl"]) .row .go { transform: scaleX(-1); }
 :host([dir="rtl"]) .board-link:hover .ico { transform: scaleX(-1) translateX(2px); }
 :host([dir="rtl"]) .row:hover .go { transform: scaleX(-1) translateX(2px); }
@@ -637,6 +884,10 @@ button .ico, a .ico { margin-inline-end: 2px; vertical-align: -0.125em; }
   .modal[data-open="true"] .modal-card { animation: none; }
   .fab:hover, .app:hover .app-ico, .row:hover .go { transform: none; }
   .spin { animation: none; border-top-color: var(--border); }
+  .d-back, .d-iconbtn { transition: none; }
+  /* The pulse is the only signal that an agent is live, so it stays visible —
+     it stops moving rather than disappearing. */
+  .d-pulse { animation: none; opacity: .7; }
 }
 `;
 

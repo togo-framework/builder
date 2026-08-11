@@ -72,6 +72,66 @@ const ICONS = {
   chevronRight: [
     ["path", { d: "m9 18 6-6-6-6" }],
   ],
+  // chevron-left — back out of the issue detail. Its own glyph rather than
+  // chevronRight flipped in CSS, because the flip is what RTL does to it: a
+  // back arrow points into the reading direction in BOTH languages, and one
+  // that is already mirrored would come out pointing forward in Arabic.
+  chevronLeft: [
+    ["path", { d: "m15 18-6-6 6-6" }],
+  ],
+
+  // ---- issue detail: the properties -----------------------------------------
+  // One glyph per property, matching the dashboard's issue page so the same
+  // fact wears the same mark on both surfaces.
+  //
+  // flag — the issue type.
+  flag: [
+    ["path", { d: "M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" }],
+    ["line", { x1: "4", x2: "4", y1: "22", y2: "15" }],
+  ],
+  // user — the assignee.
+  user: [
+    ["path", { d: "M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" }],
+    ["circle", { cx: "12", cy: "7", r: "4" }],
+  ],
+  // git-branch — the working branch an agent opened for this issue.
+  gitBranch: [
+    ["line", { x1: "6", x2: "6", y1: "3", y2: "15" }],
+    ["circle", { cx: "18", cy: "6", r: "3" }],
+    ["circle", { cx: "6", cy: "18", r: "3" }],
+    ["path", { d: "M18 9a9 9 0 0 1-9 9" }],
+  ],
+  // history — how many times an agent has taken a run at this.
+  history: [
+    ["path", { d: "M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" }],
+    ["path", { d: "M3 3v5h5" }],
+    ["path", { d: "M12 7v5l4 2" }],
+  ],
+  // route — the page the report was filed against.
+  route: [
+    ["circle", { cx: "6", cy: "19", r: "3" }],
+    ["path", { d: "M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15" }],
+    ["circle", { cx: "18", cy: "5", r: "3" }],
+  ],
+  // external-link — open the full issue page in a new tab.
+  externalLink: [
+    ["path", { d: "M15 3h6v6" }],
+    ["path", { d: "M10 14 21 3" }],
+    ["path", { d: "M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" }],
+  ],
+  // send — post the comment.
+  send: [
+    ["path", { d: "M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z" }],
+    ["path", { d: "m21.854 2.147-10.94 10.939" }],
+  ],
+  // crosshair — the pinned element, as an object with a tile of its own.
+  crosshair: [
+    ["circle", { cx: "12", cy: "12", r: "10" }],
+    ["line", { x1: "22", x2: "18", y1: "12", y2: "12" }],
+    ["line", { x1: "6", x2: "2", y1: "12", y2: "12" }],
+    ["line", { x1: "12", x2: "12", y1: "6", y2: "2" }],
+    ["line", { x1: "12", x2: "12", y1: "22", y2: "18" }],
+  ],
 
   // ---- the launcher's ten surfaces ----------------------------------------
   // One glyph each, chosen so the shapes stay apart at 18px — a launcher whose

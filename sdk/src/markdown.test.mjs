@@ -139,6 +139,77 @@ test("a single newline inside a paragraph becomes a line break", () => {
   assert.equal(host.querySelectorAll("br").length, 1);
 });
 
+// ── tables ─────────────────────────────────────────────────────────────────
+//
+// Agents write these on every run. Before table support the panel printed the
+// pipes literally, which is the content bug the operator reported.
+
+test("a headed table renders as a real table", () => {
+  const host = render("| Area | Owner |\n|---|---|\n| web | you |\n| sdk | me |");
+  assert.equal(host.querySelectorAll("table").length, 1);
+  assert.deepEqual([...host.querySelectorAll("th")].map((c) => c.textContent), ["Area", "Owner"]);
+  assert.equal(host.querySelectorAll("tbody tr").length, 2);
+  assert.ok(!host.textContent.includes("|"), "raw pipes survived into the output");
+});
+
+test("the agent run card degrades to key/value rows, not a headerless table", () => {
+  // Verbatim from issue #2 on the live site — the comment in the operator's
+  // screenshot that rendered as "| | |" and "|---|---|".
+  const host = render(
+    "**Starting work.** `site-frontend-engineer` has claimed this issue.\n\n" +
+    "| | |\n|---|---|\n" +
+    "| Branch | `builder/issue-2` |\n" +
+    "| Repository | `/Users/fadymondy/Sites/fadymondy.com` |\n" +
+    "| Areas | `web`, `admin-ui` |\n" +
+    "| Budget | $2.00 for this run |"
+  );
+  assert.equal(host.querySelectorAll("table").length, 0, "a two-column key/value card is not a table");
+  const dl = host.querySelector("dl.md-kv");
+  assert.ok(dl, "no key/value list was produced");
+  assert.deepEqual([...dl.querySelectorAll("dt")].map((c) => c.textContent),
+    ["Branch", "Repository", "Areas", "Budget"]);
+  // The value keeps its inline markdown — a branch name stays a code span.
+  assert.equal(dl.querySelector("dd code").textContent, "builder/issue-2");
+  assert.ok(!host.textContent.includes("|"), "raw pipes survived into the output");
+  assert.ok(!host.textContent.includes("---"), "the delimiter row survived into the output");
+});
+
+test("every table cell is direction-isolated, and never the row", () => {
+  const host = render("| | |\n|---|---|\n| الفرع | `builder/issue-2` |");
+  for (const c of host.querySelectorAll("dt, dd")) {
+    assert.equal(c.getAttribute("dir"), "auto", "a cell is missing dir=auto");
+  }
+  // A hard dir=ltr on the pair would flip the Arabic key. Nothing above the
+  // cell may carry a direction at all.
+  assert.equal(host.querySelector("dl").getAttribute("dir"), null);
+});
+
+test("column alignment is logical, so it follows the reading direction", () => {
+  const host = render("| a | b | c |\n|:---|:---:|---:|\n| 1 | 2 | 3 |");
+  const cells = [...host.querySelectorAll("tbody td")];
+  assert.deepEqual(cells.map((c) => c.style.textAlign), ["start", "center", "end"]);
+});
+
+test("an escaped pipe stays inside its cell", () => {
+  const host = render("| a | b |\n|---|---|\n| x \\| y | z |");
+  const tds = [...host.querySelectorAll("tbody td")];
+  assert.equal(tds.length, 2);
+  assert.equal(tds[0].textContent, "x | y");
+});
+
+test("a table does not swallow the prose around it", () => {
+  const host = render("before\n| a | b |\n|---|---|\n| 1 | 2 |\nafter");
+  assert.equal(host.querySelectorAll("table").length, 1);
+  const paras = [...host.querySelectorAll("p")].map((p) => p.textContent);
+  assert.deepEqual(paras, ["before", "after"]);
+});
+
+test("a line of pipes with no delimiter row is still a paragraph", () => {
+  const host = render("use the | character to split");
+  assert.equal(host.querySelectorAll("table, dl").length, 0);
+  assert.equal(host.querySelector("p").textContent, "use the | character to split");
+});
+
 test("plain prose with no markdown survives unchanged", () => {
   const body = "remove the widgets from the current page and make it empty for my next promot";
   assert.equal(render(body).textContent, body);

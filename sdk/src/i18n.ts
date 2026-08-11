@@ -1,3 +1,34 @@
+/**
+ * "3h ago", in the panel's own voice.
+ *
+ * Copied from the dashboard's agoLongEN rather than imported: this bundle
+ * ships into somebody else's page with no build step and cannot reach into the
+ * app's source tree. Same output on both surfaces, which is the point — a
+ * comment that says "5m ago" on the issue page must not say "just now" in the
+ * panel beside it.
+ */
+const agoEN = (iso: string): string => {
+  const ms = Date.now() - new Date(iso).getTime();
+  if (!iso || !Number.isFinite(ms)) return "—";
+  const m = Math.round(ms / 60000);
+  if (m < 1) return "just now";
+  if (m < 60) return `${m}m ago`;
+  const h = Math.round(m / 60);
+  if (h < 48) return `${h}h ago`;
+  return `${Math.round(h / 24)}d ago`;
+};
+
+const agoAR = (iso: string): string => {
+  const ms = Date.now() - new Date(iso).getTime();
+  if (!iso || !Number.isFinite(ms)) return "—";
+  const m = Math.round(ms / 60000);
+  if (m < 1) return "الآن";
+  if (m < 60) return `قبل ${m}د`;
+  const h = Math.round(m / 60);
+  if (h < 48) return `قبل ${h}س`;
+  return `قبل ${Math.round(h / 24)}ي`;
+};
+
 const en = {
   fab: "Feedback",
   title: "Feedback",
@@ -67,6 +98,89 @@ const en = {
   appBrain: "Brain",
   appChat: "Chat",
   appTerminal: "Terminal",
+
+  // ---- issue detail ---------------------------------------------------------
+  // Vocabulary lifted verbatim from the dashboard's issue page (web i18n,
+  // issueDetail). The panel and the page show the same issue; a property that
+  // is "Attempts" on one and "Runs" on the other is two products.
+  back: "Back",
+  openFull: "Open the full issue",
+  opened: (ago: string) => `Opened ${ago}`,
+  ago: agoEN,
+  properties: "Properties",
+  statusLabel: "Status",
+  priorityLabel: "Priority",
+  assigneeLabel: "Assignee",
+  areaLabel: "Area",
+  branchLabel: "Branch",
+  attemptsLabel: "Attempts",
+  routeLabel: "Route",
+  // Every property stays visible with nothing in it, the way the issue page
+  // keeps an empty one as an invitation rather than hiding the row.
+  notSet: "Not set",
+  assigneeAnyArea: "Any area",
+  assigneeHuman: "Human only",
+  working: "An agent is working on it",
+  statuses: {
+    triage: "Triage",
+    ready: "To do",
+    in_progress: "In progress",
+    blocked: "Blocked",
+    in_review: "Review",
+    done: "Done",
+    rejected: "Rejected",
+  } as Record<string, string>,
+  priorities: {
+    low: "Low",
+    normal: "Normal",
+    high: "High",
+    critical: "Critical",
+  } as Record<string, string>,
+  enhancement: "Enhancement",
+  chore: "Chore",
+  // Pins
+  pinnedHeading: "Pinned element",
+  pinShow: "Show it on the page",
+  pinNoStrategy: "No selector was captured, so this pin cannot be re-found.",
+  pinFound: (by: string, pct: number) => `Found via ${by} (${pct}%)`,
+  pinLost: "The pinned element is not on this page any more.",
+  // Activity: comments and events, one stream
+  activityHeading: "Activity",
+  emptyThread: "Comments and agent activity land here as the work moves.",
+  agentBadge: "Agent",
+  commentPlaceholder: "Leave a comment…",
+  commentCta: "Comment",
+  posting: "Posting…",
+  noDescription: "No description.",
+  // Event lines. The action is a machine verb from the server; these are the
+  // ones it can emit, phrased as something a reader recognises.
+  actions: {
+    created: "filed it",
+    moved: "moved it",
+    assigned: "assigned it",
+    commented: "commented",
+    edited: "edited it",
+    linked: "linked something",
+    unlinked: "unlinked something",
+    attached: "attached a file",
+    pinned: "pinned an element",
+    claimed: "claimed it",
+    released: "released it",
+    blocked: "blocked it",
+    unblocked: "unblocked it",
+    approved: "approved it",
+    rejected: "rejected it",
+    pushed: "pushed",
+    pr_opened: "opened a pull request",
+    reviewed: "reviewed it",
+    parked: "parked it",
+  } as Record<string, string>,
+  actors: {
+    human: "Someone",
+    agent: "An agent",
+    system: "The system",
+    anon: "A visitor",
+  } as Record<string, string>,
   dir: "ltr" as "ltr" | "rtl",
 };
 
@@ -126,6 +240,80 @@ const ar: Dict = {
   appBrain: "الدماغ",
   appChat: "المحادثة",
   appTerminal: "الطرفية",
+
+  back: "رجوع",
+  openFull: "فتح المهمة كاملة",
+  opened: (ago: string) => `فُتحت ${ago}`,
+  ago: agoAR,
+  properties: "الخصائص",
+  statusLabel: "الحالة",
+  priorityLabel: "الأولوية",
+  assigneeLabel: "المكلَّف",
+  areaLabel: "النطاق",
+  branchLabel: "الفرع",
+  attemptsLabel: "المحاولات",
+  routeLabel: "المسار",
+  notSet: "غير محدَّد",
+  assigneeAnyArea: "أي مجال",
+  assigneeHuman: "بشري فقط",
+  working: "يعمل أحد الوكلاء عليها",
+  statuses: {
+    triage: "الفرز",
+    ready: "للتنفيذ",
+    in_progress: "قيد التنفيذ",
+    blocked: "متعثرة",
+    in_review: "قيد المراجعة",
+    done: "منجزة",
+    rejected: "مرفوضة",
+  },
+  priorities: {
+    low: "منخفضة",
+    normal: "عادية",
+    high: "عالية",
+    critical: "حرجة",
+  },
+  enhancement: "تحسين",
+  chore: "مهمة روتينية",
+  pinnedHeading: "العنصر المثبّت",
+  pinShow: "إظهاره في الصفحة",
+  pinNoStrategy: "لم يُلتقط أي محدِّد، لذا لا يمكن إيجاد هذا التثبيت مجددًا.",
+  // Western digits, matching the rest of this dictionary.
+  pinFound: (by: string, pct: number) => `عُثر عليه عبر ${by} (${pct}%)`,
+  pinLost: "لم يعد العنصر المثبّت موجودًا في هذه الصفحة.",
+  activityHeading: "النشاط",
+  emptyThread: "تظهر التعليقات ونشاط الوكلاء هنا مع تقدّم العمل.",
+  agentBadge: "وكيل",
+  commentPlaceholder: "اكتب تعليقًا…",
+  commentCta: "تعليق",
+  posting: "جارٍ النشر…",
+  noDescription: "لا يوجد وصف.",
+  actions: {
+    created: "سجّلها",
+    moved: "نقلها",
+    assigned: "أسندها",
+    commented: "علّق",
+    edited: "عدّلها",
+    linked: "ربط شيئًا بها",
+    unlinked: "ألغى ربط شيء بها",
+    attached: "أرفق ملفًا",
+    pinned: "ثبّت عنصرًا",
+    claimed: "استلمها",
+    released: "تركها",
+    blocked: "عطّلها",
+    unblocked: "أزال تعطيلها",
+    approved: "وافق عليها",
+    rejected: "رفضها",
+    pushed: "دفع التغييرات",
+    pr_opened: "فتح طلب دمج",
+    reviewed: "راجعها",
+    parked: "علّقها جانبًا",
+  },
+  actors: {
+    human: "أحدهم",
+    agent: "وكيل",
+    system: "النظام",
+    anon: "زائر",
+  },
   dir: "rtl",
 };
 
