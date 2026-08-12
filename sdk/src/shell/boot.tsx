@@ -14,6 +14,7 @@ import type { OSApp } from "../../vendor/ui-desktop-embed/hooks/useOSApps";
 import { AppFrame } from "./AppFrame";
 import type { AppMeta } from "../app/contract";
 import { loadRect, debouncedSaveRect } from "./geometry";
+import { Report } from "./apps/report/Report";
 
 /** Options the loader hands the shell across the frame boundary. */
 export interface ShellBoot {
@@ -84,19 +85,53 @@ function Shell({ boot }: { boot: ShellBoot }) {
 
   const openSlugs = windows.filter((w) => !w.minimized).map((w) => w.slug);
 
+  // The composer is a BUILT-IN: compiled into the shell, no fetch, and it must
+  // work with no authentication and no model. It is the one app whose failure
+  // would mean feedback silently stops being collected.
+  const reportApp: OSApp = {
+    slug: "report", name: boot.locale === "ar" ? "الإبلاغ عن مشكلة" : "Report an issue",
+    icon: "MessageSquare", color: "#4f46e5",
+    window: { width: 720, height: 520, resizable: true },
+  } as OSApp;
+  const allApps = [reportApp, ...apps.filter((a) => a.slug !== "report")];
+
   return (
     <>
       <WindowManager />
       <Dock
-        apps={apps}
+        apps={allApps}
         // `pinned` is REQUIRED and has no default: the Dock spreads
         // [...pinned, ...openSlugs], so omitting it throws "not iterable" before
         // anything renders. Until per-user pins are wired (that reads
         // DesktopPrefs from /api/os/session), every installed app is pinned,
         // which is also the sensible empty state for a fresh install.
-        pinned={apps.map((a) => a.slug)}
+        pinned={allApps.map((a) => a.slug)}
         openSlugs={openSlugs}
         onLaunch={(slug: string) => {
+          if (slug === "report") {
+            open(slug, {
+              title: reportApp.name,
+              icon: reportApp.icon,
+              width: 720, height: 520, resizable: true,
+              content: (
+                <Report
+                  host={{
+                    slug: "report", apiBase: boot.apiBase, locale: boot.locale,
+                    dir: boot.locale === "ar" ? "rtl" : "ltr", dark: boot.dark,
+                    fetch: (path, init) => fetch(`${boot.apiBase}${path}`, { credentials: "include", ...init }),
+                    setTitle: () => {}, close: () => {}, open: () => {}, sectionNonce: 0,
+                  }}
+                  context={{ route: location.pathname, console: [], network: [] }}
+                  attachments={[
+                    { id: "route", kind: "route", label: location.pathname, removable: false },
+                  ]}
+                  onRemoveAttachment={() => {}}
+                  onSubmit={async () => {}}
+                />
+              ),
+            });
+            return;
+          }
           const app = apps.find((a) => a.slug === slug) as (OSApp & Partial<AppMeta>) | undefined;
           if (!app) return;
           const meta: AppMeta = {
