@@ -52,7 +52,7 @@ export function NotificationBell({
   return (
     <Popover
       open={open}
-      onOpenChange={(next) => {
+      onOpenChange={(next: boolean) => {
         setOpen(next);
         if (next) onFetch?.();
       }}

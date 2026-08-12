@@ -163,6 +163,40 @@ export interface MountOptions {
    * Override only if the plugin was mounted somewhere else.
    */
   screensBase?: string;
+  /**
+   * Which shell to render.
+   *
+   *   "panel"  the existing single-panel widget. THE DEFAULT, and the code path
+   *            is untouched by the FeedbackOS work — Rule 36's off-branch is the
+   *            old branch, not new code pretending to be old.
+   *   "os"     the windowed FeedbackOS shell in its own iframe: a dock, draggable
+   *            resizable windows, and apps registered by plugins.
+   *   "auto"   "os" where it is provably safe, "panel" everywhere else.
+   *
+   * "os" and "auto" both fall back to "panel" on their own — a browser whose
+   * clip-path does not exclude clipped regions from hit-testing, a host CSP that
+   * blocks the frame, or a shell that stops answering its heartbeat. A caller
+   * asking for "os" is asking for the upgrade where it works, never for a broken
+   * page where it does not.
+   */
+  shell?: "panel" | "os" | "auto";
+
+  /**
+   * Base z-index for the overlay. Below the FAB's 2147483645 by default so the
+   * two coexist during migration.
+   */
+  zIndex?: number;
+
+  /**
+   * Claim Cmd/Ctrl+K for the shell's spotlight.
+   *
+   * Defaults to false on a host that is not the API's own origin. Host search
+   * palettes are very often Cmd+K — this site's own layout binds it — and
+   * silently stealing it is a worse first impression than not having a
+   * shortcut.
+   */
+  hotkey?: string | false;
+
   /** `en` | `ar`. Drives copy and text direction. */
   locale?: string;
   /** Accent colour. Falls back to the builder default. */

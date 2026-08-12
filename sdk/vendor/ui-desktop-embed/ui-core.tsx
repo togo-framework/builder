@@ -100,20 +100,26 @@ export function formatRelativeTime(value: string | number | Date, locale?: strin
  * children and leaves right-click alone.
  */
 
-type Div = React.HTMLAttributes<HTMLDivElement>;
-const passthrough = (props: { children?: React.ReactNode }) => <>{props.children}</>;
+// Deliberately permissive. These stand in for Radix components whose real
+// props (align, side, sideOffset, asChild, modal…) the vendored components pass
+// through freely. A passthrough that rejects them would force edits to fifteen
+// files to satisfy a type that models nothing at run time — the extra props are
+// simply ignored.
+type Div = React.HTMLAttributes<HTMLDivElement> & Record<string, unknown>;
+type AnyProps = { children?: React.ReactNode } & Record<string, unknown>;
+const passthrough = (props: AnyProps) => <>{props.children}</>;
 
 export const ContextMenu = passthrough;
 export const ContextMenuTrigger = passthrough;
 /** Never rendered: the shell does not intercept the host's right-click. */
-export const ContextMenuContent = () => null;
-export const ContextMenuItem = () => null;
-export const ContextMenuSeparator = () => null;
+export const ContextMenuContent = (_p: AnyProps) => null;
+export const ContextMenuItem = (_p: AnyProps) => null;
+export const ContextMenuSeparator = (_p: AnyProps) => null;
 
 export const DropdownMenu = passthrough;
 export const DropdownMenuTrigger = passthrough;
-export const DropdownMenuContent = ({ className, ...p }: Div) => (
-  <div className={cn("rounded-md border border-border bg-popover p-1 shadow-md", className)} {...p} />
+export const DropdownMenuContent = ({ className, align: _a, side: _s, sideOffset: _o, ...p }: Div) => (
+  <div className={cn("rounded-md border border-border bg-popover p-1 shadow-md", className)} {...(p as Div)} />
 );
 export const DropdownMenuItem = ({ className, ...p }: Div) => (
   <div role="menuitem" className={cn("cursor-pointer rounded-sm px-2 py-1.5 text-sm hover:bg-muted", className)} {...p} />
@@ -124,13 +130,13 @@ export const DropdownMenuSeparator = ({ className, ...p }: Div) => (
 
 export const Popover = passthrough;
 export const PopoverTrigger = passthrough;
-export const PopoverContent = ({ className, ...p }: Div) => (
-  <div className={cn("rounded-md border border-border bg-popover p-2 shadow-md", className)} {...p} />
+export const PopoverContent = ({ className, align: _a, side: _s, sideOffset: _o, ...p }: Div) => (
+  <div className={cn("rounded-md border border-border bg-popover p-2 shadow-md", className)} {...(p as Div)} />
 );
 
 export const Sheet = passthrough;
-export const SheetContent = ({ className, ...p }: Div) => (
-  <div className={cn("fixed inset-y-0 end-0 w-80 border-s border-border bg-card shadow-xl", className)} {...p} />
+export const SheetContent = ({ className, side: _s, ...p }: Div) => (
+  <div className={cn("fixed inset-y-0 end-0 w-80 border-s border-border bg-card shadow-xl", className)} {...(p as Div)} />
 );
 export const SheetHeader = ({ className, ...p }: Div) => (
   <div className={cn("border-b border-border p-4", className)} {...p} />
@@ -154,7 +160,15 @@ export const Badge = ({ className, ...p }: Div) => (
   <span className={cn("inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-xs", className)} {...p} />
 );
 
-export const Button = ({ className, ...p }: React.ButtonHTMLAttributes<HTMLButtonElement>) => (
+type BtnProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
+  /** Accepted and ignored — shadcn's variant/size API, which these plain
+   *  elements do not implement. Typed so the vendored call sites compile
+   *  unchanged rather than needing an edit each. */
+  variant?: string;
+  size?: string;
+};
+
+export const Button = ({ className, variant: _v, size: _sz, ...p }: BtnProps) => (
   <button
     type="button"
     className={cn(

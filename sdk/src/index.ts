@@ -1,4 +1,5 @@
 import { OWN_MARKER } from "./anchor";
+import { ShellFrame } from "./loader/frame";
 import { BRIDGE_MSG, installBridge } from "./bridge";
 import { ACCEPT, humanSize, kindOf, limitFor, normalizeRoute, screenshot } from "./capture";
 import { dict } from "./i18n";
@@ -32,6 +33,23 @@ const MAX_PINS = 8;
  *   <script>BuilderIssues.mount()</script>
  */
 export function mount(opts: MountOptions = {}): Handle {
+  // FeedbackOS, when asked for and when the browser can host it.
+  //
+  // Everything below this block is the panel — unchanged, and still the
+  // default. Rule 36's off-branch has to be the OLD branch: an off-path made of
+  // new code is a second implementation nobody has been running, which is not a
+  // fallback, it is a bet.
+  //
+  // mountShell returns null when the environment cannot support the overlay
+  // (hit-testing, a blocking CSP, a shell that stops answering). It is not an
+  // error and there is no message: the caller asked for the upgrade where it
+  // works, and gets the panel where it does not.
+  const want = opts.shell ?? "panel";
+  if (want === "os" || want === "auto") {
+    const h = tryMountShell(opts);
+    if (h) return h;
+  }
+
   const t = dict(opts.locale ?? document.documentElement.lang ?? "en");
   const transport = opts.transport ?? httpTransport(opts.apiBase);
   const locale = opts.locale ?? "en";
@@ -1437,3 +1455,53 @@ export type {
   NetworkEntry,
   BridgeContext,
 } from "./types";
+
+
+/**
+ * Attempt the windowed shell.
+ *
+ * @returns a Handle when the overlay mounted, or null to fall through to the
+ *          panel. Never throws: a failure here must degrade, not break the
+ *          host page, and a throw inside mount() would take the widget down
+ *          entirely on a site that only wanted a feedback button.
+ */
+function tryMountShell(opts: MountOptions): Handle | null {
+  try {
+    const base = (opts.apiBase ?? "").replace(/\/$/, "");
+    const src = `${base}/sdk/shell.html`;
+    const origin = base ? new URL(base, location.href).origin : location.origin;
+
+    let fellBack = false;
+    const frame = new ShellFrame({
+      src,
+      origin,
+      zIndex: opts.zIndex,
+      boot: {
+        apiBase: base,
+        locale: opts.locale === "ar" ? "ar" : "en",
+        theme: "default",
+        dark: opts.theme === "dark",
+        accent: opts.accent,
+        // Default off on a foreign origin: the host's own palette is very
+        // often Cmd+K, and stealing it silently is a bad first impression.
+        hotkey: opts.hotkey ?? (origin === location.origin ? "mod+k" : false),
+      },
+      onFallback: () => {
+        if (fellBack) return;
+        fellBack = true;
+        // Re-enter with the shell disabled. The panel is a complete widget; it
+        // does not need to be told it is a fallback.
+        mount({ ...opts, shell: "panel" });
+      },
+    });
+
+    if (!frame.mount()) return null;
+    return {
+      open: () => {},
+      close: () => {},
+      destroy: () => frame.teardown("destroyed by the host"),
+    } as Handle;
+  } catch {
+    return null;
+  }
+}
