@@ -10,6 +10,9 @@ const base = `${API}/api/builder/mcp`;
 
 export type McpScope = "feedback" | "agents" | "all";
 
+/** The two servers. A scope names one of them, or both. */
+export type McpServer = "feedback" | "agents";
+
 export interface McpToken {
   id: string;
   name: string;
@@ -66,25 +69,55 @@ export async function revokeMcpToken(id: string): Promise<void> {
  * dashboard is served from the same origin as the API, `API` is empty and
  * location.origin is the right answer.
  */
-export const mcpUrl = (server: "feedback" | "agents") =>
+export const mcpUrl = (server: McpServer) =>
   `${API || (typeof window === "undefined" ? "" : window.location.origin)}/api/builder/mcp/${server}`;
 
+/**
+ * The servers a scope can actually reach.
+ *
+ * The snippets are generated from this rather than from a guess, because the
+ * two are not interchangeable: a `feedback` token presented to the agents URL
+ * is refused with a 401 that looks exactly like a bad token. An `all` token
+ * reaches both, and both entries have to be written — an operator who added one
+ * and was told to "swap the URL" ended up overwriting the entry they had just
+ * made, because the NAME is the key a client stores it under.
+ */
+export const serversForScope = (scope: McpScope): McpServer[] =>
+  scope === "all" ? ["feedback", "agents"] : [scope];
+
+const entry = (server: McpServer, token: string) => ({
+  type: "http",
+  url: mcpUrl(server),
+  headers: { Authorization: `Bearer ${token}` },
+});
+
 /** The config block for a client that speaks streamable HTTP. */
-export const mcpConfigJSON = (server: "feedback" | "agents", token: string) =>
+export const mcpConfigJSON = (servers: McpServer[], token: string) =>
   JSON.stringify(
     {
-      mcpServers: {
-        [`builder-${server}`]: {
-          type: "http",
-          url: mcpUrl(server),
-          headers: { Authorization: `Bearer ${token}` },
-        },
-      },
+      mcpServers: Object.fromEntries(
+        servers.map((s) => [`builder-${s}`, entry(s, token)]),
+      ),
     },
     null,
     2,
   );
 
-/** The one-liner for Claude Code, which takes it from the command line. */
-export const claudeCodeCommand = (server: "feedback" | "agents", token: string) =>
-  `claude mcp add --transport http builder-${server} ${mcpUrl(server)} --header "Authorization: Bearer ${token}"`;
+/**
+ * The one-liner for Claude Code, which takes it from the command line.
+ *
+ * `--scope user` on purpose. Without it the flag defaults to `local`, which
+ * binds the server to the ONE directory the command was run in — so the
+ * operator connects their builder, moves to the repo they actually work in,
+ * and finds it gone. A builder is an account-level tool, not a per-checkout
+ * one. The note beside this snippet says how to bind it to a single directory
+ * instead, for the case where that is what was wanted.
+ */
+export const claudeCodeCommand = (servers: McpServer[], token: string) =>
+  servers
+    .map(
+      (s) =>
+        `claude mcp add --transport http --scope user builder-${s} ${mcpUrl(s)} ` +
+        `--header "Authorization: Bearer ${token}"`,
+    )
+    .join("\n");

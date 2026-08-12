@@ -88,10 +88,29 @@ func New(db *sql.DB, log *slog.Logger, workdir string) *Service {
 	// environments it trusts.
 	env := strings.ToLower(strings.TrimSpace(firstEnv("APP_ENV", "ENV", "TOGO_ENV")))
 	local := env == "local" || env == "development" || env == "dev" || env == "test"
+
+	// The production escape hatch.
+	//
+	// Operators who genuinely want a terminal on a real server were being told
+	// to "set APP_ENV=development", which is the worst possible advice: APP_ENV
+	// is read elsewhere too — providers.go uses it to widen the feedback
+	// widget's CORS origins — so following that hint silently loosens a second,
+	// unrelated control. A guard that can only be satisfied by lying about the
+	// environment teaches operators to lie about the environment.
+	//
+	// So: a dedicated variable, spelled so nobody sets it by accident and
+	// nobody mistakes it for a feature flag. It does not weaken the default —
+	// BUILDER_TERMINAL=1 is still required on top of it, and both are still off
+	// unless someone typed them.
+	unsafeProd := os.Getenv("BUILDER_TERMINAL_ALLOW_PRODUCTION") == "1"
+
 	switch {
-	case !local:
+	case !local && !unsafeProd:
 		s.why = "the terminal runs only in a local or development environment. " +
-			"Set APP_ENV=development if this machine really is one."
+			"On a real server, set BUILDER_TERMINAL_ALLOW_PRODUCTION=1 as well as " +
+			"BUILDER_TERMINAL=1 — together they give anyone who can reach the " +
+			"dashboard a shell on this host. Do NOT set APP_ENV=development on a " +
+			"server to get around this; APP_ENV also controls CORS."
 	case os.Getenv("BUILDER_TERMINAL") != "1":
 		s.why = "the terminal is off. Set BUILDER_TERMINAL=1 to enable it — it gives anyone with dashboard access a shell on this machine."
 	default:

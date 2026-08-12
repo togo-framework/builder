@@ -21,10 +21,10 @@ func (s *Service) Routes(r chi.Router) {
 	// remote-capable client speaks. It replaced the old HTTP+SSE pair.
 	feedback := sdk.NewStreamableHTTPHandler(
 		func(req *http.Request) *sdk.Server { return s.feedbackServer(callerFrom(req.Context())) },
-		nil)
+		streamableOpts())
 	agents := sdk.NewStreamableHTTPHandler(
 		func(req *http.Request) *sdk.Server { return s.agentsServer(callerFrom(req.Context())) },
-		nil)
+		streamableOpts())
 
 	r.Mount("/feedback", s.requireToken("feedback", feedback))
 	r.Mount("/agents", s.requireToken("agents", agents))
@@ -35,6 +35,40 @@ func (s *Service) Routes(r chi.Router) {
 	r.Get("/tokens", s.handleListTokens)
 	r.Post("/tokens", s.handleCreateToken)
 	r.Delete("/tokens/{id}", s.handleRevokeToken)
+}
+
+// streamableOpts is the transport configuration both servers are built with.
+//
+// DisableLocalhostProtection is the whole of it, and it is the difference
+// between this surface working behind a reverse proxy and not working at all.
+//
+// The SDK (v1.4.0 onward) added DNS-rebinding protection: if the ACCEPTED
+// CONNECTION's local address is loopback and the request's Host header is not,
+// it answers 403 `Forbidden: invalid Host header "<host>"` before the handler
+// runs. The trigger is the connection's local address, not the listen address —
+// so every standard deployment fires it. Caddy (or nginx, or any same-host
+// proxy) terminates TLS for builder.example.com and dials 127.0.0.1:PORT; the
+// local address of that connection is loopback, the Host header is the public
+// domain, and the SDK refuses the request. This was found in production: the
+// surface returned 401 to every unauthenticated probe — correctly — and 403 to
+// the one client that presented a VALID token, because only a valid token gets
+// far enough to reach the SDK. The client reported it as a rejected credential,
+// which is the opposite of what had happened.
+//
+// Turning the guard off here is safe because of where it sits. Every request
+// that reaches these handlers has already passed requireToken, so the guard is
+// unreachable without a live `bldr_mcp_` token. DNS rebinding is an attack on
+// AMBIENT authority: it lets a page in someone's browser borrow that browser's
+// network position against a server that trusts the network, or a cookie, or
+// nothing at all. This surface trusts none of those. A rebound page cannot read
+// a token it was never given, and a cross-origin request carrying an
+// Authorization header does not leave the browser without a preflight this
+// server never answers with the origin. The guard therefore protects nothing
+// here and costs every proxied install.
+//
+// Everything else stays on the SDK's defaults, MaxRequestBodyBytes included.
+func streamableOpts() *sdk.StreamableHTTPOptions {
+	return &sdk.StreamableHTTPOptions{DisableLocalhostProtection: true}
 }
 
 type tokenRow struct {

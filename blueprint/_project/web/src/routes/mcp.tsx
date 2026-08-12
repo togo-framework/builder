@@ -8,7 +8,8 @@ import {
 } from "lucide-react";
 import {
   claudeCodeCommand, createMcpToken, listMcpTokens, mcpConfigJSON, mcpUrl,
-  revokeMcpToken, type McpScope, type McpToken, type MintedToken,
+  revokeMcpToken, serversForScope, type McpScope, type McpServer, type McpToken,
+  type MintedToken,
 } from "../lib/mcp";
 import {
   Field, FormCard, FormFooter, ListSkeleton, PageShell, Row, RowTitle, Rows, Section,
@@ -16,7 +17,7 @@ import {
 import { useStrings } from "../lib/i18n";
 import { useAIStrings } from "../lib/i18n.ai";
 
-type Server = "feedback" | "agents";
+type Server = McpServer;
 
 /** Which tools each server exposes, in the order the server registers them. */
 const TOOLS: Record<Server, string[]> = {
@@ -201,12 +202,17 @@ export const Mcp = () => {
     }
   }
 
-  // Which server a minted token can actually reach, for the snippets below.
-  const server: Server = minted?.scope === "agents" ? "agents" : "feedback";
+  // Which servers a minted token can actually reach, for the snippets below.
+  //
+  // Derived, not assumed: an "all" token reaches both, and the snippet writes
+  // both entries. It used to write one and tell the operator to edit the URL of
+  // a copy, which produced a second entry under the SAME name — the client kept
+  // whichever was added last, and the other server was simply missing.
+  const servers = minted ? serversForScope(minted.scope) : [];
   const snippet = minted
     ? (tab === "claude"
-        ? claudeCodeCommand(server, minted.token)
-        : mcpConfigJSON(server, minted.token))
+        ? claudeCodeCommand(servers, minted.token)
+        : mcpConfigJSON(servers, minted.token))
     : "";
 
   const PROBE_TONE: Record<Probe, "neutral" | "success" | "warning" | "danger"> = {
@@ -435,6 +441,16 @@ export const Mcp = () => {
             {minted.scope === "all" && (
               <p className="text-[11px] text-muted-foreground">{A.mcp.bothServers}</p>
             )}
+
+            {/* The check, spelled out. "Ask the client to list its tools" is
+                advice; this is the command, and what it should print. */}
+            <Snippet
+              label={A.mcp.verifyLabel}
+              note={A.mcp.verifyNote(servers.reduce((n, s) => n + TOOLS[s].length, 0))}
+              code="claude mcp list"
+              copyLabel={A.term.copyCommand}
+              copiedLabel={A.term.copied}
+            />
 
             <Button variant="outline" size="sm" onClick={() => setMinted(null)}>
               {A.mcp.doneCta}

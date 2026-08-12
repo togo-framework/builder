@@ -98,7 +98,7 @@ const en = {
     desc: "Connect Claude Code, Codex or any MCP client to this builder — read the board, file issues, and talk to the fleet and its memory.",
 
     serversHeading: "Servers",
-    serversNote: "Two servers with very different blast radii. A token is minted for one of them, so what a client can reach is decided before it ever connects.",
+    serversNote: "Two servers with very different blast radii. A token is minted for one of them, so what a client can reach is decided before it ever connects. Each URL only accepts its own token: a board token sent to the fleet server is refused, and the refusal looks the same as a bad token.",
     endpointLabel: "Endpoint",
     copyUrl: "Copy URL",
     toolsCount: (n: number) => `${n} tool${n === 1 ? "" : "s"}`,
@@ -116,8 +116,8 @@ const en = {
 
     stepsHeading: "How to connect",
     step1: "Mint a token below, scoped to the least the client needs.",
-    step2: "Paste the command or the config block into the client.",
-    step3: "Ask the client to list its tools. If the names below come back, you are connected.",
+    step2: "Run the command in a terminal, or paste the config block into a client that reads one.",
+    step3: "Check the connection with `claude mcp list`, then ask the client to list its tools. If the names below come back, you are connected.",
 
     vaultTitle: "Secret values never leave the vault",
     vaultBody: "The agents server can list the NAMES of your credentials so a client knows what exists. It cannot read one. Reveal a value from the Vault screen, where every read is recorded.",
@@ -144,9 +144,11 @@ const en = {
     copyToken: "Copy token",
     tabClaude: "Claude Code",
     tabJson: "mcp.json",
-    tabClaudeNote: "Run this in the directory you want the server available in.",
-    tabJsonNote: "Anything that reads an mcp.json — Codex, Cursor, your own client.",
-    bothServers: "This token reaches both servers. The snippets show the fleet one; swap `agents` for `feedback` in the URL to add the board as a second entry.",
+    tabClaudeNote: "Run it anywhere — `--scope user` makes the server available in every directory. Drop that flag to bind it to the current one instead.",
+    tabJsonNote: "For a client that reads an mcp.json — Cursor, VS Code, a project-level .mcp.json, your own client. Codex keeps its servers in config.toml and needs the same URL and header written in that form.",
+    bothServers: "This token reaches both servers, so both entries are written above. They need different names — adding the second under the first one's name replaces it.",
+    verifyLabel: "Check it worked",
+    verifyNote: (n: number) => `The entry should read connected, and the client should list ${n} tool${n === 1 ? "" : "s"}.`,
     doneCta: "Done",
 
     /* Token list */
@@ -275,7 +277,7 @@ const ar: AIStrings = {
     desc: "اربط Claude Code أو Codex أو أي عميل MCP بهذا الباني — ليقرأ اللوحة ويسجّل المشكلات ويحادث الأسطول وذاكرته.",
 
     serversHeading: "الخوادم",
-    serversNote: "خادمان بنطاقَي أثر مختلفَين تمامًا. يُصدر الرمز لأحدهما، فيُحسم ما يصل إليه العميل قبل أن يتصل أصلًا.",
+    serversNote: "خادمان بنطاقَي أثر مختلفَين تمامًا. يُصدر الرمز لأحدهما، فيُحسم ما يصل إليه العميل قبل أن يتصل أصلًا. وكل رابط لا يقبل إلا رمزه: رمز اللوحة إذا أُرسل إلى خادم الأسطول رُفض، والرفض يبدو تمامًا كرفض رمز خاطئ.",
     endpointLabel: "نقطة الاتصال",
     copyUrl: "نسخ الرابط",
     toolsCount: (n: number) =>
@@ -293,8 +295,8 @@ const ar: AIStrings = {
 
     stepsHeading: "كيف تتصل",
     step1: "أصدر رمزًا أدناه، بأقل نطاق يحتاجه العميل.",
-    step2: "الصق الأمر أو كتلة الإعداد في العميل.",
-    step3: "اطلب من العميل سرد أدواته. إن عادت الأسماء أدناه فأنت متصل.",
+    step2: "شغّل الأمر في الطرفية، أو الصق كتلة الإعداد في عميل يقرأ ملف إعداد.",
+    step3: "تحقق من الاتصال بـ ‏`claude mcp list`‏، ثم اطلب من العميل سرد أدواته. إن عادت الأسماء أدناه فأنت متصل.",
 
     vaultTitle: "قيم الأسرار لا تغادر الخزنة",
     vaultBody: "يستطيع خادم الأسطول سرد أسماء بيانات اعتمادك ليعرف العميل ما هو موجود. ولا يستطيع قراءة أي قيمة. اكشف القيمة من شاشة الخزنة، حيث تُسجَّل كل قراءة.",
@@ -319,9 +321,14 @@ const ar: AIStrings = {
     copyToken: "نسخ الرمز",
     tabClaude: "Claude Code",
     tabJson: "mcp.json",
-    tabClaudeNote: "شغّل هذا في الدليل الذي تريد الخادم متاحًا فيه.",
-    tabJsonNote: "أي عميل يقرأ ملف mcp.json — ‏Codex أو Cursor أو عميلك الخاص.",
-    bothServers: "هذا الرمز يصل إلى الخادمين. المقتطفات تعرض خادم الأسطول؛ استبدل `agents` بـ `feedback` في الرابط لإضافة اللوحة كمدخل ثانٍ.",
+    tabClaudeNote: "شغّله من أي مكان — الخيار ‏`--scope user`‏ يجعل الخادم متاحًا في كل دليل. احذف هذا الخيار لتقييده بالدليل الحالي وحده.",
+    tabJsonNote: "لعميل يقرأ ملف mcp.json — ‏Cursor أو VS Code أو ملف ‎.mcp.json‎ داخل المشروع أو عميلك الخاص. أما Codex فيحفظ خوادمه في ملف config.toml ويحتاج الرابط والترويسة نفسيهما مكتوبَين بتلك الصيغة.",
+    bothServers: "هذا الرمز يصل إلى الخادمين، ولذلك كُتب المدخلان معًا أعلاه. ولا بد أن يختلف اسماهما — فإضافة الثاني باسم الأول تحلّ محلّه.",
+    verifyLabel: "تأكّد أنه نجح",
+    verifyNote: (n: number) =>
+      `يجب أن يظهر المدخل متصلًا، وأن يسرد العميل ${
+        n === 1 ? "أداة واحدة" : n === 2 ? "أداتين" : n >= 3 && n <= 10 ? `${n} أدوات` : `${n} أداة`
+      }.`,
     doneCta: "تم",
 
     tokensHeading: "الرموز",

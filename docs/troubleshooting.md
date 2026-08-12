@@ -163,6 +163,59 @@ route (`builder-dev/web/src/routes/terminal.tsx:534`) and is not in `public/`.
 
 ---
 
+## An MCP client says the token was rejected — 403
+
+**Symptom.** The MCP page shows the server as *Listening*, the token is live and
+unrevoked with the right scope, and the client's config carries the header. The
+client still reports something like:
+
+```
+Server rejected the configured Authorization header (HTTP 403).
+Error detail: Forbidden: invalid Host header "builder.example.com"
+```
+
+Meanwhile `curl` with no token — or a fake one — answers **401**, which looks
+like the token is the only difference and therefore the problem.
+
+**Cause.** It is not the token. The token is what gets the request far enough to
+fail. `requireToken` answers 401 before the MCP handler runs, so a 403 from this
+surface can only be reached by a request that already authenticated.
+
+The 403 comes from the MCP SDK's DNS-rebinding guard (added in go-sdk v1.4.0).
+It refuses any request whose **accepted connection's local address is loopback**
+while the Host header is not. That is the ordinary reverse-proxy shape: Caddy
+terminates TLS for the public domain and dials `127.0.0.1:PORT`, so the local
+address is loopback and the Host header is the domain. The listen address is
+irrelevant — `0.0.0.0` fires it too.
+
+**Diagnose.** The two answers together are the fingerprint:
+
+```bash
+# no credential → 401, and the WWW-Authenticate challenge
+curl -si -X POST https://builder.example.com/api/builder/mcp/feedback \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"probe","version":"0"}}}' \
+  | head -3
+```
+
+401 here plus 403 from the real client means the credential is fine and the
+transport is not. `claude mcp list` prints the server's own error detail, which
+names the Host header directly — read it rather than the summary in front of it.
+
+**Fix.** Already fixed: both servers are built with
+`DisableLocalhostProtection` (`internal/mcp/routes.go`, `streamableOpts`).
+Disabling it is safe here because the guard sits *behind* `requireToken`, so it
+is unreachable without a live `bldr_mcp_` token — and DNS rebinding is an attack
+on ambient authority, which a bearer-token surface does not have. Regression
+test: `TestProxiedHostIsAccepted`.
+
+If you see this on an older build, upgrade. There is no configuration that works
+around it from the proxy side short of rewriting the Host to `localhost`, which
+breaks every absolute URL the dashboard emits.
+
+---
+
 ## A custom app does not appear
 
 ```bash
