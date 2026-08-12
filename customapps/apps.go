@@ -97,7 +97,34 @@ type Manifest struct {
 
 	// UI is the ES module served at /api/builder/apps/<slug>/ui.js, relative to
 	// the app directory. Defaults to "ui.js".
+	//
+	// Retained as the shorthand for the overwhelmingly common case. `Content`
+	// below is the general form; when Content is unset, an app with a UI is
+	// exactly equivalent to Content{Kind: "module", Entry: m.UI}.
 	UI string `json:"ui,omitempty"`
+
+	// Content is what the shell puts INSIDE the window.
+	//
+	// `UI` already answers this for a disk app that ships an ES module, which
+	// is why FeedbackOS builds on customapps rather than on os.AppMeta —
+	// os.AppMeta carries slug/name/icon/color/category/window and nothing that
+	// says what to render, which is why no third-party OS app has ever shown a
+	// window.
+	//
+	// The discriminator exists because "an ES module from this app's directory"
+	// is not the only honest answer. A compiled app has no directory. A
+	// dashboard screen that already exists is a route, not a module. An app
+	// that wraps something external is an iframe, and must be treated as
+	// untrusted rather than loaded into the shell's own realm.
+	//
+	// Open on purpose: an unknown Kind renders a "this app needs a newer
+	// builder" tile rather than failing the whole registry, so an older shell
+	// meeting a newer app degrades to one broken tile.
+	Content *Content `json:"content,omitempty"`
+
+	// Window is the geometry the shell opens this app at. Zero values mean
+	// "shell decides" — an app should not have to care, and most should not.
+	Window *WindowSpec `json:"window,omitempty"`
 
 	// Source is set by the registry, never by app.json: "disk" for a discovered
 	// app, "compiled" for one registered from Go. Read-only to the app.
@@ -110,6 +137,79 @@ type Manifest struct {
 	// Path is the app's directory, reported so an operator can find the files
 	// that produced a broken tile. Empty for a compiled app with no directory.
 	Path string `json:"path,omitempty"`
+}
+
+// ContentKind names how a window gets filled. Compared as a string and never
+// exhaustively switched without a default — see Manifest.Content.
+type ContentKind string
+
+const (
+	// ContentModule is an ES module the shell imports and calls mount(host) on.
+	// The default, and the only kind that runs in the shell's own realm.
+	ContentModule ContentKind = "module"
+
+	// ContentIframe is a URL rendered in a nested frame. Used for anything we
+	// do not trust with our DOM — third-party tools, external dashboards. The
+	// shell still draws the window chrome, so an iframe app is not visually a
+	// second-class citizen; it simply cannot reach us.
+	ContentIframe ContentKind = "iframe"
+
+	// ContentBuiltin is a screen compiled into the shell bundle, addressed by
+	// name (the issue composer, connections, the board). No network fetch.
+	ContentBuiltin ContentKind = "builtin"
+
+	// ContentRoute is an existing dashboard route rendered inside a window
+	// rather than as a page. This is how the twenty-odd screens that already
+	// exist become apps without being rewritten.
+	ContentRoute ContentKind = "route"
+)
+
+// Content says what to render in the window.
+type Content struct {
+	Kind ContentKind `json:"kind"`
+
+	// Entry is interpreted per Kind: a module file name, an absolute URL for
+	// an iframe, a builtin's name, or a dashboard path for a route.
+	Entry string `json:"entry"`
+
+	// Permissions the app declares it needs. The scoped token minted for
+	// cross-origin content is restricted to the intersection of these and the
+	// CALLER's own abilities — an app cannot request its way to more than the
+	// person using it already has.
+	Permissions []string `json:"permissions,omitempty"`
+
+	// Sandbox overrides the iframe sandbox attribute for ContentIframe. Empty
+	// means the default, which deliberately withholds same-origin.
+	Sandbox string `json:"sandbox,omitempty"`
+}
+
+// WindowSpec is the geometry an app opens at. Mirrors os.WindowSpec, plus the
+// minimums — a composer that collapses below its two-column layout is not
+// usable, and only the app knows where that line is.
+type WindowSpec struct {
+	Width     int  `json:"width,omitempty"`
+	Height    int  `json:"height,omitempty"`
+	MinWidth  int  `json:"minWidth,omitempty"`
+	MinHeight int  `json:"minHeight,omitempty"`
+	Resizable bool `json:"resizable,omitempty"`
+}
+
+// ResolveContent returns the effective content for a manifest, applying the
+// `UI` shorthand.
+//
+// Kept as a function rather than folded into parseManifest so that a manifest
+// round-trips unchanged through JSON: an app.json that said `"ui": "ui.js"`
+// still says exactly that when read back, instead of silently acquiring a
+// Content block it never wrote.
+func (m Manifest) ResolveContent() Content {
+	if m.Content != nil && m.Content.Kind != "" {
+		return *m.Content
+	}
+	entry := m.UI
+	if entry == "" {
+		entry = "ui.js"
+	}
+	return Content{Kind: ContentModule, Entry: entry}
 }
 
 // Context is what a compiled app receives at boot.
@@ -230,6 +330,49 @@ func validate(m Manifest) error {
 	}
 	if strings.ContainsAny(m.UI, `/\`) {
 		return fmt.Errorf("ui %q must be a file name in the app directory, not a path", m.UI)
+	}
+	if c := m.Content; c != nil && c.Kind != "" {
+		if strings.TrimSpace(c.Entry) == "" {
+			return fmt.Errorf("content.entry is required when content.kind is set")
+		}
+		switch c.Kind {
+		case ContentModule:
+			// Same constraint as UI, and for the same reason: the entry is
+			// joined against the app's own directory, so a path escapes it.
+			if strings.ContainsAny(c.Entry, `/\`) {
+				return fmt.Errorf("content.entry %q must be a file name in the app directory, not a path", c.Entry)
+			}
+		case ContentIframe:
+			// Absolute https only. A relative URL would resolve against the
+			// SHELL's origin, which is the one origin an untrusted app must not
+			// be able to address — that is the whole reason it is in a frame.
+			if !strings.HasPrefix(c.Entry, "https://") {
+				return fmt.Errorf("content.entry %q must be an absolute https:// URL for an iframe app", c.Entry)
+			}
+		case ContentBuiltin:
+			if strings.ContainsAny(c.Entry, `/\ `) {
+				return fmt.Errorf("content.entry %q must be a bare builtin name", c.Entry)
+			}
+		case ContentRoute:
+			if !strings.HasPrefix(c.Entry, "/") {
+				return fmt.Errorf("content.entry %q must be a dashboard path beginning with /", c.Entry)
+			}
+		default:
+			// Deliberately NOT an error. An unknown kind is an app built for a
+			// newer builder; it renders one "needs an upgrade" tile instead of
+			// failing the registry and taking every other app down with it.
+		}
+	}
+	if w := m.Window; w != nil {
+		if w.Width < 0 || w.Height < 0 || w.MinWidth < 0 || w.MinHeight < 0 {
+			return fmt.Errorf("window dimensions must not be negative")
+		}
+		if w.Width > 0 && w.MinWidth > w.Width {
+			return fmt.Errorf("window.minWidth (%d) exceeds window.width (%d)", w.MinWidth, w.Width)
+		}
+		if w.Height > 0 && w.MinHeight > w.Height {
+			return fmt.Errorf("window.minHeight (%d) exceeds window.height (%d)", w.MinHeight, w.Height)
+		}
 	}
 	return nil
 }
