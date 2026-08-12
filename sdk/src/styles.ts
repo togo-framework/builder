@@ -95,6 +95,27 @@ export const CSS = /* css */ `
   font-family: var(--font);
   font-size: var(--fs-md);
   -webkit-font-smoothing: antialiased;
+
+/* Built-in screen accents.
+   Tokens rather than hex literals in index.ts, which is where they used to
+   live — ten of them, invisible to the theme layer, identical in every project
+   that installs the widget. A colour a project cannot change is not a default,
+   it is a decision made on its behalf. Custom apps already supply their own
+   via the manifest; these are the compiled-in screens, which have to declare
+   theirs somewhere, so it is here where a theme can reach them. */
+  --app-agents: #8b5cf6;
+  --app-skills: #06b6d4;
+  --app-issues: #f59e0b;
+  --app-vault: #10b981;
+  --app-sources: #3b82f6;
+  --app-docs: #f43f5e;
+  --app-brain: #a855f7;
+  --app-chat: #14b8a6;
+  --app-mcp: #ec4899;
+  --app-terminal: #64748b;
+  /* Fallback for an app that declares no colour. */
+  --app-default: #64748b;
+
 }
 @media (prefers-color-scheme: dark) {
   :host(:not([data-theme="light"])) {
@@ -246,10 +267,15 @@ button:focus-visible, a:focus-visible {
 }
 .primary:disabled { opacity: .55; cursor: default; filter: none; box-shadow: none; }
 
+/* Sentence case, not UPPERCASE + letter-spacing.
+   The uppercase micro-label is the most reliable "this is a 2016 admin theme"
+   typographic tell there is, and this sheet already knew: the detail view's
+   own comment calls it "a form idiom" and uses .d-sect-t instead. This is the
+   rest of that migration — same weight and colour as .d-sect-t so a form
+   heading and a section heading finally look like the same system. */
 .label {
   margin: var(--sp-5) 0 var(--sp-2);
-  font-size: var(--fs-2xs); font-weight: 650;
-  letter-spacing: .08em; text-transform: uppercase; color: var(--muted);
+  font-size: var(--fs-xs); font-weight: 600; color: var(--text-2);
 }
 
 /* ---- issue rows ---- */
@@ -300,25 +326,27 @@ button:focus-visible, a:focus-visible {
 .chip.feature { color: var(--c-feature); }
 .chip.question { color: var(--c-question); }
 .chip.discussion { color: var(--c-discussion); }
-/* Status and agent are badges, not types — pill treatment, no dot. */
-.chip.status {
-  padding: 2px 8px; border-radius: var(--r-full);
-  background: var(--surface-2); color: var(--text-2);
-}
-.chip.status::before { display: none; }
-.chip.agent {
-  padding: 2px 8px; border-radius: var(--r-full);
-  background: var(--accent); color: var(--accent-fg);
-}
-.chip.agent::before { display: none; }
+/* Status and agent keep the dot too.
+   They used to be filled pills — directly under the comment above explaining
+   why filled pills in a list are decoration. Two idioms for "a fact about this
+   row", one of them contradicting the rule stated two lines earlier, and the
+   detail view had already settled on dots (.d-dot). One language now. */
+.chip.status { color: var(--text-2); }
+.chip.agent { color: var(--accent); }
 
-/* An agent holds a lease on this issue. */
+/* An agent holds a lease on this issue.
+   A presence indicator, not a spinner. A rotating spinner promises imminent
+   completion — a lease can be held for hours, so the promise is false and the
+   motion is just noise in a list. This is the same treatment the detail view
+   already uses (.d-pulse), and under prefers-reduced-motion it stops animating
+   but stays VISIBLE: the information is "an agent is on this", which a reader
+   who cannot tolerate motion still needs. */
 .spin {
-  flex: none; width: 12px; height: 12px; border-radius: 50%;
-  border: 2px solid var(--border); border-top-color: var(--accent);
-  animation: spin .8s linear infinite;
+  flex: none; width: 6px; height: 6px; border-radius: 50%;
+  background: var(--accent);
+  animation: d-pulse 1.6s ease-in-out infinite;
 }
-@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spin { animation: none; opacity: .7; } }
 .empty {
   font-size: var(--fs-sm); color: var(--muted); padding: var(--sp-2) 0;
 }
@@ -681,7 +709,7 @@ textarea { min-height: 96px; resize: vertical; }
 
 /* ---- section headers ----
    Sentence case and quiet, with the count trailing and muted — the reference's
-   header, not this sheet's uppercase .label, which is a form idiom. */
+   header. .label now matches it. */
 .d-sect {
   display: flex; align-items: center; gap: 6px;
   margin: var(--sp-5) 0 var(--sp-2);

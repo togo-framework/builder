@@ -714,16 +714,16 @@ export function mount(opts: MountOptions = {}): Handle {
   // memorised set, and a hash-derived palette would reshuffle them the day one
   // is renamed.
   const APPS = [
-    { key: "agents", path: "/agents", color: "#8b5cf6", label: t.appAgents },
-    { key: "skills", path: "/skills", color: "#06b6d4", label: t.appSkills },
-    { key: "issues", path: "/issues", color: "#f59e0b", label: t.appIssues },
-    { key: "vault", path: "/vault", color: "#10b981", label: t.appVault },
-    { key: "sources", path: "/sources", color: "#3b82f6", label: t.appSources },
-    { key: "docs", path: "/library", color: "#f43f5e", label: t.appDocs },
-    { key: "brain", path: "/brain", color: "#a855f7", label: t.appBrain },
-    { key: "chat", path: "/chat", color: "#14b8a6", label: t.appChat },
-    { key: "mcp", path: "/mcp", color: "#ec4899", label: t.appMcp },
-    { key: "terminal", path: "/terminal", color: "#64748b", label: t.appTerminal },
+    { key: "agents", path: "/agents", color: "var(--app-agents)", label: t.appAgents },
+    { key: "skills", path: "/skills", color: "var(--app-skills)", label: t.appSkills },
+    { key: "issues", path: "/issues", color: "var(--app-issues)", label: t.appIssues },
+    { key: "vault", path: "/vault", color: "var(--app-vault)", label: t.appVault },
+    { key: "sources", path: "/sources", color: "var(--app-sources)", label: t.appSources },
+    { key: "docs", path: "/library", color: "var(--app-docs)", label: t.appDocs },
+    { key: "brain", path: "/brain", color: "var(--app-brain)", label: t.appBrain },
+    { key: "chat", path: "/chat", color: "var(--app-chat)", label: t.appChat },
+    { key: "mcp", path: "/mcp", color: "var(--app-mcp)", label: t.appMcp },
+    { key: "terminal", path: "/terminal", color: "var(--app-terminal)", label: t.appTerminal },
   ] as const;
 
   // Where the app lives. apiBase is the builder's origin when the widget is
@@ -813,7 +813,7 @@ export function mount(opts: MountOptions = {}): Handle {
         addTile({
           key: slug,
           path: `/apps/${slug}`,
-          color: typeof a?.color === "string" && a.color ? a.color : "#64748b",
+          color: typeof a?.color === "string" && a.color ? a.color : "var(--app-default)",
           label: isAr && ar ? ar : en,
         });
       }
