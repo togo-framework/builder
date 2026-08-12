@@ -95,7 +95,13 @@ export function Dock({ apps, pinned, openSlugs = [], onLaunch, onCloseApp, onUnp
 
   return (
     <div className={cn("pointer-events-none fixed inset-x-0 bottom-3 z-40 flex justify-center px-2", className)}>
-      <div className={cn(
+      <div
+        // The loader clips the overlay frame to the union of [data-fos-opaque]
+        // rects. Without this the dock renders inside the shell and is clipped
+        // away — present in the DOM, invisible on screen, impossible to click.
+        // Every surface the shell actually paints must carry it.
+        data-fos-opaque=""
+        className={cn(
           "no-scrollbar pointer-events-auto flex max-w-full items-end gap-1.5 overflow-x-auto rounded-2xl px-2.5 py-2 backdrop-blur-2xl",
           // Upstream: `border-white/15 bg-black/25`. That reads correctly only
           // over a dark wallpaper the desktop owns. We float over an unknown

@@ -15,6 +15,7 @@ import { AppFrame } from "./AppFrame";
 import type { AppMeta } from "../app/contract";
 import { loadRect, debouncedSaveRect } from "./geometry";
 import { Report } from "./apps/report/Report";
+import { builtinApps } from "./builtins";
 
 /** Options the loader hands the shell across the frame boundary. */
 export interface ShellBoot {
@@ -93,7 +94,18 @@ function Shell({ boot }: { boot: ShellBoot }) {
     icon: "MessageSquare", color: "#4f46e5",
     window: { width: 720, height: 520, resizable: true },
   } as OSApp;
-  const allApps = [reportApp, ...apps.filter((a) => a.slug !== "report")];
+  // The dock is: the composer, the builder's own screens as `route` apps, then
+  // whatever the server registered. Built-ins do not wait on a fetch — a dock
+  // that is empty until the network answers looks broken on a slow connection.
+  const builtins = builtinApps(boot.locale);
+  const serverSlugs = new Set(apps.map((a) => a.slug));
+  const allApps = [
+    reportApp,
+    ...builtins
+      .filter((b) => !serverSlugs.has(b.slug))
+      .map((b) => ({ slug: b.slug, name: b.title, icon: b.icon, color: b.color } as OSApp)),
+    ...apps.filter((a) => a.slug !== "report"),
+  ];
 
   return (
     <>
@@ -132,18 +144,19 @@ function Shell({ boot }: { boot: ShellBoot }) {
             });
             return;
           }
+          const builtin = builtins.find((b) => b.slug === slug);
           const app = apps.find((a) => a.slug === slug) as (OSApp & Partial<AppMeta>) | undefined;
-          if (!app) return;
-          const meta: AppMeta = {
+          if (!builtin && !app) return;
+          const meta: AppMeta = builtin ?? {
             slug,
-            title: app.name ?? slug,
-            icon: app.icon,
-            color: app.color,
+            title: app!.name ?? slug,
+            icon: app!.icon,
+            color: app!.color,
             // `UI` is the shorthand every app that exists today uses; the Go
             // side resolves it to {module, ui.js}. Mirrored here so an older
             // manifest opens without the server having been upgraded first.
-            content: app.content ?? { kind: "module", entry: "ui.js" },
-            window: app.window,
+            content: app!.content ?? { kind: "module", entry: "ui.js" },
+            window: app!.window,
           };
           const remembered = loadRect(slug);
           open(slug, {

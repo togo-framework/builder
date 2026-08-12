@@ -32,8 +32,8 @@ export function AppFrame({ app, host, builtins }: AppFrameProps) {
   const { kind, entry } = app.content;
 
   useEffect(() => {
-    // An iframe kind is rendered declaratively below, not mounted here.
-    if (kind === "iframe") {
+    // iframe and route are rendered declaratively below, not mounted here.
+    if (kind === "iframe" || kind === "route") {
       setState({ s: "ready" });
       return;
     }
@@ -61,13 +61,6 @@ export function AppFrame({ app, host, builtins }: AppFrameProps) {
             mod = await load();
             break;
           }
-          case "route":
-            // Not implemented yet. Rendering the dashboard's own router inside a
-            // window is task #33; declaring the kind now means an app.json can
-            // be written against it and simply waits, rather than needing a
-            // schema change later.
-            if (!cancelled) setState({ s: "unsupported", kind });
-            return;
           default:
             // An app built for a newer builder. One tile says so; the registry
             // and every other app are unaffected.
@@ -119,6 +112,25 @@ export function AppFrame({ app, host, builtins }: AppFrameProps) {
   useEffect(() => {
     instRef.current?.onHostChange?.({ ...host, slug: app.slug });
   }, [host.locale, host.dir, host.dark]);
+
+  // A dashboard route: the REAL screen, same-origin, in a frame.
+  //
+  // Same-origin and NOT sandboxed, which is the whole difference from an
+  // `iframe` app. These are our own screens on our own origin — the session
+  // cookie already applies, so there is exactly one implementation of each
+  // screen rather than a windowed reimplementation that drifts from the page.
+  // The existing panel launcher established this; it is not a new trust
+  // decision, just the same one in a window.
+  if (kind === "route") {
+    const base = host.apiBase.replace(/\/$/, "");
+    return (
+      <iframe
+        title={app.title}
+        src={`${base}/builder${entry}`}
+        className="h-full w-full border-0 bg-[color:var(--fos-bg)]"
+      />
+    );
+  }
 
   if (kind === "iframe") {
     return (

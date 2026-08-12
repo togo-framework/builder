@@ -319,6 +319,8 @@ export function Window({
     <>
       {snapPreview}
     <div
+      // See Dock.tsx: the loader clips to the union of these rects.
+      data-fos-opaque=""
       className={cn(
         "fixed flex flex-col overflow-hidden border bg-card/95 backdrop-blur-xl transition-shadow",
         // Only the CHROME recedes on blur. The content area is untouched:
