@@ -130,6 +130,31 @@ function mountShell() {
   });
 
   window.parent?.postMessage({ t: "fos:ready" }, "*");
+
+  // The heartbeat. Unconditional and on a timer — NOT tied to render, and not
+  // on rAF, because rAF is throttled or halted in a backgrounded tab and the
+  // loader must be able to tell "backgrounded" from "dead". Missing this is
+  // what the loader's watchdog exists to survive; sending it is what keeps a
+  // working shell from being torn down for looking broken.
+  setInterval(() => {
+    window.parent?.postMessage({ t: "fos:heartbeat" }, "*");
+  }, 500);
+
+  // Report the opaque regions the shell is actually painting, so the loader can
+  // clip the frame to exactly them and every other pixel stays the host's.
+  //
+  // Reported on rAF because it must track a drag, but the loader only rewrites
+  // the clip-path when the rects actually change — writing an identical value
+  // 60 times a second is a layout invalidation per frame on a page we do not own.
+  const report = () => {
+    const rects = Array.from(document.querySelectorAll<HTMLElement>("[data-fos-opaque]")).map((el) => {
+      const r = el.getBoundingClientRect();
+      return { x: r.left, y: r.top, w: r.width, h: r.height };
+    });
+    window.parent?.postMessage({ t: "fos:regions", rects, capture: false }, "*");
+    requestAnimationFrame(report);
+  };
+  requestAnimationFrame(report);
 }
 
 mountShell();
