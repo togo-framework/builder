@@ -1,0 +1,230 @@
+/* FeedbackOS design tokens.
+ *
+ * Three layers, and the separation is what makes "a theme is data" true rather
+ * than aspirational:
+ *
+ *   PRIMITIVES  what a theme preset supplies. Literal values. This is the row
+ *               a themes table would store.
+ *   SEMANTICS   what components actually write. Never redefined per theme —
+ *               only ever DERIVED from primitives, so a preset swap updates
+ *               every tint, shadow and border for free.
+ *   BRIDGE      shadcn variable names mapped onto ours, so the vendored
+ *               ui-desktop components render correctly with their existing
+ *               Tailwind classes (bg-card, text-muted-foreground, bg-primary)
+ *               and never had to be rewritten.
+ *
+ * Adding a theme is a PRIMITIVES block. That is the whole cost — see the `plex`
+ * preset at the bottom, which changes exactly one value.
+ *
+ * Selected at setup via BUILDER_SDK_THEME and served through
+ * /api/builder/_meta, so changing it needs no rebuild.
+ */
+
+/* ═══ PRIMITIVES — default, light ═══════════════════════════════════════ */
+:root,
+:root[data-fos-theme="default"] {
+  --fos-bg: #ffffff;
+  --fos-surface: #f8f9fb;
+  --fos-surface-2: #eef1f4;
+  --fos-border: #e6e9ee;
+  --fos-border-strong: #cdd3dc;
+  --fos-text: #14181f;
+  --fos-text-2: #4b5565;
+  --fos-muted: #6c7686;
+  --fos-accent: #4f46e5;
+  --fos-accent-fg: #ffffff;
+  --fos-danger: #d92d20;
+  --fos-ok: #087443;
+  --fos-warn: #b54708;
+  --fos-info: #1570ef;
+
+  /* Issue types. Kept primitive because a project may want its own taxonomy
+     colours without touching anything else. */
+  --fos-c-bug: #d92d20;
+  --fos-c-feature: #1570ef;
+  --fos-c-question: #b54708;
+  --fos-c-discussion: #6938ef;
+
+  /* An explicit stack, not the host's inherited font. The widget renders over
+     somebody else's typography and must stay the same size and shape whatever
+     that is. */
+  --fos-font: -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI",
+    Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+}
+
+/* ═══ PRIMITIVES — default, dark ════════════════════════════════════════ */
+:root[data-fos-theme="default"].fos-dark,
+:root.fos-dark {
+  --fos-bg: #15171d;
+  --fos-surface: #1c1f27;
+  --fos-surface-2: #262a35;
+  --fos-border: #2b303c;
+  --fos-border-strong: #414957;
+  --fos-text: #edeef1;
+  --fos-text-2: #aab2c0;
+  --fos-muted: #8a93a5;
+  --fos-danger: #f97066;
+  --fos-ok: #75e0a7;
+  --fos-warn: #fdb022;
+  --fos-info: #84adff;
+  --fos-c-bug: #f97066;
+  --fos-c-feature: #84adff;
+  --fos-c-question: #fdb022;
+  --fos-c-discussion: #b692f6;
+  /* --fos-accent is tenant-injected via mount({accent}), not theme-owned, so
+     it deliberately carries over. */
+}
+
+/* ═══ SEMANTICS — what components write ═════════════════════════════════ */
+:root {
+  --fos-accent-ink: var(--fos-accent);
+  --fos-accent-soft: color-mix(in srgb, var(--fos-accent) 9%, transparent);
+  --fos-focus: var(--fos-accent);
+  --fos-danger-soft: color-mix(in srgb, var(--fos-danger) 10%, transparent);
+
+  /* OS chrome — title bars, dock, launchpad.
+   *
+   * Near-opaque, NOT ui-desktop's bg-black/25. That 25% glass reads correctly
+   * only against a wallpaper the desktop owns. We paint over an unknown host:
+   * a white marketing page, a dark app, a photo, a video. 86% plus a blur
+   * stays legible over all of them; 25% is a coin flip. */
+  --fos-chrome-bg: color-mix(in srgb, var(--fos-bg) 86%, transparent);
+  --fos-chrome-border: color-mix(in srgb, var(--fos-text) 8%, transparent);
+  --fos-chrome-fg: var(--fos-text);
+  --fos-chrome-fg-muted: color-mix(in srgb, var(--fos-text) 60%, transparent);
+
+  /* Always a dark tint regardless of theme — it is dimming CONTENT, not
+     presenting content of its own. */
+  --fos-scrim: rgba(0, 0, 0, 0.28);
+
+  --fos-r-sm: 8px;
+  --fos-r-md: 10px;
+  --fos-r-lg: 16px;
+  --fos-r-window: 12px;
+  --fos-r-full: 999px;
+
+  --fos-sp-1: 4px;  --fos-sp-2: 8px;  --fos-sp-3: 12px; --fos-sp-4: 16px;
+  --fos-sp-5: 20px; --fos-sp-6: 24px; --fos-sp-7: 32px; --fos-sp-8: 40px;
+
+  /* px, not rem: rem resolves against the HOST's root font size, so a site
+     with html{font-size:62.5%} would render the widget at 62.5% scale. */
+  --fos-fs-2xs: 10.5px; --fos-fs-xs: 11.5px; --fos-fs-sm: 12.5px;
+  --fos-fs-md: 13.5px;  --fos-fs-lg: 15px;   --fos-fs-xl: 16.5px;
+  --fos-fs-2xl: 19px;
+
+  --fos-lh-tight: 1.25;
+  --fos-lh-body: 1.55;
+  /* Arabic glyphs run taller than Latin x-height at the same size — ascenders,
+     descenders and any diacritics — and 1.55 clips in dense body text. Set at
+     document level so it is never hand-tuned per component. */
+  --fos-lh-body-ar: 1.7;
+
+  --fos-ease: cubic-bezier(0.32, 0.72, 0, 1);
+  --fos-t-1: 0.13s;  /* micro / hover */
+  --fos-t-2: 0.26s;  /* panel, modal */
+  --fos-t-3: 0.32s;  /* window open / close / minimize */
+  --fos-t-4: 0.15s;  /* dock hover lift */
+
+  --fos-shadow-1: 0 1px 2px rgba(16, 24, 40, 0.07), 0 8px 24px -8px rgba(16, 24, 40, 0.16);
+  --fos-shadow-2: 0 2px 6px rgba(16, 24, 40, 0.08), 0 24px 64px -16px rgba(16, 24, 40, 0.3);
+  --fos-shadow-window: 0 2px 8px rgba(16, 24, 40, 0.1), 0 32px 80px -20px rgba(16, 24, 40, 0.35);
+  --fos-shadow-dock: 0 8px 24px -8px rgba(16, 24, 40, 0.28), 0 1px 2px rgba(16, 24, 40, 0.14);
+
+  /* Window geometry, read by the vendored Window.tsx. The embed has no OS top
+     bar, and its dock sits against the HOST's chrome, so upstream's 40/92 are
+     wrong here. */
+  --fos-top-inset: 8px;
+  --fos-dock-inset: 84px;
+  --fos-window-min-w: 320px;
+  --fos-window-min-h: 220px;
+}
+
+:root.fos-dark {
+  --fos-accent-ink: color-mix(in srgb, var(--fos-accent) 55%, #ffffff);
+  --fos-chrome-bg: color-mix(in srgb, var(--fos-bg) 82%, transparent);
+  --fos-chrome-border: rgba(255, 255, 255, 0.1);
+  --fos-scrim: rgba(0, 0, 0, 0.45);
+  --fos-shadow-window: 0 2px 8px rgba(0, 0, 0, 0.55), 0 32px 80px -20px rgba(0, 0, 0, 0.8);
+  --fos-shadow-dock: 0 8px 24px -8px rgba(0, 0, 0, 0.55), 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+[dir="rtl"] { --fos-lh-body-doc: var(--fos-lh-body-ar); }
+[dir="ltr"] { --fos-lh-body-doc: var(--fos-lh-body); }
+
+/* ═══ BRIDGE — shadcn names onto ours ═══════════════════════════════════
+ *
+ * The seam that lets the vendored ui-desktop components keep their existing
+ * Tailwind classes (`bg-card`, `text-muted-foreground`, `bg-primary`) instead
+ * of being rewritten.
+ *
+ * It has to be a `@theme` block, and this is worth knowing because getting it
+ * wrong fails SILENTLY. Tailwind v4 generates colour utilities from `--color-*`
+ * entries in `@theme` — NOT from bare custom properties on `:root`. Declaring
+ * `--card` alone leaves `bg-card` undefined, and an undefined utility does not
+ * error: it emits nothing, so the surface renders transparent and every window
+ * in the shell disappears against the host page. Verified by measuring
+ * computed styles, which is the only way this shows up.
+ *
+ * `inline` matters too: without it Tailwind copies the VALUE at build time, so
+ * a runtime theme swap would not follow. With it the utility keeps the
+ * `var()` indirection, and re-pointing `--fos-*` re-colours everything live —
+ * which is the whole premise of BUILDER_SDK_THEME.
+ */
+@theme inline {
+  --color-background: var(--fos-bg);
+  --color-foreground: var(--fos-text);
+  --color-card: var(--fos-surface);
+  --color-card-foreground: var(--fos-text);
+  --color-popover: var(--fos-surface);
+  --color-popover-foreground: var(--fos-text);
+  --color-border: var(--fos-border);
+  --color-input: var(--fos-border-strong);
+  --color-muted: var(--fos-surface-2);
+  --color-muted-foreground: var(--fos-muted);
+  --color-accent: var(--fos-surface-2);
+  --color-accent-foreground: var(--fos-text);
+  --color-primary: var(--fos-accent);
+  --color-primary-foreground: var(--fos-accent-fg);
+  --color-secondary: var(--fos-surface-2);
+  --color-secondary-foreground: var(--fos-text);
+  --color-destructive: var(--fos-danger);
+  --color-destructive-foreground: var(--fos-accent-fg);
+  --color-ring: var(--fos-accent);
+}
+
+/* ═══ PRESET: plex ══════════════════════════════════════════════════════
+ *
+ * The proof that a theme is data. One primitive changes; every semantic,
+ * every derived tint and every bridged shadcn name follows automatically.
+ * IBM Plex Sans Arabic is one harmonised family across Latin and Arabic
+ * rather than two unrelated faces stitched together, which matters on a
+ * bilingual surface.
+ */
+:root[data-fos-theme="plex"] {
+  --fos-font: "IBM Plex Sans Arabic", "IBM Plex Sans", -apple-system,
+    BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+/* ═══ Document defaults ═════════════════════════════════════════════════ */
+.fos-root {
+  font-family: var(--fos-font);
+  font-size: var(--fos-fs-md);
+  line-height: var(--fos-lh-body-doc, var(--fos-lh-body));
+  color: var(--fos-text);
+  /* The shell document is transparent: the host site shows through wherever
+     we do not paint. Every surface must therefore carry its own background —
+     nothing may rely on a page background existing. */
+  background: transparent;
+  -webkit-font-smoothing: antialiased;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fos-root *,
+  .fos-root *::before,
+  .fos-root *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
