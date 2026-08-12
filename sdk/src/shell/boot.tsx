@@ -13,6 +13,7 @@ import { Dock } from "../../vendor/ui-desktop-embed/components/desktop/Dock";
 import type { OSApp } from "../../vendor/ui-desktop-embed/hooks/useOSApps";
 import { AppFrame } from "./AppFrame";
 import type { AppMeta } from "../app/contract";
+import { loadRect, debouncedSaveRect } from "./geometry";
 
 /** Options the loader hands the shell across the frame boundary. */
 export interface ShellBoot {
@@ -50,8 +51,19 @@ function applyBoot(o: ShellBoot) {
   if (o.accent) root.style.setProperty("--fos-accent", o.accent);
 }
 
+// One debouncer for the whole shell: a drag emits a rect per pointermove, and a
+// synchronous localStorage write per frame on somebody else's page is not free.
+const persistRect = debouncedSaveRect();
+
 function Shell({ boot }: { boot: ShellBoot }) {
   const { open, windows } = useWindowManager();
+
+  // Remember where windows are put. Device-local by design — see geometry.ts:
+  // a layout tuned on a 27-inch monitor is wrong on a laptop, so syncing rects
+  // across devices makes things worse rather than better.
+  useEffect(() => {
+    for (const w of windows) persistRect(w.slug, w.rect);
+  }, [windows]);
   const [apps, setApps] = useState<OSApp[]>([]);
 
   useEffect(() => {
@@ -98,12 +110,16 @@ function Shell({ boot }: { boot: ShellBoot }) {
             content: app.content ?? { kind: "module", entry: "ui.js" },
             window: app.window,
           };
+          const remembered = loadRect(slug);
           open(slug, {
             title: meta.title,
             icon: meta.icon,
             width: meta.window?.width,
             height: meta.window?.height,
             resizable: meta.window?.resizable ?? true,
+            // A remembered size wins over the manifest's: the operator resized
+            // it deliberately, and the manifest is only ever a first guess.
+            ...(remembered ? { width: remembered.w, height: remembered.h } : {}),
             content: (
               <AppFrame
                 app={meta}
