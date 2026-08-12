@@ -267,6 +267,7 @@ export function WindowManager() {
           zIndex={w.z}
           onRectChange={(rect) => updateRect(w.slug, rect)}
           onClose={() => close(w.slug)}
+          focused={w.focused}
           onMinimize={() => toggleMinimize(w.slug)}
           onMaximizeToggle={() => toggleMaximize(w.slug)}
           onFocus={() => focus(w.slug)}

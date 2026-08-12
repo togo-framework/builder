@@ -68,6 +68,49 @@ export function clampWindowRect(r: WindowRect, bounds?: { w: number; h: number }
   return { x, y, w, h };
 }
 
+/**
+ * One window-chrome button.
+ *
+ * 28px hit target with a ~14px glyph: the box is what the pointer and the
+ * WCAG 2.5.8 minimum care about, the glyph is what the eye reads. Glyphs are
+ * always visible rather than revealed on hover, because hover is not a state a
+ * keyboard or a touchscreen has.
+ *
+ * `danger` tints toward --fos-danger on hover/focus only. Close is not filled
+ * red at rest: a permanently red control reads as "destructive action here"
+ * next to a title bar, which is not what closing a window is.
+ */
+function WindowControl({
+  label,
+  onClick,
+  danger,
+  children,
+}: {
+  label: string;
+  onClick: () => void;
+  danger?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      onClick={onClick}
+      className={cn(
+        "grid size-7 place-items-center rounded-md text-[color:var(--fos-chrome-fg-muted)]",
+        "transition-colors hover:text-[color:var(--fos-chrome-fg)]",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--fos-focus)] focus-visible:ring-offset-2",
+        danger
+          ? "hover:bg-[color:var(--fos-danger-soft)] hover:text-[color:var(--fos-danger)]"
+          : "hover:bg-[color:var(--fos-surface-2)]",
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
 // Which edges a resize handle drags.
 type ResizeDir = "e" | "s" | "se" | "w" | "n" | "nw" | "ne" | "sw";
 
@@ -83,6 +126,12 @@ export interface WindowProps {
   onMinimize?: () => void;
   onMaximizeToggle?: () => void;
   maximized?: boolean;
+  /**
+   * Topmost non-minimized window. Drives the chrome's focus treatment — a
+   * stack of identically-styled windows over a busy host page gives the eye
+   * nothing to latch onto, and z-order alone is not a visual signal.
+   */
+  focused?: boolean;
   onFocus?: () => void;
   className?: string;
   children?: React.ReactNode;
@@ -100,6 +149,7 @@ export function Window({
   onMinimize,
   onMaximizeToggle,
   maximized = false,
+  focused = true,
   onFocus,
   className,
   children,
@@ -270,7 +320,12 @@ export function Window({
       {snapPreview}
     <div
       className={cn(
-        "fixed flex flex-col overflow-hidden border border-border bg-card/95 shadow-2xl backdrop-blur-xl",
+        "fixed flex flex-col overflow-hidden border bg-card/95 backdrop-blur-xl transition-shadow",
+        // Only the CHROME recedes on blur. The content area is untouched:
+        // repainting an app to dim it is expensive, and no real desktop does it.
+        focused
+          ? "border-[color:var(--fos-border-strong)] shadow-[var(--fos-shadow-window)]"
+          : "border-border shadow-[var(--fos-shadow-1)]",
         isMobile ? "rounded-none" : "rounded-xl",
         "origin-bottom transition-[opacity,transform] duration-200 ease-out",
         minimized
@@ -292,35 +347,54 @@ export function Window({
         onPointerDown={onDragTitle}
         onDoubleClick={onMaximizeToggle}
       >
-        <div className="group/lights flex items-center gap-1.5" onPointerDown={(e) => e.stopPropagation()}>
-          <button
-            type="button"
-            aria-label="Close"
-            onClick={onClose}
-            className="flex h-3 w-3 items-center justify-center rounded-full bg-[#ff5f57] text-[#7a0d02] transition hover:brightness-95"
-          >
-            <X className="h-2 w-2 opacity-0 transition-opacity group-hover/lights:opacity-100" strokeWidth={3} />
-          </button>
-          <button
-            type="button"
-            aria-label="Minimize"
-            onClick={onMinimize}
-            className="flex h-3 w-3 items-center justify-center rounded-full bg-[#febc2e] text-[#985712] transition hover:brightness-95"
-          >
-            <Minus className="h-2 w-2 opacity-0 transition-opacity group-hover/lights:opacity-100" strokeWidth={3} />
-          </button>
-          <button
-            type="button"
-            aria-label="Maximize"
-            onClick={onMaximizeToggle}
-            className="flex h-3 w-3 items-center justify-center rounded-full bg-[#28c840] text-[#0b6118] transition hover:brightness-95"
-          >
-            <Plus className="h-2 w-2 opacity-0 transition-opacity group-hover/lights:opacity-100" strokeWidth={3} />
-          </button>
+        {icon && <DynamicIcon name={icon} size={14} className="shrink-0 text-muted-foreground" />}
+        {/* `dir` is set explicitly, not inherited. Ellipsis truncation clips the
+            WRONG end in RTL when direction is only inherited, so an Arabic
+            window title would lose its beginning instead of its tail. */}
+        <span
+          className="flex-1 truncate text-xs font-medium text-foreground"
+          style={{ direction: "inherit" }}
+          title={title}
+        >
+          {title}
+        </span>
+
+        {/* Window controls.
+         *
+         * Upstream draws macOS's traffic lights: three hardcoded hex circles at
+         * 12px, pinned to the leading edge, with their glyphs at opacity-0 until
+         * hover and no focus ring at all. Four problems, and only one of them is
+         * taste:
+         *
+         *   - hardcoded #ff5f57 / #febc2e / #28c840 ignore the token layer
+         *     entirely, so they are the same colour in every theme a project picks
+         *   - 12px is below the WCAG 2.5.8 minimum of 24px
+         *   - no :focus-visible, and glyphs invisible until hover, means a
+         *     keyboard user tabbing here sees nothing and cannot tell what is
+         *     focused — close/minimize/maximize were effectively unreachable
+         *   - macOS never mirrors these, so keeping the imitation would have
+         *     required a documented RTL exception
+         *
+         * Imitating one specific OS is also the wrong signal for a widget that
+         * floats over somebody else's product. Dropping the imitation removes the
+         * RTL exception along with it: at the inline-end, this mirrors correctly
+         * with no special case.
+         */}
+        <div className="flex shrink-0 items-center" onPointerDown={(e) => e.stopPropagation()}>
+          {onMinimize && (
+            <WindowControl label="Minimize" onClick={onMinimize}>
+              <Minus className="size-3.5" />
+            </WindowControl>
+          )}
+          {onMaximizeToggle && (
+            <WindowControl label={maximized ? "Restore" : "Maximize"} onClick={onMaximizeToggle}>
+              <Plus className="size-3.5" />
+            </WindowControl>
+          )}
+          <WindowControl label="Close" onClick={onClose} danger>
+            <X className="size-3.5" />
+          </WindowControl>
         </div>
-        {icon && <DynamicIcon name={icon} size={14} className="ms-1 shrink-0 text-muted-foreground" />}
-        <span className="flex-1 truncate text-center text-xs font-medium text-foreground">{title}</span>
-        <span className="w-12" aria-hidden="true" />
       </div>
 
       {/* Content */}

@@ -57,6 +57,18 @@ emoji name mid-cluster.
 
 Regenerate rather than hand-editing the arrays.
 
+## Chrome status
+
+Tokenised and embed-correct: `Window`, `WindowManager`, `Dock`.
+
+Still carrying upstream's wallpaper-era chrome (`bg-black/25`, `bg-white/10`,
+`border-white/10`): `TopBar`, `NotificationCenter`. Deliberately not fixed —
+both are in the "should an overlay ship this at all" list below, and restyling a
+component we may delete is waste. If they stay, they need the same treatment
+`Dock` got: `--fos-chrome-bg` / `--fos-chrome-border` instead of translucent
+white and black, which only read correctly over a dark wallpaper the desktop
+owns.
+
 ## Still to decide: components an overlay should not ship
 
 Pruning `OSLoginScreen` (below) removed a whole dependency. Four more are

@@ -49,7 +49,9 @@ interface DockButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> 
 
 const DockButton = React.forwardRef<HTMLButtonElement, DockButtonProps>(
   ({ label, color, isOpen, children, ...rest }, ref) => {
-    const base = color || "#64748b";
+    // Token, not a slate literal: an app that declares no colour should still
+    // follow the project's theme rather than pinning one grey forever.
+    const base = color || "var(--fos-surface-2)";
     return (
       <button
         ref={ref}
@@ -66,7 +68,11 @@ const DockButton = React.forwardRef<HTMLButtonElement, DockButtonProps>(
         >
           <span className="drop-shadow-[0_1px_1px_rgba(0,0,0,0.35)]">{children}</span>
         </span>
-        <span className={cn("mt-1 h-1 w-1 rounded-full bg-white/90 transition-opacity", isOpen ? "opacity-100" : "opacity-0")} />
+        <span className={cn(
+          // bg-white/90 upstream: invisible against our near-white light chrome.
+          "mt-1 h-1 w-1 rounded-full bg-[color:var(--fos-accent)] transition-opacity",
+          isOpen ? "opacity-100" : "opacity-0",
+        )} />
       </button>
     );
   },
@@ -89,13 +95,20 @@ export function Dock({ apps, pinned, openSlugs = [], onLaunch, onCloseApp, onUnp
 
   return (
     <div className={cn("pointer-events-none fixed inset-x-0 bottom-3 z-40 flex justify-center px-2", className)}>
-      <div className="no-scrollbar pointer-events-auto flex max-w-full items-end gap-1.5 overflow-x-auto rounded-2xl border border-white/15 bg-black/25 px-2.5 py-2 shadow-2xl backdrop-blur-2xl">
+      <div className={cn(
+          "no-scrollbar pointer-events-auto flex max-w-full items-end gap-1.5 overflow-x-auto rounded-2xl px-2.5 py-2 backdrop-blur-2xl",
+          // Upstream: `border-white/15 bg-black/25`. That reads correctly only
+          // over a dark wallpaper the desktop owns. We float over an unknown
+          // host — a white marketing page, a photo, a video — where 25% black
+          // is a coin flip and the white hairline disappears entirely.
+          "border border-[color:var(--fos-chrome-border)] bg-[color:var(--fos-chrome-bg)] shadow-[var(--fos-shadow-dock)]",
+        )}>
         {onLaunchpad && (
           <>
-            <DockButton label="Launchpad" color="#6366f1" onClick={onLaunchpad}>
+            <DockButton label="Launchpad" color="var(--fos-surface-2)" onClick={onLaunchpad}>
               <LayoutGrid className="h-5 w-5" />
             </DockButton>
-            {(slugs.length > 0 || onTrash) && <span className="mx-1 h-9 w-px self-center bg-white/15" />}
+            {(slugs.length > 0 || onTrash) && <span className="mx-1 h-9 w-px self-center bg-[color:var(--fos-chrome-border)]" />}
           </>
         )}
 
