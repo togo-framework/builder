@@ -1,0 +1,21 @@
+/* The shell document's stylesheet entry.
+ *
+ * Tailwind is compiled HERE, not inherited. The shell is its own top-level
+ * document with no access to the host page's build — spike #12 established
+ * that `@togo-framework/ui`'s shipped styles.css is Tailwind SOURCE, not
+ * compiled output, so linking it renders nothing.
+ *
+ * @source points at the vendored components so their class strings are
+ * scanned. Miss this and the utilities they use are simply absent, which
+ * fails silently: the markup is correct, the classes resolve to nothing, and
+ * every window renders as unstyled text over the customer's page.
+ */
+@import "tailwindcss";
+@import "./tokens.css";
+
+@source "../../vendor/ui-desktop-embed/**/*.{ts,tsx}";
+@source "./**/*.{ts,tsx}";
+
+/* The dark variant is a class on <html>, set by boot.tsx from mount options,
+ * never from a media query — the host decides the theme, not the OS. */
+@custom-variant fos-dark (&:where(.fos-dark, .fos-dark *));
