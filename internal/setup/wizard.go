@@ -77,6 +77,12 @@ func (s *Service) Routes(r chi.Router) {
 	r.Get("/generate/status", s.handleGenStatus)
 	r.Post("/complete", s.handleComplete)
 	r.Post("/reset", s.handleReset)
+
+	// Capability steps, generated from the registry rather than hand-declared.
+	// Adding a Capability adds its step — see internal/setup/registry.go.
+	r.Get("/capabilities", s.handleCapabilities)
+	r.Get("/capabilities/probe", s.handleCapabilityProbe)
+	r.Post("/capabilities/env", s.handleEnvFragment)
 }
 
 type state struct {
