@@ -1,0 +1,7 @@
+/* Exactly what the FeedbackOS shell document will import — and NOTHING the
+   host page provides. If this compiles to a self-contained stylesheet that
+   renders a tokenised Window offline, Risk 2 is closed. */
+@import "tailwindcss";
+@import "@togo-framework/ui/styles.css";
+@source "./shell.html";
+@custom-variant dark (&:where(.dark, .dark *));

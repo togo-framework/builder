@@ -1,0 +1,23 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>spike shell</title>
+<style>
+  html, body { margin: 0; height: 100%; background: transparent; }
+  /* The "window": the only region the shell should ever capture. */
+  /* Sized relative to the viewport so the same harness is valid at a 393px
+     phone width and a 1280px desktop one. A fixed 300x200 at left:300 is
+     mostly off-screen on a phone, which produces a fake gate failure. */
+  #win {
+    position: fixed;
+    left: 45%; top: 40%; width: 40%; height: 22%;
+    background: #4f46e5; color: #fff;
+    font: 14px/1.4 system-ui, sans-serif;
+    display: grid; place-items: center;
+  }
+</style>
+<div id="win">shell window</div>
+<script>
+  // Report our opaque region to the parent, exactly as the real loader expects.
+  const r = document.getElementById('win').getBoundingClientRect();
+  parent.postMessage({ t: 'region', x: r.left, y: r.top, w: r.width, h: r.height }, '*');
+</script>

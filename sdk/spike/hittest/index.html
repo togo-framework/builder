@@ -1,0 +1,154 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>clip-path iframe hit-test spike</title>
+<!--
+  GATE SPIKE for FeedbackOS (plan: 2026-08-12, task #11).
+
+  QUESTION: if a full-viewport iframe is clipped with `clip-path`, do pointer
+  events in the CLIPPED-AWAY region fall through to the host page underneath?
+
+  This is NOT answerable with CSS.supports("clip-path", 'path("M0 0")') — that
+  tests whether the value PARSES. An engine can parse it, paint it correctly,
+  and still hit-test against the unclipped border box, which would make a
+  full-viewport overlay eat every click on the customer's site forever.
+
+  The host page below is deliberately hostile: a scroll container, a
+  `transform` ancestor (which creates a containing block for fixed positioning
+  and has historically broken clip/hit-test interaction), and the host's own
+  z-index:2147483647 fixed element.
+-->
+<style>
+  html, body { margin: 0; height: 100%; font: 14px/1.5 system-ui, sans-serif; }
+  #host { padding: 20px; }
+  .marker { width: 120px; height: 60px; background: #d1fae5; border: 1px solid #059669; }
+
+  /* Hostile context 1: a transformed ancestor. */
+  #transformed { transform: translateZ(0); position: relative; }
+
+  /* Hostile context 2: a scroll container. */
+  #scroller { height: 90px; overflow: auto; border: 1px solid #999; width: 260px; }
+  #scroller .tall { height: 400px; background: linear-gradient(#fff, #ddd); }
+
+  /* Hostile context 3: the host's own max-z fixed element. */
+  #hostfixed {
+    position: fixed; right: 8px; bottom: 8px; z-index: 2147483647;
+    width: 90px; height: 40px; background: #fca5a5; border: 1px solid #b91c1c;
+  }
+
+  /* The overlay frame, exactly as the loader will create it. */
+  #frame {
+    position: fixed; inset: 0; width: 100%; height: 100%;
+    border: 0; background: transparent;
+    z-index: 2147483000;
+  }
+</style>
+
+<div id="host">
+  <h1>host page</h1>
+  <div id="transformed">
+    <!-- Sits UNDER the clipped-away part of the frame. Must remain hittable. -->
+    <div class="marker" id="m-under" style="position:absolute; left:60px; top:40px;">under-frame</div>
+  </div>
+  <div style="height:120px"></div>
+  <div id="scroller"><div class="tall">scrollable</div></div>
+  <p id="prose">Selectable prose for the text-selection check.</p>
+</div>
+<div id="hostfixed">host fixed</div>
+
+<iframe id="frame" src="./shell.html"></iframe>
+
+<pre id="out">running…</pre>
+
+<script>
+const frame = document.getElementById('frame');
+const out = document.getElementById('out');
+const results = [];
+function check(name, pass, detail) { results.push({ name, pass, detail }); }
+
+// The loader clips the frame to the shell's reported region.
+window.addEventListener('message', (e) => {
+  if (e.data?.t !== 'region') return;
+  const { x, y, w, h } = e.data;
+  REGION = { x, y, w, h };
+  frame.style.clipPath = `path("M${x} ${y} H${x + w} V${y + h} H${x} Z")`;
+  requestAnimationFrame(() => requestAnimationFrame(run));
+});
+
+function at(x, y) {
+  const el = document.elementFromPoint(x, y);
+  return el ? (el.id || el.tagName.toLowerCase()) : 'null';
+}
+
+let REGION = null;
+
+function run() {
+  // Test points are DERIVED from the reported region, never hardcoded, so the
+  // same harness is valid at any viewport. IN is the region's centre; OUT is a
+  // point above-left of it that is inside the viewport and clear of the host's
+  // own fixed element in the bottom-trailing corner.
+  const IN = { x: Math.round(REGION.x + REGION.w / 2), y: Math.round(REGION.y + REGION.h / 2) };
+  const OUT = { x: Math.round(Math.min(60, REGION.x / 2)), y: Math.round(Math.max(40, REGION.y / 2)) };
+  window.__points = { IN, OUT };
+
+  // 1. INSIDE the clip -> the frame must be the hit target.
+  check('inside clip hits the frame', at(IN.x, IN.y) === 'frame', `(${IN.x},${IN.y}) got #${at(IN.x, IN.y)}`);
+
+  // 2. OUTSIDE the clip -> the host must be hit, NOT the frame.
+  //    This is the whole question. If this fails, the approach is dead.
+  const o = at(OUT.x, OUT.y);
+  check('outside clip falls through to host', o !== 'frame', `(${OUT.x},${OUT.y}) got #${o}`);
+
+  // 3. Outside the clip, over the TRANSFORMED ancestor's child.
+  const tm = document.getElementById('m-under').getBoundingClientRect();
+  const t = at(Math.round(tm.left + 10), Math.round(tm.top + 10));
+  check('falls through over a transformed ancestor', t !== 'frame', `got #${t}`);
+
+  // 4. Outside the clip, over the host's own max-z fixed element.
+  const hf = document.getElementById('hostfixed').getBoundingClientRect();
+  const f = at(hf.left + 20, hf.top + 20);
+  check('host max-z fixed element still hittable', f === 'hostfixed', `got #${f}`);
+
+  // 5. Outside the clip, over a scroll container.
+  const sc = document.getElementById('scroller').getBoundingClientRect();
+  const s = at(sc.left + 30, sc.top + 30);
+  check('scroll container still hittable', s !== 'frame', `got #${s}`);
+
+  // 6. Scrollability: the host scroller must actually scroll under the frame.
+  const el = document.getElementById('scroller');
+  const before = el.scrollTop;
+  el.scrollTop = 50;
+  check('host scroller still scrolls', el.scrollTop !== before, `${before} -> ${el.scrollTop}`);
+
+  // 7. Text selection in host prose under the clipped-away region.
+  const p = document.getElementById('prose');
+  const rng = document.createRange();
+  rng.selectNodeContents(p);
+  const sel = getSelection(); sel.removeAllRanges(); sel.addRange(rng);
+  check('host text is selectable', String(sel).length > 0, `${String(sel).length} chars`);
+  sel.removeAllRanges();
+
+  // 8. The naive capability test, recorded to show it is NOT equivalent.
+  const supports = CSS.supports('clip-path', 'path("M0 0")');
+  check('[reference] CSS.supports parses path()', supports, String(supports));
+
+  // 9/10. REAL dispatched clicks, recorded here and asserted by the runner.
+  // elementFromPoint is the standard proxy for hit-testing, but the thing we
+  // actually care about is whether a user's click reaches the host — so the
+  // runner drives real mouse input and reads these back.
+  window.__clicks = [];
+  document.addEventListener('click', (ev) => {
+    window.__clicks.push({ x: ev.clientX, y: ev.clientY, target: ev.target.id || ev.target.tagName.toLowerCase() });
+  }, true);
+
+  const pass = results.filter(r => r.pass).length;
+  const gate = results.find(r => r.name === 'outside clip falls through to host');
+  out.textContent = JSON.stringify({
+    userAgent: navigator.userAgent,
+    gatePassed: !!gate?.pass,
+    passed: pass, total: results.length,
+    results,
+  }, null, 2);
+  document.title = gate?.pass ? 'GATE PASS' : 'GATE FAIL';
+  window.__spike = { gatePassed: !!gate?.pass, results };
+}
+</script>

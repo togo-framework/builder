@@ -11,6 +11,8 @@ import { useEffect, useState } from "react";
 import { WindowManagerProvider, WindowManager, useWindowManager } from "../../vendor/ui-desktop-embed/components/desktop/WindowManager";
 import { Dock } from "../../vendor/ui-desktop-embed/components/desktop/Dock";
 import type { OSApp } from "../../vendor/ui-desktop-embed/hooks/useOSApps";
+import { AppFrame } from "./AppFrame";
+import type { AppMeta } from "../app/contract";
 
 /** Options the loader hands the shell across the frame boundary. */
 export interface ShellBoot {
@@ -83,14 +85,42 @@ function Shell({ boot }: { boot: ShellBoot }) {
         pinned={apps.map((a) => a.slug)}
         openSlugs={openSlugs}
         onLaunch={(slug: string) => {
-          const app = apps.find((a) => a.slug === slug);
+          const app = apps.find((a) => a.slug === slug) as (OSApp & Partial<AppMeta>) | undefined;
+          if (!app) return;
+          const meta: AppMeta = {
+            slug,
+            title: app.name ?? slug,
+            icon: app.icon,
+            color: app.color,
+            // `UI` is the shorthand every app that exists today uses; the Go
+            // side resolves it to {module, ui.js}. Mirrored here so an older
+            // manifest opens without the server having been upgraded first.
+            content: app.content ?? { kind: "module", entry: "ui.js" },
+            window: app.window,
+          };
           open(slug, {
-            title: app?.name ?? slug,
-            icon: app?.icon,
-            width: app?.window?.width,
-            height: app?.window?.height,
-            resizable: app?.window?.resizable ?? true,
-            content: null,
+            title: meta.title,
+            icon: meta.icon,
+            width: meta.window?.width,
+            height: meta.window?.height,
+            resizable: meta.window?.resizable ?? true,
+            content: (
+              <AppFrame
+                app={meta}
+                host={{
+                  apiBase: boot.apiBase,
+                  locale: boot.locale,
+                  dir: boot.locale === "ar" ? "rtl" : "ltr",
+                  dark: boot.dark,
+                  fetch: (path, init) =>
+                    fetch(`${boot.apiBase}${path}`, { credentials: "include", ...init }),
+                  setTitle: () => {},
+                  close: () => {},
+                  open: () => {},
+                  sectionNonce: 0,
+                }}
+              />
+            ),
           });
         }}
       />
