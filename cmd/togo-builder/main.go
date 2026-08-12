@@ -21,11 +21,12 @@ import (
 	"github.com/togo-framework/builder/internal/db/seeders"
 	"github.com/togo-framework/builder/internal/runner"
 	"github.com/togo-framework/builder/internal/scaffold"
+	"github.com/togo-framework/builder/internal/setup"
 )
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: togo-builder <new|app|doctor|seed|version>")
+		fmt.Fprintln(os.Stderr, "usage: togo-builder <new|app|doctor|seed|env:example|version>")
 		os.Exit(2)
 	}
 	switch os.Args[1] {
@@ -37,6 +38,15 @@ func main() {
 		os.Exit(appCmd(os.Args[2:]))
 	case "seed":
 		os.Exit(seed(os.Args[2:]))
+	case "env:example":
+		// Regenerates .env.example from the capability registry. The file is
+		// generated because the hand-written one drifted: it documented 16 of
+		// the 51 variables the code reads, and one it documented
+		// (BUILDER_EMBED_MODEL) is not read at all — an operator following it
+		// would set a value that does nothing.
+		//
+		//   go run ./cmd/togo-builder env:example > .env.example
+		fmt.Print(setup.RenderEnvExample(setup.Capabilities))
 	case "version":
 		fmt.Println("togo-builder dev")
 	default:
