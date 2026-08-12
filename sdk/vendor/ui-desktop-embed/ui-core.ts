@@ -42,12 +42,13 @@ export {
 // missing box. Until that lands, this throws rather than silently importing
 // lucide — a loud failure at the ten call sites is the point.
 // ---------------------------------------------------------------------------
-export function DynamicIcon(_props: { name?: string; size?: number; className?: string }): never {
-  throw new Error(
-    "DynamicIcon is not available in the embedded shell — inject an icon resolver instead. " +
-      "lucide-react's name-keyed lookup defeats tree-shaking and costs 132 KB gz. See task #25.",
-  );
-}
+// Resolves against the INLINED set (see ./icons). The signature is unchanged,
+// so the ten call sites did not move — what changed is that an unknown name now
+// falls back to a lettered tile instead of pulling 132 KB of glyphs nobody
+// asked for. A third-party app can declare any icon string it likes; a blank
+// square in the dock is indistinguishable from a broken app, so it gets a
+// letter rather than nothing.
+export { DynamicIcon } from "./dynamic-icon";
 
 // ---------------------------------------------------------------------------
 // The two helpers @togo-framework/ui does not export.

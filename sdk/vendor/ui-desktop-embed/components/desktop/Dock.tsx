@@ -5,7 +5,13 @@
 // at the trailing end. Always visible.
 
 import * as React from "react";
-import { LayoutGrid, Trash2, SquareArrowOutUpRight, X, PinOff } from "lucide-react";
+import { Icon, type IconProps } from "../../icons";
+type IconProps2 = Omit<IconProps, "name">;
+const LayoutGrid = (p: IconProps2) => <Icon name="LayoutGrid" {...p} />;
+const Trash2 = (p: IconProps2) => <Icon name="Trash2" {...p} />;
+const SquareArrowOutUpRight = (p: IconProps2) => <Icon name="SquareArrowOutUpRight" {...p} />;
+const X = (p: IconProps2) => <Icon name="X" {...p} />;
+const PinOff = (p: IconProps2) => <Icon name="PinOff" {...p} />;
 import { DynamicIcon } from "../../ui-core";
 import {
   ContextMenu,

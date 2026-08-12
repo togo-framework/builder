@@ -5,7 +5,11 @@
 // Transport-agnostic: the consuming app feeds notifications + callbacks.
 
 import * as React from "react";
-import { Bell, Check, CheckCheck } from "lucide-react";
+import { Icon, type IconProps } from "../../icons";
+type IconProps2 = Omit<IconProps, "name">;
+const Bell = (p: IconProps2) => <Icon name="Bell" {...p} />;
+const Check = (p: IconProps2) => <Icon name="Check" {...p} />;
+const CheckCheck = (p: IconProps2) => <Icon name="CheckCheck" {...p} />;
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "../../ui-core";
 import { Button } from "../../ui-core";
 import { ScrollArea } from "../../ui-core";

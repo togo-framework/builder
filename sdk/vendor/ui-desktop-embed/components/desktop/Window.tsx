@@ -8,7 +8,11 @@
 
 import * as React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { X, Minus, Plus } from "lucide-react";
+import { Icon, type IconProps } from "../../icons";
+type IconProps2 = Omit<IconProps, "name">;
+const X = (p: IconProps2) => <Icon name="X" {...p} />;
+const Minus = (p: IconProps2) => <Icon name="Minus" {...p} />;
+const Plus = (p: IconProps2) => <Icon name="Plus" {...p} />;
 import { DynamicIcon } from "../../ui-core";
 import { cn } from "../../ui-core";
 

@@ -8,7 +8,10 @@
 // desktop (via `onRemove`).
 
 import * as React from "react";
-import { SquareArrowOutUpRight, Trash2 } from "lucide-react";
+import { Icon, type IconProps } from "../../icons";
+type IconProps2 = Omit<IconProps, "name">;
+const SquareArrowOutUpRight = (p: IconProps2) => <Icon name="SquareArrowOutUpRight" {...p} />;
+const Trash2 = (p: IconProps2) => <Icon name="Trash2" {...p} />;
 import { DesktopIcon } from "./DesktopIcon";
 import {
   ContextMenu,

@@ -5,7 +5,15 @@
 // / Shut Down, Log Out). All actions are prop-driven callbacks.
 
 import * as React from "react";
-import { Layers, Info, Settings, Moon, RotateCcw, Power, LogOut } from "lucide-react";
+import { Icon, type IconProps } from "../../icons";
+type IconProps2 = Omit<IconProps, "name">;
+const Layers = (p: IconProps2) => <Icon name="Layers" {...p} />;
+const Info = (p: IconProps2) => <Icon name="Info" {...p} />;
+const Settings = (p: IconProps2) => <Icon name="Settings" {...p} />;
+const Moon = (p: IconProps2) => <Icon name="Moon" {...p} />;
+const RotateCcw = (p: IconProps2) => <Icon name="RotateCcw" {...p} />;
+const Power = (p: IconProps2) => <Icon name="Power" {...p} />;
+const LogOut = (p: IconProps2) => <Icon name="LogOut" {...p} />;
 import {
   DropdownMenu,
   DropdownMenuContent,

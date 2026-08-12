@@ -7,7 +7,10 @@
 // Notification Center sideover).
 
 import * as React from "react";
-import { LogOut, User } from "lucide-react";
+import { Icon, type IconProps } from "../../icons";
+type IconProps2 = Omit<IconProps, "name">;
+const LogOut = (p: IconProps2) => <Icon name="LogOut" {...p} />;
+const User = (p: IconProps2) => <Icon name="User" {...p} />;
 import { Avatar, AvatarFallback } from "../../ui-core";
 import {
   DropdownMenu,

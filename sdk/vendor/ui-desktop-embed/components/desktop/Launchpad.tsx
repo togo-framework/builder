@@ -6,7 +6,13 @@
 // add/remove from the Desktop. A search box filters apps (like macOS Launchpad).
 
 import * as React from "react";
-import { Search, Pin, PinOff, MonitorUp, MonitorX } from "lucide-react";
+import { Icon, type IconProps } from "../../icons";
+type IconProps2 = Omit<IconProps, "name">;
+const Search = (p: IconProps2) => <Icon name="Search" {...p} />;
+const Pin = (p: IconProps2) => <Icon name="Pin" {...p} />;
+const PinOff = (p: IconProps2) => <Icon name="PinOff" {...p} />;
+const MonitorUp = (p: IconProps2) => <Icon name="MonitorUp" {...p} />;
+const MonitorX = (p: IconProps2) => <Icon name="MonitorX" {...p} />;
 import { DynamicIcon } from "../../ui-core";
 import {
   ContextMenu,

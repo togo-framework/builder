@@ -32,13 +32,48 @@ byte-identical to upstream, so a future re-sync is a readable diff.
 `wallpaperCss` and `formatRelativeTime` are implemented locally.
 `DynamicIcon` deliberately **throws** — see below.
 
-## Budget
+## Budget — settled
 
-The shell has a hard **300 KB gz** ceiling. `lucide-react` alone is
-**132,299 B gz** — 3.6x the entire current SDK bundle (36,665 B gz) — and it
-cannot be tree-shaken because `DynamicIcon` resolves glyphs from a runtime
-string. There are still **12 direct `lucide-react` imports** in these
-components; removing them is task #25.
+The shell has a hard **300 KB gz** ceiling. `lucide-react` was **132,299 B gz**,
+3.6x the entire current SDK bundle (36,665 B gz), and could not be tree-shaken
+because `DynamicIcon` resolves glyphs from a runtime string.
+
+It is gone. `icons.tsx` inlines the exact 32 glyphs these components render,
+with the path data copied verbatim from lucide (ISC, attributed in the file):
+
+| | gz |
+|---|---|
+| `lucide-react` | 132,299 B |
+| inlined set | **2,099 B** |
+| saved | 130,200 B — **63x smaller** |
+
+`DynamicIcon` keeps its signature and resolves against that set. An unknown name
+renders a lettered tile rather than a blank square, because apps are registered
+by third-party plugins with a free-text `Icon` field — unknown names are the
+normal case, and a dock of empty squares reads as "the shell is broken" rather
+than "that plugin picked an icon we don't carry". The letter is the first
+GRAPHEME via `Intl.Segmenter`, not `.charAt(0)`, which would slice an Arabic or
+emoji name mid-cluster.
+
+Regenerate rather than hand-editing the arrays.
+
+## Still to decide: components an overlay should not ship
+
+Pruning `OSLoginScreen` (below) removed a whole dependency. Four more are
+upstream-shaped in the same way, and one is a host-safety problem:
+
+- **`DesktopContextMenu` — hijacks right-click.** Upstream owns the page, so
+  binding the context menu to "change wallpaper / refresh desktop" is correct
+  there. Over a customer's site it steals a gesture the host may rely on. This
+  should not ship in an overlay.
+- `DesktopIcon` / `DesktopIconGrid` — there is no desktop surface to put icons
+  on; the host page is what is behind the windows.
+- `TogoMenu` — power / logout / restart is not an overlay's authority.
+- `WeatherWidget` — a desktop affordance with no place in a feedback tool.
+
+Removing them also drops ~16 of the 32 inlined glyphs. Not done here because
+`DesktopShell` composes two of them and that is a layout change, not a
+dependency change.
 
 ## Re-syncing with upstream
 

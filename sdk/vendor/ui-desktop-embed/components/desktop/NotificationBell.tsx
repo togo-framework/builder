@@ -6,7 +6,10 @@
 // plugin) — this component holds no fetch logic of its own.
 
 import * as React from "react";
-import { Bell, Check } from "lucide-react";
+import { Icon, type IconProps } from "../../icons";
+type IconProps2 = Omit<IconProps, "name">;
+const Bell = (p: IconProps2) => <Icon name="Bell" {...p} />;
+const Check = (p: IconProps2) => <Icon name="Check" {...p} />;
 import { Button } from "../../ui-core";
 import { Badge } from "../../ui-core";
 import { Popover, PopoverContent, PopoverTrigger } from "../../ui-core";

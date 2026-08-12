@@ -7,7 +7,9 @@
 // (NOT the shared Dialog) so the open animation is fully custom.
 
 import * as React from "react";
-import { Search } from "lucide-react";
+import { Icon, type IconProps } from "../../icons";
+type IconProps2 = Omit<IconProps, "name">;
+const Search = (p: IconProps2) => <Icon name="Search" {...p} />;
 import {
   Command,
   CommandInput,

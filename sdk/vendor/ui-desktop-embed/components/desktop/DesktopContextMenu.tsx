@@ -5,7 +5,11 @@
 // via `onAction`.
 
 import * as React from "react";
-import { Image as ImageIcon, Palette, RefreshCw } from "lucide-react";
+import { Icon, type IconProps } from "../../icons";
+type IconProps2 = Omit<IconProps, "name">;
+const ImageIcon = (p: IconProps2) => <Icon name="Image" {...p} />;
+const Palette = (p: IconProps2) => <Icon name="Palette" {...p} />;
+const RefreshCw = (p: IconProps2) => <Icon name="RefreshCw" {...p} />;
 import {
   ContextMenu,
   ContextMenuContent,
