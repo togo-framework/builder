@@ -29,6 +29,13 @@ interface WindowEntry extends OpenWindowOptions {
   minimized: boolean;
   maximized: boolean;
   z: number;
+  /**
+   * True for the topmost non-minimized window. Stored, not derived per-render:
+   * the chrome reads it for shadow, title contrast and control opacity, and
+   * recomputing "which of these has the highest z" inside every Window is how
+   * that becomes O(n^2) with a dozen open.
+   */
+  focused: boolean;
   /** Bumps every time `section` is (re)targeted, so apps re-navigate even to the same section. */
   sectionNonce: number;
 }
@@ -38,7 +45,8 @@ export interface WindowManagerContextValue {
   open: (slug: string, opts: OpenWindowOptions) => void;
   close: (slug: string) => void;
   focus: (slug: string) => void;
-  minimize: (slug: string) => void;
+  /** Toggles: minimizes an open window, restores a minimized one. */
+  toggleMinimize: (slug: string) => void;
   /** Un-minimize + bring to front (without replacing content). */
   restore: (slug: string) => void;
   toggleMaximize: (slug: string) => void;
@@ -71,7 +79,41 @@ export function useWindowSection(): WindowSection {
 
 const WindowManagerContext = createContext<WindowManagerContextValue | null>(null);
 
-let zCounter = 10;
+// Z-ORDER — rewritten for the embed.
+//
+// Upstream keeps `let zCounter = 10` at MODULE scope and only ever increments
+// it. Both properties are fine when the desktop owns the page and wrong when it
+// does not:
+//
+//   1. Every provider on the page shares one counter. Mount a second shell —
+//      which the host app can do without knowing we exist — and the two fight
+//      over one monotonically-rising number.
+//   2. It never comes back down. A long session climbs without bound, and the
+//      shell is already sitting at a high z-index over a host page that may
+//      have its own fixed chrome at 2147483647. "Eventually collides" is not a
+//      failure anyone would connect back to a window manager.
+//
+// So: the counter lives in provider state, starts at `zBase`, and the whole
+// list is renormalised to zBase+1..zBase+n on every reorder. Only the ORDER
+// carries meaning; the absolute numbers never need to grow.
+const TOP = Number.MAX_SAFE_INTEGER;
+
+/**
+ * Collapse z values back to a dense zBase+1..zBase+n run, and mark the topmost
+ * non-minimized window focused.
+ *
+ * `focused` is stored rather than derived at every render because the chrome
+ * needs it (shadow, title contrast, control opacity) and recomputing "which of
+ * these has the highest z" inside each Window is how that becomes O(n²) with a
+ * dozen windows open.
+ */
+function renormalize(ws: WindowEntry[], zBase: number): WindowEntry[] {
+  const order = [...ws].sort((a, b) => a.z - b.z);
+  const rank = new Map(order.map((w, i) => [w.slug, zBase + i + 1]));
+  let top: string | undefined;
+  for (const w of order) if (!w.minimized) top = w.slug;
+  return ws.map((w) => ({ ...w, z: rank.get(w.slug) ?? zBase + 1, focused: w.slug === top }));
+}
 
 function defaultRect(width = 640, height = 440): WindowRect {
   const vw = typeof window !== "undefined" ? window.innerWidth : 1280;
@@ -81,57 +123,88 @@ function defaultRect(width = 640, height = 440): WindowRect {
   return clampWindowRect({ x, y, w: width, h: height });
 }
 
-export function WindowManagerProvider({ children }: { children: React.ReactNode }) {
+export function WindowManagerProvider({
+  children,
+  zBase = 10,
+}: {
+  children: React.ReactNode;
+  /**
+   * Base of this manager's z range. The embedded shell passes its own value so
+   * window stacking sits inside the band the loader reserved, rather than in a
+   * module-global range shared with any other manager on the page.
+   */
+  zBase?: number;
+}) {
   const [windows, setWindows] = useState<WindowEntry[]>([]);
   const slugsRef = useRef<Set<string>>(new Set());
 
   const open = useCallback((slug: string, opts: OpenWindowOptions) => {
     setWindows((prev) => {
       const existing = prev.find((w) => w.slug === slug);
-      zCounter += 1;
       if (existing) {
-        return prev.map((w) =>
-          w.slug === slug
-            ? { ...w, ...opts, minimized: false, z: zCounter, sectionNonce: w.sectionNonce + 1 }
-            : w,
+        return renormalize(
+          prev.map((w) =>
+            w.slug === slug
+              ? { ...w, ...opts, minimized: false, z: TOP, sectionNonce: w.sectionNonce + 1 }
+              : w,
+          ),
+          zBase,
         );
       }
       slugsRef.current.add(slug);
-      return [
-        ...prev,
-        {
-          slug,
-          ...opts,
-          rect: defaultRect(opts.width, opts.height),
-          minimized: false,
-          maximized: false,
-          z: zCounter,
-          sectionNonce: 0,
-        },
-      ];
+      return renormalize(
+        [
+          ...prev,
+          {
+            slug,
+            ...opts,
+            rect: defaultRect(opts.width, opts.height),
+            minimized: false,
+            maximized: false,
+            z: TOP,
+            focused: true,
+            sectionNonce: 0,
+          },
+        ],
+        zBase,
+      );
     });
-  }, []);
+  }, [zBase]);
 
   const close = useCallback((slug: string) => {
     slugsRef.current.delete(slug);
-    setWindows((prev) => prev.filter((w) => w.slug !== slug));
-  }, []);
+    // Renormalise on close too, so `focused` moves to whatever is now on top
+    // instead of leaving the stack with no focused window.
+    setWindows((prev) => renormalize(prev.filter((w) => w.slug !== slug), zBase));
+  }, [zBase]);
 
   const focus = useCallback((slug: string) => {
-    zCounter += 1;
-    const z = zCounter;
-    setWindows((prev) => prev.map((w) => (w.slug === slug ? { ...w, z } : w)));
-  }, []);
+    setWindows((prev) =>
+      renormalize(prev.map((w) => (w.slug === slug ? { ...w, z: TOP } : w)), zBase),
+    );
+  }, [zBase]);
 
-  const minimize = useCallback((slug: string) => {
-    setWindows((prev) => prev.map((w) => (w.slug === slug ? { ...w, minimized: !w.minimized } : w)));
-  }, []);
+  // Named for what it does. Upstream calls this `minimize` while the body is
+  // `minimized: !w.minimized` — a toggle — so `minimize()` on an already
+  // minimized window restored it, which is the opposite of what every caller
+  // reading the name would expect.
+  const toggleMinimize = useCallback((slug: string) => {
+    setWindows((prev) =>
+      renormalize(
+        prev.map((w) => (w.slug === slug ? { ...w, minimized: !w.minimized } : w)),
+        zBase,
+      ),
+    );
+  }, [zBase]);
 
   const restore = useCallback((slug: string) => {
-    zCounter += 1;
-    const z = zCounter;
-    setWindows((prev) => prev.map((w) => (w.slug === slug ? { ...w, minimized: false, z } : w)));
-  }, []);
+    setWindows((prev) =>
+      renormalize(
+        prev.map((w) => (w.slug === slug ? { ...w, minimized: false, z: TOP } : w)),
+        zBase,
+      ),
+    );
+  }, [zBase]);
 
   const toggleMaximize = useCallback((slug: string) => {
     setWindows((prev) => prev.map((w) => (w.slug === slug ? { ...w, maximized: !w.maximized } : w)));
@@ -154,8 +227,8 @@ export function WindowManagerProvider({ children }: { children: React.ReactNode 
   }, []);
 
   const value = useMemo<WindowManagerContextValue>(
-    () => ({ windows, open, close, focus, minimize, restore, toggleMaximize, isOpen, isMinimized, setSection, updateRect }),
-    [windows, open, close, focus, minimize, restore, toggleMaximize, isOpen, isMinimized, setSection, updateRect],
+    () => ({ windows, open, close, focus, toggleMinimize, restore, toggleMaximize, isOpen, isMinimized, setSection, updateRect }),
+    [windows, open, close, focus, toggleMinimize, restore, toggleMaximize, isOpen, isMinimized, setSection, updateRect],
   );
 
   return (
@@ -178,7 +251,7 @@ export function useWindowManager(): WindowManagerContextValue {
  * content area (DesktopShell does this for you).
  */
 export function WindowManager() {
-  const { windows, close, minimize, toggleMaximize, focus, updateRect } = useWindowManager();
+  const { windows, close, toggleMinimize, toggleMaximize, focus, updateRect } = useWindowManager();
 
   return (
     <>
@@ -194,7 +267,7 @@ export function WindowManager() {
           zIndex={w.z}
           onRectChange={(rect) => updateRect(w.slug, rect)}
           onClose={() => close(w.slug)}
-          onMinimize={() => minimize(w.slug)}
+          onMinimize={() => toggleMinimize(w.slug)}
           onMaximizeToggle={() => toggleMaximize(w.slug)}
           onFocus={() => focus(w.slug)}
         >

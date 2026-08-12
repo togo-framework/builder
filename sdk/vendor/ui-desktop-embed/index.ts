@@ -1,6 +1,8 @@
-// @togo-framework/ui-desktop — public API.
-// OS-like desktop shell on top of the `os` plugin. Depends on
-// @togo-framework/ui-core and @togo-framework/ui-auth.
+// ui-desktop-embed — a vendored fork of @togo-framework/ui-desktop, adapted to
+// render inside the FeedbackOS shell document rather than owning the page.
+//
+// Every dependency crosses one seam (./ui-core). @togo-framework/ui-auth is no
+// longer a dependency at all — see the note on OSLoginScreen below.
 
 export { DesktopShell } from "./components/desktop/DesktopShell";
 export type { DesktopShellProps, DesktopApi } from "./components/desktop/DesktopShell";
@@ -20,8 +22,14 @@ export { Window, WindowSpinner, clampWindowRect } from "./components/desktop/Win
 export type { WindowProps, WindowRect } from "./components/desktop/Window";
 export { WindowManager, WindowManagerProvider, useWindowManager, useWindowSection } from "./components/desktop/WindowManager";
 export type { WindowManagerContextValue, OpenWindowOptions, WindowSection } from "./components/desktop/WindowManager";
-export { OSLoginScreen } from "./components/desktop/OSLoginScreen";
-export type { OSLoginScreenProps, OSLoginBrand } from "./components/desktop/OSLoginScreen";
+// OSLoginScreen is deliberately NOT part of this fork.
+//
+// It is upstream's answer for `togo new <app> --frontend os`, where the desktop
+// IS the product and therefore owns sign-in. FeedbackOS overlays a site whose
+// visitor is already authenticated or deliberately anonymous — there is no
+// moment at which the widget should present a lock screen over somebody else's
+// page. Dropping it also drops the entire @togo-framework/ui-auth dependency
+// (7 symbols), which was the fork's only reason to touch that package.
 export { TogoMenu } from "./components/desktop/TogoMenu";
 export type { TogoMenuProps } from "./components/desktop/TogoMenu";
 export { WeatherWidget } from "./components/desktop/WeatherWidget";

@@ -19,17 +19,44 @@ export interface WindowRect {
   h: number;
 }
 
-const MIN_W = 320;
-const MIN_H = 220;
-// Chrome insets: the top bar (~36px) and the floating Dock at the bottom. Windows
-// live BETWEEN them, so they never slip under the dock ("push windows to the top").
-const TOP_INSET = 40;
-const DOCK_INSET = 92;
+// Chrome insets and minimum sizes, as CSS custom properties.
+//
+// Upstream hard-codes these four numbers, which is right when the desktop owns
+// the viewport: the top bar is 40px and the dock is 92px because upstream drew
+// both. The embedded shell draws neither at those sizes — it has no OS top bar
+// at all, its dock is positioned against the HOST page's chrome, and on a phone
+// the host's own bottom bar may claim space we must not cover.
+//
+// Reading them from custom properties lets the shell set its own geometry in
+// CSS, where the rest of its layout already lives, instead of forking this file
+// again. The fallbacks are upstream's values, so nothing changes for a caller
+// that sets nothing.
+const CSS_FALLBACK = { minW: 320, minH: 220, top: 40, dock: 92 } as const;
 
-export function clampWindowRect(r: WindowRect): WindowRect {
+function inset(name: string, fallback: number): number {
+  if (typeof window === "undefined" || typeof document === "undefined") return fallback;
+  const raw = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  if (!raw) return fallback;
+  const n = parseFloat(raw);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+// Module-level accessors for the sites outside clampWindowRect (snap zones and
+// the maximized/mobile geometry) that need the same numbers.
+const topInset = () => inset("--fos-top-inset", CSS_FALLBACK.top);
+const dockInset = () => inset("--fos-dock-inset", CSS_FALLBACK.dock);
+
+export function clampWindowRect(r: WindowRect, bounds?: { w: number; h: number }): WindowRect {
   if (typeof window === "undefined") return r;
-  const vw = window.innerWidth;
-  const vh = window.innerHeight;
+  // Bounds are injectable: the embedded shell clamps to ITS frame, which is not
+  // necessarily the viewport. Upstream always used window.innerWidth/Height,
+  // which is the same thing only when the desktop owns the page.
+  const vw = bounds?.w ?? window.innerWidth;
+  const vh = bounds?.h ?? window.innerHeight;
+  const MIN_W = inset("--fos-window-min-w", CSS_FALLBACK.minW);
+  const MIN_H = inset("--fos-window-min-h", CSS_FALLBACK.minH);
+  const TOP_INSET = inset("--fos-top-inset", CSS_FALLBACK.top);
+  const DOCK_INSET = inset("--fos-dock-inset", CSS_FALLBACK.dock);
   const w = Math.min(Math.max(r.w, MIN_W), vw - 16);
   const h = Math.min(Math.max(r.h, MIN_H), vh - TOP_INSET - DOCK_INSET);
   const x = Math.min(Math.max(r.x, 8), Math.max(8, vw - w - 8));
@@ -145,10 +172,10 @@ export function Window({
   const snapRect = useCallback((zone: "max" | "left" | "right"): WindowRect => {
     const vw = window.innerWidth;
     const vh = window.innerHeight;
-    const h = vh - TOP_INSET - DOCK_INSET;
-    if (zone === "left") return { x: 8, y: TOP_INSET, w: vw / 2 - 12, h };
-    if (zone === "right") return { x: vw / 2 + 4, y: TOP_INSET, w: vw / 2 - 12, h };
-    return { x: 8, y: TOP_INSET, w: vw - 16, h };
+    const h = vh - topInset() - dockInset();
+    if (zone === "left") return { x: 8, y: topInset(), w: vw / 2 - 12, h };
+    if (zone === "right") return { x: vw / 2 + 4, y: topInset(), w: vw / 2 - 12, h };
+    return { x: 8, y: topInset(), w: vw - 16, h };
   }, []);
 
   // Title-bar drag with edge snapping (top = maximize, sides = half-tile).
@@ -211,8 +238,8 @@ export function Window({
 
   const style = useMemo<React.CSSProperties>(() => {
     // Phone: fill the screen edge-to-edge below the top bar, above the dock.
-    if (isMobile) return { left: 0, top: TOP_INSET, right: 0, bottom: DOCK_INSET, width: "auto", height: "auto", zIndex };
-    if (maximized) return { left: 8, top: TOP_INSET, right: 8, bottom: DOCK_INSET, width: "auto", height: "auto", zIndex };
+    if (isMobile) return { left: 0, top: topInset(), right: 0, bottom: dockInset(), width: "auto", height: "auto", zIndex };
+    if (maximized) return { left: 8, top: topInset(), right: 8, bottom: dockInset(), width: "auto", height: "auto", zIndex };
     return { left: live.x, top: live.y, width: live.w, height: live.h, zIndex };
   }, [isMobile, maximized, live, zIndex]);
 
