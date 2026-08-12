@@ -271,6 +271,15 @@ func provideIssues(k *togo.Kernel) error {
 	// watcher restart. Mounted next to issues because it acts on an issue.
 	mountAuthed(k, "/api/builder/deploy", deploy.New(db, k.Log).Routes)
 
+	// Feedback ingress is mounted FIRST and unauthenticated, on its own path.
+	//
+	// Order matters: chi matches the more specific pattern regardless, but
+	// registering it here keeps the public surface visible at the mount site
+	// rather than buried inside a Routes func that every other line on this
+	// screen wraps in auth. The guards it does have — origin allowlist and rate
+	// limit — live in handleFeedback and are unaffected.
+	k.Router.Route("/api/builder/feedback", svc.PublicRoutes)
+
 	mountAuthed(k, "/api/builder", svc.Routes)
 
 	// Serve the SDK bundle so a host page needs one script tag and no build step.
