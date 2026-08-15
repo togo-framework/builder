@@ -250,7 +250,7 @@ export function useWindowManager(): WindowManagerContextValue {
  * nearest <WindowManagerProvider>. Place this once inside the desktop's
  * content area (DesktopShell does this for you).
  */
-export function WindowManager() {
+export function WindowManager({ locale }: { locale?: string } = {}) {
   const { windows, close, toggleMinimize, toggleMaximize, focus, updateRect } = useWindowManager();
 
   return (
@@ -258,6 +258,7 @@ export function WindowManager() {
       {windows.map((w) => (
         <Window
           key={w.slug}
+          locale={locale}
           title={w.title}
           icon={w.icon}
           rect={w.rect}

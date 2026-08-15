@@ -1,15 +1,14 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import {
-  Button, Callout, EmptyState, Input, MarkdownEditor, PageHeader,
-} from "@togo-framework/ui";
+  Button, Callout, EmptyState, Input, MarkdownEditor, } from "@togo-framework/ui";
 import { BookOpen, Download, FolderSync, Github, Plus, X } from "lucide-react";
 import {
   createSkill, importSkills, listSkills, saveSkill, syncSkills,
   type ImportResult, type Skill, type Skipped, type SyncResult,
 } from "../lib/skills";
 import { SkillCard } from "../components/skill-card";
-import { Field, FormCard, FormFooter, GridSkeleton, PageShell, Stat, StatRow } from "../components/page-shell";
+import { Field, FormCard, FormFooter, GridSkeleton, PageShell, Stat, StatRow, AppPageHeader as PageHeader } from "../components/page-shell";
 import { useStrings } from "../lib/i18n";
 
 /**

@@ -1,5 +1,6 @@
 import { OWN_MARKER } from "./anchor";
-import { ShellFrame } from "./loader/frame";
+import { ShellFrame, hostIsDark, hostLocale } from "./loader/frame";
+import { collectHostFonts } from "./loader/fonts";
 import { BRIDGE_MSG, installBridge } from "./bridge";
 import { ACCEPT, humanSize, kindOf, limitFor, normalizeRoute, screenshot } from "./capture";
 import { dict } from "./i18n";
@@ -15,6 +16,7 @@ import type {
   IssueSummary,
   IssueType,
   MountOptions,
+  HostApp,
   PinAnchor,
 } from "./types";
 import { hasIcon, icon, label as iconLabel } from "./icons";
@@ -1465,6 +1467,24 @@ export type {
  *          host page, and a throw inside mount() would take the widget down
  *          entirely on a site that only wanted a feedback button.
  */
+/** The most recently mounted windowed shell, for the namespace-level setApps. */
+let lastShell: Handle | null = null;
+
+/**
+ * Contribute the embedding site's own screens to the dock, after mount.
+ *
+ * No-op when the panel is running rather than the windowed shell: the panel
+ * has no dock to put them in, and a host should be able to call this
+ * unconditionally without feature-detecting which shell it got.
+ */
+export function toggleDock(open?: boolean): void {
+  lastShell?.toggleDock?.(open);
+}
+
+export function setApps(apps: HostApp[]): void {
+  lastShell?.setApps?.(apps ?? []);
+}
+
 function tryMountShell(opts: MountOptions): Handle | null {
   try {
     const base = (opts.apiBase ?? "").replace(/\/$/, "");
@@ -1478,9 +1498,33 @@ function tryMountShell(opts: MountOptions): Handle | null {
       zIndex: opts.zIndex,
       boot: {
         apiBase: base,
-        locale: opts.locale === "ar" ? "ar" : "en",
+        // Same rule as the theme below: an explicit `locale` is an override,
+        // and the page's own <html lang> is the source of truth otherwise. A
+        // widget that stays English inside an Arabic page is not localized, it
+        // is merely translated.
+        locale: opts.locale ? (opts.locale === "ar" ? "ar" : "en") : hostLocale(),
         theme: "default",
-        dark: opts.theme === "dark",
+        // Follow the HOST's theme when the caller does not force one.
+        //
+        // `opts.theme` is an override, not the source of truth, and treating it
+        // as one made the shell render light over a dark site — a bright window
+        // dropped onto somebody's dark product, which reads as broken rather
+        // than as a default. Most hosts signal dark the same two ways, and both
+        // are cheap to read; prefers-color-scheme is the backstop for a site
+        // that signals neither.
+        dark: opts.theme ? opts.theme === "dark" : hostIsDark(),
+        // The shell's own location is /sdk/shell.html, so it cannot work out
+        // which page the operator is reporting about. Only this side knows.
+        hostHref: location.href,
+        hostTitle: document.title,
+        // Type is the strongest signal that two surfaces belong together, and
+        // a separate document inherits no fonts at all — so the family AND the
+        // @font-face rules have to be carried across explicitly.
+        fonts: collectHostFonts(),
+        // The embedding site's own screens. Passed through untouched: the
+        // shell validates them, because a bad manifest must cost one tile
+        // rather than the whole dock.
+        hostApps: opts.apps ?? [],
         accent: opts.accent,
         // Default off on a foreign origin: the host's own palette is very
         // often Cmd+K, and stealing it silently is a bad first impression.
@@ -1496,11 +1540,23 @@ function tryMountShell(opts: MountOptions): Handle | null {
     });
 
     if (!frame.mount()) return null;
-    return {
+    const handle = {
       open: () => {},
       close: () => {},
+      refresh: () => {},
+      setApps: (apps: HostApp[]) => frame.setHostApps(apps ?? []),
+      // The launcher's visibility is host chrome's business: the toggle lives
+      // in the site's admin bar, which is not inside the shell and cannot reach
+      // its state any other way.
+      toggleDock: (open?: boolean) => frame.toggleDock(open),
       destroy: () => frame.teardown("destroyed by the host"),
     } as Handle;
+    // Also reachable off the namespace, because the page that KNOWS the app
+    // list is usually not the line that called mount(): mount happens in the
+    // document's own script, while the routes are a fact of the framework
+    // bundle that boots afterwards.
+    lastShell = handle;
+    return handle;
   } catch {
     return null;
   }

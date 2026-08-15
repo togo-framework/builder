@@ -89,7 +89,7 @@ export function Spotlight({ open, onOpenChange, apps, onLaunch }: SpotlightProps
                 >
                   <span
                     className="flex h-9 w-9 items-center justify-center rounded-[10px] text-white ring-1 ring-inset ring-white/25"
-                    style={{ backgroundImage: `linear-gradient(160deg, ${app.color || "#64748b"}, ${app.color || "#64748b"}bb)` }}
+                    style={{ backgroundImage: `linear-gradient(160deg, ${app.color || "#64748b"}, color-mix(in srgb, ${app.color || "#64748b"} 72%, #000))` }}
                   >
                     <DynamicIcon name={app.icon} size={18} />
                   </span>

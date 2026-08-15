@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
-  Button, Callout, EmptyState, Input, PageHeader, Skeleton, StatusBadge,
+  Button, Callout, EmptyState, Input, Skeleton, StatusBadge,
 } from "@togo-framework/ui";
 import {
   ArrowDownToLine, Check, Copy, Plug, Plus, SquareTerminal, Trash2,
@@ -9,7 +9,7 @@ import {
   attachURL, createSession, killSession, termStatus, type TermStatus,
 } from "../lib/term";
 import { API } from "../lib/api";
-import { PageShell } from "../components/page-shell";
+import { PageShell, AppPageHeader as PageHeader } from "../components/page-shell";
 import { useStrings } from "../lib/i18n";
 import { useAIStrings } from "../lib/i18n.ai";
 

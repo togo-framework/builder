@@ -83,8 +83,12 @@ export function saveRect(slug: string, rect: Rect): void {
 
 export function forgetRect(slug: string): void {
   const s = read();
-  const b = read()[bucket()];
-  if (b) delete b[slug];
+  // `read()` a SECOND time returned a fresh object, so the delete landed on a
+  // throwaway copy and the value written back was the untouched first read.
+  // Forgetting a window's geometry silently did nothing, every time.
+  const b = s[bucket()];
+  if (!b) return;
+  delete b[slug];
   write(s);
 }
 

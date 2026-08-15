@@ -1,14 +1,14 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import {
-  Button, Callout, EmptyState, Input, MarkdownEditor, PageHeader, Select, SelectContent,
+  Button, Callout, EmptyState, Input, MarkdownEditor, Select, SelectContent,
   SelectItem, SelectTrigger, SelectValue,
 } from "@togo-framework/ui";
 import {
   Brain, Briefcase, Check, Cpu, History, LoaderCircle, RotateCcw, Sparkles, UserPlus, Users,
 } from "lucide-react";
 import { agentColor, draftPersona, hireAgent, initials, listAgents, saveAgent, type Agent } from "../lib/agents";
-import { Field, FormCard, FormFooter, GridSkeleton, PageShell, Stat, StatRow } from "../components/page-shell";
+import { Field, FormCard, FormFooter, GridSkeleton, PageShell, Stat, StatRow, AppPageHeader as PageHeader } from "../components/page-shell";
 import { useStrings } from "../lib/i18n";
 
 /**

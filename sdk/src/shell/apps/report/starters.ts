@@ -64,27 +64,87 @@ const shortUrl = (u: string): string => {
  * triggered is a better opening line than a generic template, and a pinned
  * element beats both because the user pointed at it deliberately.
  */
-export function buildStarters(ctx: CaptureContext, mode: Mode): Starter[] {
+/**
+ * The starter strings, per locale.
+ *
+ * Every label and every inserted sentence was an English literal, so an
+ * operator working in Arabic got an English suggestion list — and clicking one
+ * INSERTED English into their Arabic report. The scaffolding that is supposed
+ * to carry the weight for someone who cannot phrase the bug was carrying it in
+ * a language they may not write.
+ *
+ * Functions rather than templates with placeholders: Arabic word order puts the
+ * quoted name and the role in a different sequence, and a `${}`-substituted
+ * English sentence is not a translation.
+ */
+const T = {
+  en: {
+    pinLabel: (n: string, r: string) => `The “${n}” ${r} does nothing`,
+    pinText: (n: string, r: string) => `The “${n}” ${r} does not respond when I use it.`,
+    netLabel: (s: number, m: string, u: string) => `Report the ${s} on ${m} ${u}`,
+    netText: (m: string, u: string, s: number) => `${m} ${u} returned ${s}.`,
+    net4Label: (s: number, u: string) => `Report the ${s} on ${u}`,
+    errLabel: "Report the error in the console",
+    errText: (t: string) => `The page logged an error: ${t}`,
+    wrongLabel: "Something looks wrong on this page",
+    wrongText: "Something on this page does not look right:",
+    expectedLabel: "Describe what you expected",
+    expectedText: "I expected: \nInstead: ",
+    recentLabel: (n: number, title: string) => `#${n} ${title}`,
+    recentText: (n: number, title: string) => `This looks like #${n} (${title}) happening again.`,
+  },
+  ar: {
+    pinLabel: (n: string, r: string) => `«${n}» ${r} لا يستجيب`,
+    pinText: (n: string, r: string) => `«${n}» ${r} لا يستجيب عند استخدامه.`,
+    netLabel: (s: number, m: string, u: string) => `الإبلاغ عن الخطأ ${s} في ${m} ${u}`,
+    netText: (m: string, u: string, s: number) => `أعاد ${m} ${u} الرمز ${s}.`,
+    net4Label: (s: number, u: string) => `الإبلاغ عن الخطأ ${s} في ${u}`,
+    errLabel: "الإبلاغ عن الخطأ في وحدة التحكم",
+    errText: (t: string) => `سجّلت الصفحة خطأً: ${t}`,
+    wrongLabel: "هناك شيء يبدو خاطئًا في هذه الصفحة",
+    wrongText: "هناك شيء في هذه الصفحة لا يبدو صحيحًا:",
+    expectedLabel: "صف ما كنت تتوقعه",
+    expectedText: "توقعت: \nلكن حدث: ",
+    recentLabel: (n: number, title: string) => `#${n} ${title}`,
+    recentText: (n: number, title: string) => `يبدو أن هذه هي المشكلة #${n} (${title}) تتكرر.`,
+  },
+} as const;
+
+export function buildStarters(ctx: CaptureContext, mode: Mode, locale: string = "en"): Starter[] {
+  const t = locale === "ar" ? T.ar : T.en;
   const out: Starter[] = [];
 
   // Strongest signal: the user pointed at something.
   if (ctx.pinName) {
     out.push({
       id: "pin",
-      label: `The “${ctx.pinName}” ${guessRole(ctx.pinName)} does nothing`,
-      text: `The “${ctx.pinName}” ${guessRole(ctx.pinName)} does not respond when I use it.`,
+      label: t.pinLabel(ctx.pinName, guessRole(ctx.pinName)),
+      text: t.pinText(ctx.pinName, guessRole(ctx.pinName)),
       icon: "Pin",
       weight: 100,
     });
   }
 
   // A server error the user just caused.
-  const failed = ctx.network.filter((n) => n.status >= 500).slice(0, 2);
+  // Deduped by method+url+status. The recorder keeps every failure, and a
+  // page that retries a broken endpoint logs the same 502 three times — so the
+  // suggestion row offered "Report the 502 on GET /api/github" twice, side by
+  // side, which reads as the widget being broken rather than the endpoint.
+  const seen = new Set<string>();
+  const failed = ctx.network
+    .filter((n) => n.status >= 500)
+    .filter((n) => {
+      const k = `${n.method} ${n.url} ${n.status}`;
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    })
+    .slice(0, 2);
   for (const [i, n] of failed.entries()) {
     out.push({
       id: `net5xx-${i}`,
-      label: `Report the ${n.status} on ${n.method} ${shortUrl(n.url)}`,
-      text: `${n.method} ${n.url} returned ${n.status}.`,
+      label: t.netLabel(n.status, n.method, shortUrl(n.url)),
+      text: t.netText(n.method, n.url, n.status),
       icon: "WarningTriangle",
       weight: 90 - i,
     });
@@ -97,8 +157,8 @@ export function buildStarters(ctx: CaptureContext, mode: Mode): Starter[] {
     if (client) {
       out.push({
         id: "net4xx",
-        label: `Report the ${client.status} on ${shortUrl(client.url)}`,
-        text: `${client.method} ${client.url} returned ${client.status}.`,
+        label: t.net4Label(client.status, shortUrl(client.url)),
+        text: t.netText(client.method, client.url, client.status),
         icon: "WarningTriangle",
         weight: 70,
       });
@@ -109,8 +169,8 @@ export function buildStarters(ctx: CaptureContext, mode: Mode): Starter[] {
   if (err) {
     out.push({
       id: "console",
-      label: truncate(`Console error: ${err.text}`, 60),
-      text: `The console shows: ${err.text}`,
+      label: truncate(t.errLabel, 60),
+      text: t.errText(err.text),
       icon: "XCircle",
       weight: 80,
     });
@@ -121,16 +181,21 @@ export function buildStarters(ctx: CaptureContext, mode: Mode): Starter[] {
   for (const [i, r] of (ctx.recent ?? []).slice(0, 2).entries()) {
     out.push({
       id: `recent-${r.number}`,
-      label: `#${r.number} ${truncate(r.title, 44)}`,
-      text: `This looks like #${r.number} (${r.title}) happening again.`,
+      label: t.recentLabel(r.number, truncate(r.title, 44)),
+      text: t.recentText(r.number, r.title),
       icon: "History",
       weight: 40 - i,
     });
   }
 
-  // Mode-appropriate fallback, so the row is never empty. Empty scaffolding is
-  // worse than none: it reads as the feature being broken.
-  if (out.length < 2) out.push(...templatesFor(mode, ctx.route));
+  // The mode's own opener, ALWAYS — not only when nothing else was found.
+  //
+  // Gated on `out.length < 2`, the mode never reached the row whenever the page
+  // had produced any evidence at all: an operator who picked "Idea" on a page
+  // with a 500 in its network log was offered only bug-shaped sentences, and
+  // the mode chip they had just pressed changed nothing they could see. Its
+  // weight (10) keeps it last, so real evidence still leads.
+  out.push(...templatesFor(mode, ctx.route, locale));
 
   return out.sort((a, b) => b.weight - a.weight).slice(0, 6);
 }
@@ -148,29 +213,62 @@ function guessRole(name: string): string {
   return "control";
 }
 
-function templatesFor(mode: Mode, route: string): Starter[] {
+/**
+ * The fallback starters, when the captured context produced fewer than two.
+ *
+ * Localized like everything else here: an operator writing in Arabic was
+ * offered English openers, and clicking one inserted English into their report.
+ */
+function templatesFor(mode: Mode, route: string, locale: string): Starter[] {
+  const ar = locale === "ar";
+  const on = (s: string) => (ar ? `في ${route}، ${s}` : `On ${route}, ${s}`);
   switch (mode) {
     case "idea":
       return [
-        { id: "t-idea", label: "Suggest an improvement here", icon: "Lightbulb", weight: 10,
-          text: `On ${route}, it would help if ` },
+        {
+          id: "t-idea",
+          label: ar ? "اقترح تحسينًا هنا" : "Suggest an improvement here",
+          icon: "Lightbulb",
+          weight: 10,
+          text: on(ar ? "سيكون من المفيد لو " : "it would help if "),
+        },
       ];
     case "question":
       return [
-        { id: "t-q", label: "Ask how something works", icon: "HelpCircle", weight: 10,
-          text: `On ${route}, I am not sure how ` },
+        {
+          id: "t-q",
+          label: ar ? "اسأل عن طريقة عمل شيء ما" : "Ask how something works",
+          icon: "HelpCircle",
+          weight: 10,
+          text: on(ar ? "لست متأكدًا كيف " : "I am not sure how "),
+        },
       ];
     case "chore":
       return [
-        { id: "t-chore", label: "Note something to tidy up", icon: "Wrench", weight: 10,
-          text: `On ${route}, ` },
+        {
+          id: "t-chore",
+          label: ar ? "سجّل شيئًا يحتاج ترتيبًا" : "Note something to tidy up",
+          icon: "Wrench",
+          weight: 10,
+          text: on(""),
+        },
       ];
     default:
       return [
-        { id: "t-bug", label: "Something looks wrong on this page", icon: "Bug", weight: 10,
-          text: `On ${route}, ` },
-        { id: "t-repro", label: "Describe what you expected", icon: "Flag", weight: 9,
-          text: `I expected … but instead … ` },
+        {
+          id: "t-bug",
+          label: ar ? "هناك شيء يبدو خاطئًا في هذه الصفحة" : "Something looks wrong on this page",
+          icon: "Bug",
+          weight: 10,
+          text: on(""),
+        },
+        {
+          id: "t-repro",
+          label: ar ? "صف ما كنت تتوقعه" : "Describe what you expected",
+          icon: "Flag",
+          weight: 9,
+          text: ar ? "توقعت … لكن بدلاً من ذلك … " : "I expected … but instead … ",
+        },
       ];
   }
 }

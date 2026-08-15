@@ -84,7 +84,35 @@ func (s *Store) runPlugin(ctx context.Context, row sourceRow, ns, runID string) 
 	if err != nil {
 		return Report{}, err
 	}
-	return Refresh(ctx, src, rowCursor{db: s.db, id: row.ID}, s.brain, ns)
+	rep, err := Refresh(ctx, src, rowCursor{db: s.db, id: row.ID}, s.brain, ns)
+	if err != nil {
+		return rep, err
+	}
+
+	// The second destination, for connectors that produce numbers.
+	//
+	// After Refresh, not inside it: Refresh is the pure connector→brain path and
+	// takes no database handle, which is what lets it be tested without a
+	// Postgres. A type assertion rather than a new interface method keeps every
+	// existing connector untouched — a kind that has no numbers simply is not a
+	// PointSource.
+	//
+	// A failure here is LOGGED, not returned. The memories are already written
+	// and the fetch already cost its quota; failing the whole run because a
+	// chart table did not accept a row would throw away the part that worked and
+	// re-spend the quota on the next attempt.
+	if ps, ok := src.(PointSource); ok {
+		if pts := ps.Points(); len(pts) > 0 {
+			if err := s.savePoints(ctx, row.ID, row.Kind, pts); err != nil {
+				s.log.Warn("analytics points not saved; the summary was",
+					"kind", row.Kind, "name", row.Name, "points", len(pts), "err", ScrubErr(err))
+			} else {
+				s.log.Info("analytics points saved",
+					"kind", row.Kind, "name", row.Name, "points", len(pts))
+			}
+		}
+	}
+	return rep, nil
 }
 
 // isPlugin reports whether a kind is served by the registry rather than by the

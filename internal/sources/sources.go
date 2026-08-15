@@ -146,6 +146,13 @@ func (s *Store) claimNext(ctx context.Context) (sourceRow, string, bool) {
 		  WHERE id = (
 		     SELECT id FROM builder_sources
 		      WHERE enabled
+		        -- Collectors only. A connection row now carries a direction
+		        -- (migration 0019): 'source' polls on a schedule, 'actor' sends
+		        -- outward when something invokes it. Without this filter the
+		        -- scheduler would claim an actor, find no poll to run, and mark
+		        -- it failed on a timer — a Slack sender "failing" every hour
+		        -- with nothing wrong.
+		        AND direction = 'source'
 		        AND next_run_at <= now()
 		        -- A crashed instance leaves a lease behind; it expires rather
 		        -- than stranding the source forever.

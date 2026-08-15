@@ -41,3 +41,38 @@ func TestParseClaudeResultBareObject(t *testing.T) {
 		t.Fatal("is_error not parsed")
 	}
 }
+
+// The CLI writes notices AFTER the payload as well as before it — a usage or
+// credit line, for instance. json.Unmarshal rejects the entire response for
+// those trailing bytes ("invalid character 'C' after top-level value") even
+// though the payload it needs is complete and correct.
+//
+// Observed in the wild: one smart-connect plan succeeded and the next failed on
+// exactly this, which reads as an intermittent model outage rather than an
+// output-format detail.
+func TestParseIgnoresTrailingCLINotices(t *testing.T) {
+	const out = `{"type":"result","subtype":"success","result":"hello","is_error":false}
+Credit balance is low. Visit the billing page to top up.`
+
+	res, err := parseClaudeResult(out)
+	if err != nil {
+		t.Fatalf("a complete payload followed by a notice must still parse: %v", err)
+	}
+	if res.Result != "hello" {
+		t.Errorf("Result = %q, want %q", res.Result, "hello")
+	}
+}
+
+// The same, for the array form.
+func TestParseIgnoresTrailingNoticesAfterAnEventArray(t *testing.T) {
+	const out = `[{"type":"result","subtype":"success","result":"ok","is_error":false}]
+Some trailing chatter.`
+
+	res, err := parseClaudeResult(out)
+	if err != nil {
+		t.Fatalf("event array with trailing output must parse: %v", err)
+	}
+	if res.Result != "ok" {
+		t.Errorf("Result = %q, want %q", res.Result, "ok")
+	}
+}

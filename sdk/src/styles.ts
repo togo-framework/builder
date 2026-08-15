@@ -103,16 +103,21 @@ export const CSS = /* css */ `
    it is a decision made on its behalf. Custom apps already supply their own
    via the manifest; these are the compiled-in screens, which have to declare
    theirs somewhere, so it is here where a theme can reach them. */
+  /* Kept in step with src/shell/tokens.css.
+     Eight of these ten differed between the panel and the windowed shell, so
+     an app was amber in one and red in the other — and the two can be seen in
+     the same session, because the shell falls back to the panel. An identity
+     colour that changes with the renderer is not an identity. */
   --app-agents: #8b5cf6;
-  --app-skills: #06b6d4;
-  --app-issues: #f59e0b;
-  --app-vault: #10b981;
-  --app-sources: #3b82f6;
-  --app-docs: #f43f5e;
-  --app-brain: #a855f7;
-  --app-chat: #14b8a6;
-  --app-mcp: #ec4899;
-  --app-terminal: #64748b;
+  --app-skills: #ec4899;
+  --app-issues: #ef4444;
+  --app-vault: #64748b;
+  --app-sources: #f59e0b;
+  --app-docs: #0ea5e9;
+  --app-brain: #14b8a6;
+  --app-chat: #3b82f6;
+  --app-mcp: #22c55e;
+  --app-terminal: #475569;
   /* Fallback for an app that declares no colour. */
   --app-default: #64748b;
 

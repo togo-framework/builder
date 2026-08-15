@@ -23,9 +23,10 @@ export interface Source {
   createdAt: string;
   /**
    * One sentence about the state of this source, assembled by the server so
-   * every surface says the same thing about the same row.
+   * every surface says the same thing about the same row — in both locales,
+   * because it renders beside content that is already translated.
    */
-  description: string;
+  description: { en: string; ar: string };
 }
 
 export interface SourceRun {
@@ -71,11 +72,15 @@ export const createSource = (body: {
   schedule: string;
   config: unknown;
   enabled: boolean;
+  /** "source" collects on a schedule, "actor" sends when invoked. Omitted
+   *  means source, which is what every caller written before the column
+   *  existed means — see migration 0019. */
+  direction?: "source" | "actor";
 }) => send<{ id: string }>("", "POST", body);
 
 export const patchSource = (
   id: string,
-  body: Partial<{ namespace: string; schedule: string; enabled: boolean; config: unknown }>,
+  body: Partial<{ name: string; namespace: string; schedule: string; enabled: boolean; config: unknown }>,
 ) => send<void>(`/${id}`, "PATCH", body);
 
 export const deleteSource = (id: string) => send<void>(`/${id}`, "DELETE");

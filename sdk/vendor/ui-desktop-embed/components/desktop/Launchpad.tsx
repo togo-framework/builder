@@ -21,6 +21,7 @@ import {
   ContextMenuItem,
 } from "../../ui-core";
 import { cn } from "../../ui-core";
+import { chromeStrings } from "../../strings";
 import type { OSApp } from "../../hooks/useOSApps";
 
 export interface LaunchpadProps {
@@ -36,6 +37,8 @@ export interface LaunchpadProps {
   onUnpin?: (slug: string) => void;
   onAddToDesktop?: (slug: string) => void;
   onRemoveFromDesktop?: (slug: string) => void;
+  /** Locale for the Launchpad's own chrome. */
+  locale?: string;
 }
 
 export function Launchpad({
@@ -49,7 +52,9 @@ export function Launchpad({
   onUnpin,
   onAddToDesktop,
   onRemoveFromDesktop,
+  locale,
 }: LaunchpadProps) {
+  const t = chromeStrings(locale);
   const [mounted, setMounted] = React.useState(open);
   const [shown, setShown] = React.useState(false);
   const [query, setQuery] = React.useState("");
@@ -67,38 +72,88 @@ export function Launchpad({
     return () => clearTimeout(t);
   }, [open]);
 
+  // Where focus was before this opened, so it can be given back.
+  const restoreTo = React.useRef<HTMLElement | null>(null);
+
   React.useEffect(() => {
     if (!open) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onOpenChange(false); };
+    restoreTo.current = document.activeElement as HTMLElement | null;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      // Only when nothing NESTED is open. A context menu inside the Launchpad
+      // registers its own Escape handler, and both fired: dismissing the menu
+      // closed the whole Launchpad with it.
+      if (document.querySelector("[role='menu']")) return;
+      onOpenChange(false);
+    };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      // Focus goes back where it came from — the dock tile that opened this.
+      // Without it focus falls to <body> and the next Tab restarts from the
+      // top of the customer's page.
+      restoreTo.current?.focus?.();
+    };
   }, [open, onOpenChange]);
 
   if (!mounted) return null;
 
   const q = query.trim().toLowerCase();
-  const list = apps.filter((a) => a.enabled && (!q || a.name.toLowerCase().includes(q)));
+  // `a.enabled` rather than `a.enabled !== false` filtered EVERY app out here:
+  // upstream's apps come from a plugin registry that always sets the flag, but
+  // the shell's built-ins and the composer are plain manifests that never
+  // mention it. Undefined is not disabled — an app says so explicitly or it is
+  // available.
+  const list = apps.filter((a) => a.enabled !== false && (!q || a.name.toLowerCase().includes(q)));
 
   const launch = (slug: string) => { onLaunch(slug); onOpenChange(false); };
 
   return (
     <div
+      // Without this the loader clips the Launchpad away: it paints full-screen
+      // but only the sliver overlapping some OTHER opaque region survives, so
+      // it read as a dark smear where a window used to be. Everything the shell
+      // paints has to declare itself.
+      data-fos-opaque=""
+      role="dialog"
+      aria-modal="true"
+      aria-label={t.applications}
       className={cn(
-        "fixed inset-0 z-[60] flex flex-col items-center bg-black/40 backdrop-blur-2xl transition-opacity duration-200",
+        // Token-driven scrim. It was `bg-black/40` with white text throughout,
+        // which is only legible over a dark page — over a light host site the
+        // Launchpad was white-on-white-ish and the labels disappeared. The
+        // scrim now follows the theme like every other surface.
+        "fixed inset-0 z-[60] flex flex-col items-center bg-[color:var(--fos-scrim)] backdrop-blur-2xl transition-opacity duration-200",
         shown ? "opacity-100" : "opacity-0",
+        // pointer-events off while fading OUT. The scrim stayed hit-testable
+        // for the whole 200ms transition, so the click that dismissed the
+        // Launchpad was followed by 200ms in which the next click hit an
+        // invisible full-screen overlay instead of the page.
+        shown ? "" : "pointer-events-none",
       )}
       onClick={(e) => { if (e.target === e.currentTarget) onOpenChange(false); }}
     >
       {/* Search */}
       <div className="mt-14 mb-8 w-full max-w-sm px-4">
         <div className="relative">
-          <Search className="pointer-events-none absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/70" />
+          <Search className="pointer-events-none absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[color:var(--fos-muted)]" />
           <input
-            autoFocus
+            // autoFocus only on a device with a real keyboard. On touch it
+            // opened the on-screen keyboard the moment the Launchpad appeared,
+            // covering the bottom two rows of the grid the user came to look
+            // at — searching is the exception there, tapping is the rule.
+            autoFocus={typeof matchMedia === "function" ? matchMedia("(pointer: fine)").matches : true}
+            onKeyDown={(e) => {
+              // Enter launches the single match. Typing a name and pressing
+              // Enter is what everyone tries first, and it did nothing.
+              if (e.key !== "Enter" || !list.length) return;
+              e.preventDefault();
+              launch(list[0].slug);
+            }}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search"
-            className="w-full rounded-xl border border-white/20 bg-white/10 py-2 ps-9 pe-3 text-center text-sm text-white placeholder:text-white/60 outline-none backdrop-blur-md focus:border-white/40"
+            placeholder={t.search}
+            className="w-full rounded-xl border border-[color:var(--fos-chrome-border)] bg-[color:var(--fos-surface)]/70 py-2 ps-9 pe-3 text-center text-sm text-[color:var(--fos-text)] placeholder:text-[color:var(--fos-muted)] outline-none backdrop-blur-md focus-visible:border-[color:var(--fos-focus)] focus-visible:ring-2 focus-visible:ring-[color:var(--fos-focus)]"
           />
         </div>
       </div>
@@ -106,7 +161,7 @@ export function Launchpad({
       {/* App grid */}
       <div
         className={cn(
-          "grid w-full max-w-5xl grid-cols-3 gap-x-4 gap-y-8 overflow-y-auto px-6 pb-24 transition-transform duration-200 ease-out sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-7",
+          "grid w-full max-w-5xl grid-cols-3 gap-x-4 gap-y-8 overflow-y-auto overscroll-contain px-6 pb-24 transition-transform duration-200 ease-out sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-7",
           shown ? "scale-100" : "scale-90",
         )}
       >
@@ -119,48 +174,48 @@ export function Launchpad({
                 <button
                   type="button"
                   onClick={() => launch(app.slug)}
-                  className="group flex select-none flex-col items-center gap-2 rounded-2xl p-2 outline-none transition hover:scale-105 focus-visible:scale-105"
+                  className="group flex select-none flex-col items-center gap-2 rounded-2xl p-2 transition hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--fos-focus)]"
                 >
                   <span
                     className="flex h-16 w-16 items-center justify-center rounded-[22px] text-white shadow-lg ring-1 ring-inset ring-white/25"
-                    style={{ backgroundImage: `linear-gradient(160deg, ${app.color || "#64748b"}, ${app.color || "#64748b"}bb)` }}
+                    style={{ backgroundImage: `linear-gradient(160deg, ${app.color || "#64748b"}, color-mix(in srgb, ${app.color || "#64748b"} 72%, #000))` }}
                   >
                     <span className="drop-shadow-[0_1px_2px_rgba(0,0,0,0.4)]">
-                      <DynamicIcon name={app.icon} size={32} />
+                      <DynamicIcon name={app.icon} label={app.name} size={32} />
                     </span>
                   </span>
-                  <span className="line-clamp-1 text-xs font-medium text-white [text-shadow:0_1px_3px_rgba(0,0,0,0.7)]">{app.name}</span>
+                  {/* text-sm over two lines, not text-xs over one. At 12px these were
+                      hard to read against a blurred photograph, and a single
+                      clamped line turned "Analytics & Marketing" into
+                      "Analytics &..." — which is the half that identifies it. */}
+                  <span className="line-clamp-2 max-w-[7.5rem] text-center text-sm font-medium leading-snug text-[color:var(--fos-text)]">{app.name}</span>
                 </button>
               </ContextMenuTrigger>
               <ContextMenuContent className="w-52">
                 {isPinned
                   ? onUnpin && (
                       <ContextMenuItem onClick={() => onUnpin(app.slug)}>
-                        <PinOff className="me-2 h-4 w-4" /> Remove from Dock
-                      </ContextMenuItem>
+                        <PinOff className="me-2 h-4 w-4" />{t.removeFromDock}</ContextMenuItem>
                     )
                   : onPin && (
                       <ContextMenuItem onClick={() => onPin(app.slug)}>
-                        <Pin className="me-2 h-4 w-4" /> Keep in Dock
-                      </ContextMenuItem>
+                        <Pin className="me-2 h-4 w-4" />{t.keepInDock}</ContextMenuItem>
                     )}
                 {onDesktop
                   ? onRemoveFromDesktop && (
                       <ContextMenuItem onClick={() => onRemoveFromDesktop(app.slug)}>
-                        <MonitorX className="me-2 h-4 w-4" /> Remove from Desktop
-                      </ContextMenuItem>
+                        <MonitorX className="me-2 h-4 w-4" />{t.removeFromDesktop}</ContextMenuItem>
                     )
                   : onAddToDesktop && (
                       <ContextMenuItem onClick={() => onAddToDesktop(app.slug)}>
-                        <MonitorUp className="me-2 h-4 w-4" /> Add to Desktop
-                      </ContextMenuItem>
+                        <MonitorUp className="me-2 h-4 w-4" />{t.addToDesktop}</ContextMenuItem>
                     )}
               </ContextMenuContent>
             </ContextMenu>
           );
         })}
         {list.length === 0 && (
-          <p className="col-span-full py-16 text-center text-sm text-white/70">No apps match “{query}”.</p>
+          <p className="col-span-full py-16 text-center text-sm text-[color:var(--fos-muted)]">{t.noMatch(query)}</p>
         )}
       </div>
     </div>

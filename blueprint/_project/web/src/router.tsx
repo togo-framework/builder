@@ -25,6 +25,12 @@ const Agents = lazyRouteComponent(() => import("./routes/agents"), "Agents");
 const AgentDetail = lazyRouteComponent(() => import("./routes/agent-detail"), "AgentDetail");
 const Skills = lazyRouteComponent(() => import("./routes/skills"), "Skills");
 const Sources = lazyRouteComponent(() => import("./routes/sources"), "Sources");
+// The integration gallery replaces the sources list at /sources. The old screen
+// stays reachable at /sources/legacy while configured rows still live there —
+// removing it before the gallery can edit them would strip the only way to
+// change an existing connection.
+const Connections = lazyRouteComponent(() => import("./routes/connections"), "Connections");
+const Analytics = lazyRouteComponent(() => import("./routes/analytics"), "Analytics");
 const Docs = lazyRouteComponent(() => import("./routes/docs"), "Docs");
 const Brain = lazyRouteComponent(() => import("./routes/brain"), "Brain");
 const Chat = lazyRouteComponent(() => import("./routes/chat"), "Chat");
@@ -83,7 +89,9 @@ const vaultRoute = createRoute({ getParentRoute: () => appRoute, path: "/vault",
 const agentsRoute = createRoute({ getParentRoute: () => appRoute, path: "/agents", component: Agents });
 const agentDetailRoute = createRoute({ getParentRoute: () => appRoute, path: "/agents/$slug", component: AgentDetail });
 const skillsRoute = createRoute({ getParentRoute: () => appRoute, path: "/skills", component: Skills });
-const sourcesRoute = createRoute({ getParentRoute: () => appRoute, path: "/sources", component: Sources });
+const sourcesRoute = createRoute({ getParentRoute: () => appRoute, path: "/sources", component: Connections });
+const analyticsRoute = createRoute({ getParentRoute: () => appRoute, path: "/analytics", component: Analytics });
+const sourcesLegacyRoute = createRoute({ getParentRoute: () => appRoute, path: "/sources/legacy", component: Sources });
 // /docs belongs to togo's own API reference (Stoplight, served by the Go
 // backend), so the reference library lives at /library. Discovered by opening
 // it: the route resolved to the API docs and this page never rendered.
@@ -98,7 +106,8 @@ const customAppRoute = createRoute({ getParentRoute: () => appRoute, path: "/app
 
 const routeTree = rootRoute.addChildren([
   indexRoute, loginRoute, registerRoute, resetRoute, setupRoute,
-  appRoute.addChildren([dashboardRoute, resourceRoute, profileRoute, issuesRoute, issueDetailRoute, vaultRoute, agentsRoute, agentDetailRoute, skillsRoute, skillDetailRoute, sourcesRoute, docsRoute, brainRoute, chatRoute, mcpRoute, terminalRoute, customAppRoute]),
+  appRoute.addChildren([dashboardRoute, resourceRoute, profileRoute, issuesRoute, issueDetailRoute, vaultRoute, agentsRoute, agentDetailRoute, skillsRoute, skillDetailRoute, sourcesRoute,
+  analyticsRoute, sourcesLegacyRoute, docsRoute, brainRoute, chatRoute, mcpRoute, terminalRoute, customAppRoute]),
 ]);
 
 export const router = createRouter({

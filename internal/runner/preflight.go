@@ -406,9 +406,21 @@ func parseClaudeResult(out string) (claudeResult, error) {
 	// first LINE that starts with a structural character.
 	trimmed = fromJSONLine(trimmed)
 
+	// Decoded as a STREAM, not with Unmarshal.
+	//
+	// The leading-noise problem above has a twin: the CLI also writes notices
+	// AFTER the payload — a usage or credit-balance line, for instance — and
+	// json.Unmarshal rejects the whole response for trailing bytes it does not
+	// need, with "invalid character 'C' after top-level value". The payload was
+	// complete and correct; only the epilogue was unexpected.
+	//
+	// A Decoder reads the first complete value and stops, so anything the CLI
+	// appends is simply not read. It changes nothing for a clean response.
+	dec := json.NewDecoder(strings.NewReader(trimmed))
+
 	if strings.HasPrefix(trimmed, "[") {
 		var events []claudeResult
-		if err := json.Unmarshal([]byte(trimmed), &events); err != nil {
+		if err := dec.Decode(&events); err != nil {
 			return claudeResult{}, err
 		}
 		for i := len(events) - 1; i >= 0; i-- {
@@ -420,7 +432,7 @@ func parseClaudeResult(out string) (claudeResult, error) {
 	}
 
 	var single claudeResult
-	if err := json.Unmarshal([]byte(trimmed), &single); err != nil {
+	if err := dec.Decode(&single); err != nil {
 		return claudeResult{}, err
 	}
 	return single, nil

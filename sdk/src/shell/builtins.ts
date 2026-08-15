@@ -34,13 +34,14 @@ const SCREENS: Screen[] = [
   { slug: "issues", path: "/issues", icon: "Flag", en: "Issues", ar: "المشكلات" },
   { slug: "agents", path: "/agents", icon: "User", en: "Agents", ar: "الوكلاء" },
   { slug: "skills", path: "/skills", icon: "Sparkle", en: "Skills", ar: "المهارات" },
-  { slug: "brain", path: "/brain", icon: "Lightbulb", en: "Brain", ar: "الذاكرة" },
+  { slug: "brain", path: "/brain", icon: "Brain", en: "Brain", ar: "الذاكرة" },
   { slug: "chat", path: "/chat", icon: "MessageSquare", en: "Chat", ar: "المحادثة" },
-  { slug: "sources", path: "/sources", icon: "RefreshCw", en: "Connections", ar: "الاتصالات" },
-  { slug: "docs", path: "/library", icon: "Layers", en: "Library", ar: "المكتبة" },
-  { slug: "vault", path: "/vault", icon: "Settings", en: "Vault", ar: "الخزنة" },
-  { slug: "mcp", path: "/mcp", icon: "SquareArrowOutUpRight", en: "MCP", ar: "MCP" },
-  { slug: "terminal", path: "/terminal", icon: "MonitorUp", en: "Terminal", ar: "الطرفية" },
+  { slug: "sources", path: "/sources", icon: "Plug", en: "Connections", ar: "الاتصالات" },
+  { slug: "analytics", path: "/analytics", icon: "BarChart3", en: "Analytics", ar: "التحليلات" },
+  { slug: "docs", path: "/library", icon: "BookOpen", en: "Library", ar: "المكتبة" },
+  { slug: "vault", path: "/vault", icon: "Lock", en: "Vault", ar: "الخزنة" },
+  { slug: "mcp", path: "/mcp", icon: "Bot", en: "MCP", ar: "MCP" },
+  { slug: "terminal", path: "/terminal", icon: "Terminal", en: "Terminal", ar: "الطرفية" },
 ];
 
 /**

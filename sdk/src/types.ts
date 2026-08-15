@@ -146,9 +146,39 @@ export interface Transport {
   create(issue: NewIssue): Promise<{ id: string; number: number }>;
 }
 
+/**
+ * An app contributed by the EMBEDDING site.
+ *
+ * The dock ships the builder's own screens; this is how a product puts its own
+ * screens beside them. `path` is a route on the page's own origin, framed
+ * same-origin under the session that is already open — which is why only the
+ * host can declare one, and why the server-side app registry has no equivalent.
+ */
+export interface HostApp {
+  /** Unique within the dock. Collides with a builder screen at your peril. */
+  slug: string;
+  /** Shown on the tile and in the Launchpad. Localize it yourself. */
+  name: string;
+  /** A glyph name from the shell's inlined set, e.g. "Settings", "Globe". */
+  icon?: string;
+  /** Any CSS colour. Used for the tile's gradient. */
+  color?: string;
+  /** A path on this origin, e.g. "/en/settings/seo". */
+  path: string;
+  /** Opening size. The app knows its own layout; the shell does not. */
+  window?: { width?: number; height?: number; minWidth?: number; minHeight?: number; resizable?: boolean };
+}
+
 export interface MountOptions {
   /** API origin. Same-origin by default, which is what keeps cookies working. */
   apiBase?: string;
+  /**
+   * The embedding site's own screens, as apps.
+   *
+   * Windowed-shell only: the panel has no dock to put them in. Ignored rather
+   * than erroring when the shell falls back, so passing them is always safe.
+   */
+  apps?: HostApp[];
   /**
    * Where the builder's screens are mounted, under `apiBase`.
    *
@@ -250,4 +280,21 @@ export interface Handle {
   close(): void;
   refresh(): void;
   destroy(): void;
+  /**
+   * Replace the site's contributed apps (MountOptions.apps) after mount.
+   *
+   * Only present on the windowed shell — the panel has no dock — so callers
+   * either use the optional call or the namespace-level `setApps`, which is a
+   * no-op rather than a crash when the panel is running.
+   */
+  setApps?(apps: HostApp[]): void;
+
+  /**
+   * Show, hide or toggle the app launcher.
+   *
+   * Omitting `open` toggles. Exists because the control for it lives in the
+   * HOST's chrome — a site's own admin bar — which has no other way to reach
+   * state that lives inside the shell's document.
+   */
+  toggleDock?(open?: boolean): void;
 }

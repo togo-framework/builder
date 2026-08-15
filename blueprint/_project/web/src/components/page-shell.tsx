@@ -101,7 +101,14 @@ const PageShell = ({
   className?: string;
   children: ReactNode;
 }) => (
-  <div className={cn("page-gutter w-full min-w-0", fill && "flex h-full flex-col")}>
+  <div
+    className={cn(
+      // A page's gutter is sized for a browser viewport. Inside a window it is
+      // just wasted width — the window's own padding is the margin now.
+      inAppWindow() ? "w-full min-w-0 px-4 py-3" : "page-gutter w-full min-w-0",
+      fill && "flex h-full flex-col",
+    )}
+  >
     {/* The rail. mx-auto only bites past 1408px, so on every normal screen the
         page starts exactly at the gutter — the same x on every route. */}
     <div
@@ -117,7 +124,8 @@ const PageShell = ({
           directional anchor that Arabic layout depends on. */}
       <div
         className={cn(
-          "flex w-full min-w-0 flex-col gap-6",
+          "flex w-full min-w-0 flex-col",
+          inAppWindow() ? "gap-4" : "gap-6",
           MEASURE[width],
           fill && "min-h-0 flex-1",
           className,
@@ -151,6 +159,18 @@ PageShell.displayName = "PageShell";
  * to two lines, centring drags the action buttons half a line down and the
  * whole header looks untethered.
  */
+/**
+ * Is this screen open inside a FeedbackOS app window?
+ *
+ * A window already states which app it is, in its title bar, a centimetre
+ * above. Repeating that as a 24px heading with an explanatory paragraph is
+ * what makes a framed screen read as a web page someone put in a box rather
+ * than as an app — the working surface starts a third of the way down, and
+ * the one line naming it is the line you least need, because you just clicked
+ * the tile that says it.
+ */
+const inAppWindow = () => typeof window !== "undefined" && window.self !== window.top;
+
 const PageTitle = ({
   title,
   description,
@@ -165,7 +185,18 @@ const PageTitle = ({
   actions?: ReactNode;
   above?: ReactNode;
   className?: string;
-}) => (
+}) =>
+  inAppWindow() ? (
+    // App mode: the controls, and nothing else. `actions` are the screen's real
+    // toolbar — search, filters, the primary action — so they survive; the
+    // heading and the description do not. Rendered only when there is something
+    // to render, or an actionless screen would open with an empty strip.
+    actions ? (
+      <header className={cn("flex min-w-0 flex-wrap items-center gap-2", className)}>
+        {actions}
+      </header>
+    ) : null
+  ) : (
   <header className={cn("flex min-w-0 flex-col gap-2", className)}>
     {above}
     <div className="flex min-w-0 flex-wrap items-start justify-between gap-x-4 gap-y-3">
@@ -187,7 +218,7 @@ const PageTitle = ({
       ) : null}
     </div>
   </header>
-);
+  );
 PageTitle.displayName = "PageTitle";
 
 /* ------------------------------------------------------------------ */
@@ -733,3 +764,43 @@ export {
   StatRow,
   StatSkeleton,
 };
+
+
+/**
+ * An app-aware drop-in for the kit's `PageHeader`.
+ *
+ * Same props, same look on a full page — and nothing but the actions when the
+ * screen is open inside a FeedbackOS app window. Seven screens render their own
+ * header rather than passing `title` to PageShell, so making PageShell alone
+ * app-aware left exactly the screens the operator looks at most still wearing a
+ * 24px heading that duplicates the window's title bar.
+ *
+ * Exported from here rather than patched into the kit because the kit is a
+ * dependency shared with every togo app, and "is this inside our window shell"
+ * is not a question the kit should have an opinion about.
+ */
+export const AppPageHeader = ({
+  title,
+  description,
+  icon,
+  actions,
+  above,
+  className,
+}: {
+  title: string;
+  description?: string;
+  icon?: ReactNode;
+  actions?: ReactNode;
+  above?: ReactNode;
+  className?: string;
+}) => (
+  <PageTitle
+    title={title}
+    description={description}
+    icon={icon}
+    actions={actions}
+    above={above}
+    className={className}
+  />
+);
+AppPageHeader.displayName = "AppPageHeader";

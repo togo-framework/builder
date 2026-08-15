@@ -19,12 +19,21 @@
 // A React-shaped contract would have quietly made every app a React app and
 // pinned the whole ecosystem to our version of it.
 
-/** How a window gets filled. Mirrors customapps.ContentKind in Go. */
-export type ContentKind = "module" | "iframe" | "builtin" | "route";
+/**
+ * How a window gets filled. Mirrors customapps.ContentKind in Go.
+ *
+ * `host` is the one kind the SERVER never produces: it names a path on the
+ * page's own origin, so only the embedding site can declare it. That is the
+ * point — a product embedding this shell wants its OWN screens in the dock,
+ * not only the builder's, and it is the only party that knows what those are.
+ * Same-origin and unsandboxed like `route`, and for the same reason: it is the
+ * customer's own application under the customer's own session.
+ */
+export type ContentKind = "module" | "iframe" | "builtin" | "route" | "host";
 
 export interface AppContent {
   kind: ContentKind;
-  /** Module file name, absolute https URL, builtin name, or dashboard path. */
+  /** Module file name, absolute https URL, builtin name, dashboard path, or host path. */
   entry: string;
   permissions?: string[];
   /** iframe sandbox override. Empty means the default, which withholds same-origin. */

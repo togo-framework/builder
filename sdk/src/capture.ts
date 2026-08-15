@@ -50,12 +50,34 @@ export function humanSize(bytes: number): string {
  * Capped at dpr 1.5: a 3x retina capture of a full page routinely exceeds
  * 20 MB and takes long enough that users assume it hung.
  */
-export async function screenshot(timeoutMs = 15000): Promise<Attachment> {
+export async function screenshot(timeoutMs = 20000): Promise<Attachment> {
   const blob = await Promise.race([
     toBlob(document.body, {
       pixelRatio: Math.min(window.devicePixelRatio || 1, 1.5),
       backgroundColor: getComputedStyle(document.body).backgroundColor || "#ffffff",
-      cacheBust: true,
+      // cacheBust appends a query string to every image URL, which turns a
+      // cached same-origin hit into a fresh cross-origin request — and any
+      // third-party image that answers without CORS headers then fails. One
+      // failed avatar rejected the ENTIRE screenshot, so a page with a single
+      // remote thumbnail could never be captured at all.
+      cacheBust: false,
+      // Do NOT inline the page's fonts.
+      //
+      // html-to-image's default walks every stylesheet, finds every @font-face,
+      // and fetches each src to embed it as a data URI. On a site with a
+      // Google Fonts @import and seven local faces that is a dozen network
+      // round trips per capture, and it dominated the cost — screenshots that
+      // had been succeeding started hitting the 15s timeout once the page grew.
+      //
+      // The output is a PNG. Fonts are already rasterised into it by the time
+      // it is encoded; embedding the FILES only matters for SVG output, which
+      // this is not. Skipping them costs nothing visible and removes the
+      // slowest step entirely.
+      skipFonts: true,
+      // A 1x1 transparent PNG stands in for whatever could not be fetched.
+      // A screenshot missing one image is evidence; a rejected promise is not.
+      imagePlaceholder:
+        "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
       // Exclude the widget and anything the host marked as noise.
       filter: (node) => {
         const el = node as Element;

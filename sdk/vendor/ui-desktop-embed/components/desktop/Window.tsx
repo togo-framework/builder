@@ -13,8 +13,13 @@ type IconProps2 = Omit<IconProps, "name">;
 const X = (p: IconProps2) => <Icon name="X" {...p} />;
 const Minus = (p: IconProps2) => <Icon name="Minus" {...p} />;
 const Plus = (p: IconProps2) => <Icon name="Plus" {...p} />;
+// Restore is a distinct action and needs a distinct glyph: the control
+// showed Plus in both states, so nothing but the tooltip said whether
+// pressing it would grow the window or shrink it back.
+const Restore = (p: IconProps2) => <Icon name="MonitorX" {...p} />;
 import { DynamicIcon } from "../../ui-core";
 import { cn } from "../../ui-core";
+import { chromeStrings } from "../../strings";
 
 export interface WindowRect {
   x: number;
@@ -100,7 +105,7 @@ function WindowControl({
       className={cn(
         "grid size-7 place-items-center rounded-md text-[color:var(--fos-chrome-fg-muted)]",
         "transition-colors hover:text-[color:var(--fos-chrome-fg)]",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--fos-focus)] focus-visible:ring-offset-2",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--fos-focus)] focus-visible:ring-offset-2 focus-visible:ring-offset-[color:var(--fos-bg)]",
         danger
           ? "hover:bg-[color:var(--fos-danger-soft)] hover:text-[color:var(--fos-danger)]"
           : "hover:bg-[color:var(--fos-surface-2)]",
@@ -116,6 +121,8 @@ type ResizeDir = "e" | "s" | "se" | "w" | "n" | "nw" | "ne" | "sw";
 
 export interface WindowProps {
   title: string;
+  /** Locale for the window's own chrome labels (minimize/maximize/close). */
+  locale?: string;
   icon?: string;
   rect: WindowRect;
   onRectChange: (rect: WindowRect) => void;
@@ -152,9 +159,17 @@ export function Window({
   focused = true,
   onFocus,
   className,
+  locale,
   children,
 }: WindowProps) {
+  const t = chromeStrings(locale);
   const [live, setLive] = useState<WindowRect>(rect);
+  // Mirrors `live` so a pointerup can read the final rect synchronously,
+  // without reaching into a state updater to do it.
+  const liveRef = useRef<WindowRect>(rect);
+  useEffect(() => {
+    liveRef.current = live;
+  }, [live]);
   const dragging = useRef(false);
   // 'enter' plays the open animation; 'exit' plays close/minimize before unmount.
   const [phase, setPhase] = useState<"enter" | "shown">("enter");
@@ -201,19 +216,26 @@ export function Window({
         const el = e.currentTarget as HTMLElement;
         el.setPointerCapture(e.pointerId);
         dragging.current = true;
+        document.documentElement.setAttribute("data-fos-dragging", "");
 
         const move = (ev: PointerEvent) => {
           setLive(clampWindowRect(apply(orig, ev.clientX - startX, ev.clientY - startY)));
         };
         const up = () => {
           dragging.current = false;
+        document.documentElement.removeAttribute("data-fos-dragging");
           el.removeEventListener("pointermove", move);
           el.removeEventListener("pointerup", up);
           el.removeEventListener("pointercancel", up);
-          setLive((r) => {
-            onRectChange(r);
-            return r;
-          });
+          // Commit from a ref, not from inside a state updater.
+          //
+          // This called `onRectChange(r)` from within a `setLive` updater — a
+          // PARENT setState during a child's state computation. React may run
+          // an updater more than once (StrictMode does so deliberately), which
+          // fires the commit twice, and updaters are required to be pure. It
+          // happened to work; it is the kind of thing that breaks on an
+          // upgrade rather than in review.
+          onRectChange(liveRef.current);
         };
         el.addEventListener("pointermove", move);
         el.addEventListener("pointerup", up);
@@ -245,6 +267,11 @@ export function Window({
       const el = e.currentTarget as HTMLElement;
       el.setPointerCapture(e.pointerId);
       dragging.current = true;
+      // Tells the shell to make the overlay fully solid for the duration —
+      // see the region reporter in boot.tsx. Without it a drag toward the
+      // viewport edge walks off our clipped region and the pointer is lost to
+      // the host page mid-gesture.
+      document.documentElement.setAttribute("data-fos-dragging", "");
 
       const zoneFor = (x: number, y: number): "max" | "left" | "right" | null => {
         if (y <= 6) return "max";
@@ -259,6 +286,7 @@ export function Window({
       };
       const up = (ev: PointerEvent) => {
         dragging.current = false;
+        document.documentElement.removeAttribute("data-fos-dragging");
         el.removeEventListener("pointermove", move);
         el.removeEventListener("pointerup", up);
         el.removeEventListener("pointercancel", up);
@@ -269,7 +297,9 @@ export function Window({
           setLive(r);
           onRectChange(r);
         } else {
-          setLive((r) => { onRectChange(r); return r; });
+          // Same reason as the drag commit above: a parent setState from
+          // inside a state updater is impure and can fire twice.
+          onRectChange(liveRef.current);
         }
       };
       el.addEventListener("pointermove", move);
@@ -279,15 +309,52 @@ export function Window({
     [maximized, isMobile, live, onFocus, onRectChange, snapRect],
   );
 
+  /**
+   * Resize, with the leading edges clamped at the source.
+   *
+   * The west/north handlers moved `x`/`y` by the full pointer delta while
+   * shrinking `w`/`h` by the same amount, and the minimum size was only applied
+   * afterwards by `clampRect`. Past the minimum the size stopped changing but
+   * the ORIGIN kept moving, so dragging the left edge inward slid the whole
+   * window to the right instead of stopping — it walked away from the cursor.
+   *
+   * Clamping the delta here means a leading edge can never consume more than
+   * the window has to give.
+   */
+  // Read from the same tokens clampRect uses, so the edge stops exactly where
+  // the clamp would have stopped it rather than a pixel either side.
+  const minW = inset("--fos-window-min-w", CSS_FALLBACK.minW);
+  const minH = inset("--fos-window-min-h", CSS_FALLBACK.minH);
+
+  const shrink = (size: number, delta: number, min: number) =>
+    // How much of `delta` the edge may actually take before hitting `min`.
+    Math.min(delta, size - min);
+
   const resizeHandlers: Record<ResizeDir, (o: WindowRect, dx: number, dy: number) => WindowRect> = {
     e: (o, dx) => ({ ...o, w: o.w + dx }),
     s: (o, _dx, dy) => ({ ...o, h: o.h + dy }),
     se: (o, dx, dy) => ({ ...o, w: o.w + dx, h: o.h + dy }),
-    w: (o, dx) => ({ ...o, x: o.x + dx, w: o.w - dx }),
-    n: (o, _dx, dy) => ({ ...o, y: o.y + dy, h: o.h - dy }),
-    nw: (o, dx, dy) => ({ ...o, x: o.x + dx, y: o.y + dy, w: o.w - dx, h: o.h - dy }),
-    ne: (o, dx, dy) => ({ ...o, y: o.y + dy, w: o.w + dx, h: o.h - dy }),
-    sw: (o, dx, dy) => ({ ...o, x: o.x + dx, w: o.w - dx, h: o.h + dy }),
+    w: (o, dx) => {
+      const d = shrink(o.w, dx, minW);
+      return { ...o, x: o.x + d, w: o.w - d };
+    },
+    n: (o, _dx, dy) => {
+      const d = shrink(o.h, dy, minH);
+      return { ...o, y: o.y + d, h: o.h - d };
+    },
+    nw: (o, dx, dy) => {
+      const cx = shrink(o.w, dx, minW);
+      const cy = shrink(o.h, dy, minH);
+      return { ...o, x: o.x + cx, y: o.y + cy, w: o.w - cx, h: o.h - cy };
+    },
+    ne: (o, dx, dy) => {
+      const cy = shrink(o.h, dy, minH);
+      return { ...o, y: o.y + cy, w: o.w + dx, h: o.h - cy };
+    },
+    sw: (o, dx, dy) => {
+      const cx = shrink(o.w, dx, minW);
+      return { ...o, x: o.x + cx, w: o.w - cx, h: o.h + dy };
+    },
   };
 
   const style = useMemo<React.CSSProperties>(() => {
@@ -305,8 +372,16 @@ export function Window({
         const r = snapRect(snapHint);
         return (
           <div
+            // data-fos-opaque so the loader's clip includes it — the preview
+            // is painted OUTSIDE the window's own rect (that is the point), so
+            // without this it is drawn into a clipped-away region and the snap
+            // hint is invisible exactly while it is needed.
+            data-fos-opaque=""
             className="pointer-events-none fixed rounded-xl border-2 border-primary/70 bg-primary/15 backdrop-blur-sm transition-all duration-100"
-            style={{ left: r.x, top: r.y, width: r.w, height: r.h, zIndex: zIndex - 1 }}
+            // ABOVE the dragged window, not below it. `zIndex - 1` put the
+            // preview under every other open window, so on a busy desktop the
+            // hint was hidden by whatever happened to be stacked there.
+            style={{ left: r.x, top: r.y, width: r.w, height: r.h, zIndex: zIndex + 1 }}
             aria-hidden="true"
           />
         );
@@ -320,9 +395,22 @@ export function Window({
       {snapPreview}
     <div
       // See Dock.tsx: the loader clips to the union of these rects.
-      data-fos-opaque=""
+      //
+      // Dropped while MINIMIZED, which is not a nicety. A minimized window is
+      // invisible (opacity-0) but still laid out, so its rect stayed in the
+      // opaque set and the loader kept clipping the overlay to include it —
+      // leaving a window-sized dead zone floating over the CUSTOMER'S page that
+      // swallowed every click landing in it, with nothing on screen to explain
+      // why. pointer-events-none on our side does not help: the clip is what
+      // decides whether the host receives the event at all.
+      {...(minimized ? {} : { "data-fos-opaque": "" })}
       className={cn(
-        "fixed flex flex-col overflow-hidden border bg-card/95 backdrop-blur-xl transition-shadow",
+        // Translucent enough to see the page underneath, which is most of what
+        // makes this feel like a shell over the site rather than a modal on top
+        // of it — you can keep your place while a window is open. The blur is
+        // what keeps text legible over arbitrary content; without it, a window
+        // over a photograph is unreadable at any opacity worth having.
+        "fixed flex flex-col overflow-hidden border bg-card/80 backdrop-blur-2xl backdrop-saturate-150 transition-shadow",
         // Only the CHROME recedes on blur. The content area is untouched:
         // repainting an app to dim it is expensive, and no real desktop does it.
         focused
@@ -339,6 +427,11 @@ export function Window({
       )}
       style={style}
       aria-hidden={minimized}
+      // `inert` removes the subtree from the tab order as well as from the
+      // accessibility tree. aria-hidden alone left every control inside a
+      // minimized window focusable — so tabbing walked into a window that is
+      // not on screen, and the focus ring went nowhere visible.
+      {...(minimized ? ({ inert: true } as { inert?: boolean }) : {})}
       onPointerDown={() => onFocus?.()}
       role="dialog"
       aria-label={title}
@@ -350,12 +443,16 @@ export function Window({
         onDoubleClick={onMaximizeToggle}
       >
         {icon && <DynamicIcon name={icon} size={14} className="shrink-0 text-muted-foreground" />}
-        {/* `dir` is set explicitly, not inherited. Ellipsis truncation clips the
-            WRONG end in RTL when direction is only inherited, so an Arabic
-            window title would lose its beginning instead of its tail. */}
+        {/* dir="auto", chosen from the title's own first strong character.
+            This carried a comment claiming direction was "set explicitly, not
+            inherited" above `style={{ direction: "inherit" }}` — which is
+            precisely inheritance, so the guard did nothing. It matters because
+            app titles are mixed: "MCP" and "Terminal" stay Latin inside an
+            Arabic shell, and truncating those by the document's direction
+            clips the wrong end. */}
         <span
           className="flex-1 truncate text-xs font-medium text-foreground"
-          style={{ direction: "inherit" }}
+          dir="auto"
           title={title}
         >
           {title}
@@ -382,25 +479,42 @@ export function Window({
          * RTL exception along with it: at the inline-end, this mirrors correctly
          * with no special case.
          */}
-        <div className="flex shrink-0 items-center" onPointerDown={(e) => e.stopPropagation()}>
+        {/* stopPropagation keeps a control click from starting a title-bar
+            DRAG — but it also stopped the click reaching the window root's
+            onPointerDown, which is what raises and focuses the window. So
+            pressing minimize on a background window minimized it without ever
+            focusing it, and the window behind kept the focus ring. Focus here
+            explicitly, then stop. */}
+        <div
+          className="flex shrink-0 items-center"
+          onPointerDown={(e) => {
+            onFocus?.();
+            e.stopPropagation();
+          }}
+        >
           {onMinimize && (
-            <WindowControl label="Minimize" onClick={onMinimize}>
+            <WindowControl label={t.minimize} onClick={onMinimize}>
               <Minus className="size-3.5" />
             </WindowControl>
           )}
           {onMaximizeToggle && (
             <WindowControl label={maximized ? "Restore" : "Maximize"} onClick={onMaximizeToggle}>
-              <Plus className="size-3.5" />
+              {maximized ? <Restore className="size-3.5" /> : <Plus className="size-3.5" />}
             </WindowControl>
           )}
-          <WindowControl label="Close" onClick={onClose} danger>
+          <WindowControl label={t.close} onClick={onClose} danger>
             <X className="size-3.5" />
           </WindowControl>
         </div>
       </div>
 
       {/* Content */}
-      <div className="min-h-0 flex-1 overflow-auto">
+      {/* overscroll-contain stops SCROLL CHAINING. Without it, reaching the
+          bottom of a window's content hands the remaining wheel delta to the
+          page underneath, so the customer's site scrolls out from behind an
+          open window — which reads as the window having moved. A window is a
+          scroll boundary in every real OS. */}
+      <div className="min-h-0 flex-1 overflow-auto overscroll-contain">
         <React.Suspense fallback={<WindowSpinner />}>{children}</React.Suspense>
       </div>
 

@@ -310,6 +310,18 @@ var Capabilities = Registry{
 		},
 	},
 	{
+		Env: "BUILDER_ENHANCER", Group: GroupSDK, Kind: KindChoice, Default: "0", Danger: Safe,
+		Choices: []Choice{
+			{Value: "0", Label: Localized{EN: "Off", AR: "معطّل"}},
+			{Value: "1", Label: Localized{EN: "On", AR: "مفعّل"}},
+		},
+		Title: Localized{EN: "Rewrite reports with AI", AR: "تحسين البلاغات بالذكاء الاصطناعي"},
+		Help: Localized{
+			EN: "Adds an \"Improve this\" button to the report composer that rewrites the reporter's text for clarity. Off by default because every press costs a model call; the endpoint is authenticated, so anonymous reporters can still file but cannot spend.",
+			AR: "يضيف زر \"تحسين الصياغة\" إلى نموذج الإبلاغ لإعادة صياغة النص بوضوح. معطّل افتراضيًا لأن كل ضغطة تكلّف طلب نموذج؛ نقطة النهاية تتطلب تسجيل الدخول، فيظل بإمكان المجهولين الإبلاغ دون إنفاق.",
+		},
+	},
+	{
 		Env: "BUILDER_FEEDBACK_ORIGINS", Group: GroupSDK, Kind: KindText, Danger: Sensitive,
 		Title: Localized{EN: "Allowed widget origins", AR: "المصادر المسموح بها للأداة"},
 		Help: Localized{

@@ -93,6 +93,12 @@ func (s *Service) Routes(r chi.Router) {
 	r.Post("/issues/{number}/comments", s.handleComment)
 	r.Delete("/issues/{number}", s.handleDelete)
 	r.Post("/issues/bulk-delete", s.handleBulkDelete)
+
+	// The composer's "Improve this". Ships dark (BUILDER_ENHANCER, default
+	// off) and authenticated-only: filing an issue costs a row and is
+	// deliberately open, rewriting one costs a model call and is not.
+	r.Get("/enhance", s.handleEnhanceProbe)
+	r.Post("/enhance", s.handleEnhance)
 	r.Get("/attachments/{id}", s.handleAttachment)
 }
 

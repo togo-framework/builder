@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import {
-  Button, Callout, MarkdownRenderer, PageHeader, Select, SelectContent, SelectItem,
+  Button, Callout, MarkdownRenderer, Select, SelectContent, SelectItem,
   SelectTrigger, SelectValue, Sheet, SheetContent, SheetDescription, SheetHeader,
   SheetTitle, Textarea,
 } from "@togo-framework/ui";
@@ -14,7 +14,7 @@ import {
   type ChatAgent, type Citation, type SessionSummary, type Turn,
 } from "../lib/chat";
 import { fetchProjectBrain } from "../lib/brainproject";
-import { PageShell } from "../components/page-shell";
+import { PageShell, AppPageHeader as PageHeader } from "../components/page-shell";
 import { useStrings } from "../lib/i18n";
 import { useAIStrings } from "../lib/i18n.ai";
 

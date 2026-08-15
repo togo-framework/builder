@@ -21,6 +21,7 @@ import (
 	"github.com/togo-framework/builder/internal/deploy"
 	"github.com/togo-framework/builder/internal/docs"
 	"github.com/togo-framework/builder/internal/fleet"
+	"github.com/togo-framework/builder/internal/integrations"
 	"github.com/togo-framework/builder/internal/issues"
 	mcpsrv "github.com/togo-framework/builder/internal/mcp"
 	"github.com/togo-framework/builder/internal/notify"
@@ -105,6 +106,14 @@ func provideVault(k *togo.Kernel) error {
 		store := vault.NewStore(svc, db, k.Log)
 		k.Set(ProviderVault+".store", store)
 		mountAuthed(k, "/api/builder/vault", store.Routes)
+
+		// OAuth app credentials resolve from the vault, falling back to the
+		// environment. Installed here, in the vault's own provider, because
+		// this is the first moment a decrypting store exists — and an
+		// integrations package that reached back for one would invert the
+		// dependency for no gain.
+		integrations.SetCredentialStore(store)
+		integrations.SetCredentialWriter(store)
 	} else if k.Log != nil {
 		k.Log.Warn("vault HTTP surface disabled: no database", "err", dbErr)
 	}
@@ -289,7 +298,7 @@ func provideIssues(k *togo.Kernel) error {
 	// BUILDER_SDK_DIR still overrides, for developing the widget itself.
 	if dir := os.Getenv("BUILDER_SDK_DIR"); dir != "" {
 		if _, err := os.Stat(dir); err == nil {
-			k.Router.Handle("/sdk/*", http.StripPrefix("/sdk/", http.FileServer(http.Dir(dir))))
+			k.Router.Handle("/sdk/*", noStaleSDK(http.StripPrefix("/sdk/", http.FileServer(http.Dir(dir)))))
 			return nil
 		}
 		if k.Log != nil {
@@ -297,7 +306,7 @@ func provideIssues(k *togo.Kernel) error {
 		}
 	}
 	if sub, err := SDKFiles(); err == nil {
-		k.Router.Handle("/sdk/*", http.StripPrefix("/sdk/", http.FileServer(http.FS(sub))))
+		k.Router.Handle("/sdk/*", noStaleSDK(http.StripPrefix("/sdk/", http.FileServer(http.FS(sub)))))
 	} else if k.Log != nil {
 		k.Log.Error("the embedded SDK is unavailable", "err", err)
 	}
@@ -436,6 +445,27 @@ func provideFleet(k *togo.Kernel) error {
 	} else {
 		k.Log.Warn("builder.terminal NOT mounted: the auth plugin is unavailable, and an unauthenticated shell will not be served")
 	}
+
+	// Integrations — the Connections app's catalogue, status probes and the
+	// terminal connect flow.
+	//
+	// Behind the SAME admin gate as the terminal, and failing closed for the
+	// same reason: /connect runs a command in a tmux session on this machine.
+	// The command itself always comes from the registry and never from the
+	// request (see integrations.Service.run, and the test that pins it), so
+	// this is not a shell — but it does start an authenticated vendor login as
+	// the operator, and that is not something to serve to whoever can reach the
+	// port.
+	if as, ok := auth.FromKernel(k); ok && as != nil {
+		ints := integrations.New(k.Log, integrations.NewTmux(termRoot), integrations.SQLOAuthStore{DB: db}).
+			WithTokens(integrations.NewTokens(db))
+		k.Router.Route("/api/builder/integrations", func(r chi.Router) {
+			r.Use(as.Middleware, as.RequireRole("admin"))
+			ints.Routes(r)
+		})
+	} else {
+		k.Log.Warn("builder.integrations NOT mounted: the auth plugin is unavailable")
+	}
 	return nil
 }
 
@@ -478,8 +508,26 @@ func provideSources(k *togo.Kernel) error {
 		return nil
 	}
 
+	// Install the OAuth token source BEFORE the scheduler starts.
+	//
+	// Ordering is load-bearing: sources.SetTokens is a package-level seam (see
+	// internal/sources/oauth.go), and a Gmail or Calendar collector that runs
+	// before it is set fails with ErrNoTokens. store.Run below is what starts
+	// claiming rows, so anything after this line is safe and anything before it
+	// is a race.
+	sources.SetTokens(integrations.NewTokens(db))
+
 	store := sources.New(db, k.Log, bs, vs)
 	k.Set(ProviderSources, store)
+
+	// Smart connect: one model call plans, this store executes.
+	//
+	// Both halves are installed here rather than in the integrations provider
+	// because THIS is where the store exists — and the store is the piece that
+	// validates and inserts, so wiring it from anywhere else would mean handing
+	// the same object to two owners.
+	integrations.SetPlanner(integrations.SessionPlanner{Log: k.Log})
+	integrations.SetCreator(store)
 	mountAuthed(k, "/api/builder/sources", store.Routes)
 
 	// Detached, like the orchestrator: the schedule outlives any request.
@@ -688,4 +736,26 @@ func (a brainAdapter) Writable(ctx context.Context, agentSlug string) (string, e
 
 func (a brainAdapter) Retain(ctx context.Context, ns, content, sourceKind, sourceRef string, importance float64) (string, error) {
 	return a.s.Retain(ctx, ns, content, sourceKind, sourceRef, importance)
+}
+
+// noStaleSDK makes the browser revalidate the widget's entry points.
+//
+// Both files here are ENTRY POINTS with stable, unhashed names —
+// /sdk/builder-sdk.js and /sdk/shell.html — so the default heuristic caching a
+// browser applies to a 200 with no Cache-Control is exactly wrong for them: it
+// pins whatever the user first loaded until they clear their cache.
+//
+// This was not theoretical. Shipping a rebuilt shell left the running page on
+// the previous one, so a fix that was verifiably present in the served bytes
+// was absent in the browser — and the only visible symptom was the OLD
+// behaviour persisting, which reads as "the change did not work" rather than
+// "the change did not load". Hours can go into that.
+//
+// `no-cache` rather than `no-store`: the file is still cached, the browser just
+// has to ask first. An unchanged shell answers 304 and costs nothing.
+func noStaleSDK(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-cache, must-revalidate")
+		h.ServeHTTP(w, r)
+	})
 }

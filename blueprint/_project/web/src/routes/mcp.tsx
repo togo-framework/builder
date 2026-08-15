@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import {
-  Button, Callout, EmptyState, Input, PageHeader, Select, SelectContent,
+  Button, Callout, EmptyState, Input, Select, SelectContent,
   SelectItem, SelectTrigger, SelectValue, StatusBadge,
 } from "@togo-framework/ui";
 import {
@@ -12,8 +12,7 @@ import {
   type MintedToken,
 } from "../lib/mcp";
 import {
-  Field, FormCard, FormFooter, ListSkeleton, PageShell, Row, RowTitle, Rows, Section,
-} from "../components/page-shell";
+  Field, FormCard, FormFooter, ListSkeleton, PageShell, Row, RowTitle, Rows, Section, AppPageHeader as PageHeader } from "../components/page-shell";
 import { useStrings } from "../lib/i18n";
 import { useAIStrings } from "../lib/i18n.ai";
 

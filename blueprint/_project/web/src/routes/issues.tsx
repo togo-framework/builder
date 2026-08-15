@@ -2,9 +2,9 @@ import { useEffect, useState } from "react";
 import { Check, ChevronDown, ChevronUp, ChevronsUp, Folder, GitBranch, Hash, LayoutGrid, List, LoaderCircle, MessageSquare, Plus, SquareKanban, UserRound, X } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import {
-  Button, Callout, Checkbox, Dialog, DialogContent, DialogHeader, DialogTitle, EmptyState, Input, Label, MarkdownEditor, PageHeader, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Skeleton, StatusBadge, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, ToggleGroup, ToggleGroupItem,
+  Button, Callout, Checkbox, Dialog, DialogContent, DialogHeader, DialogTitle, EmptyState, Input, Label, MarkdownEditor, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Skeleton, StatusBadge, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, ToggleGroup, ToggleGroupItem,
 } from "@togo-framework/ui";
-import { DotLabel, PageShell, Stat, StatRow, StatSkeleton } from "../components/page-shell";
+import { DotLabel, PageShell, Stat, StatRow, StatSkeleton, AppPageHeader as PageHeader } from "../components/page-shell";
 import {
   TRANSITIONS, createIssue, fetchBoard, patchIssue,
   type Board, type Card, type IssueStatus, type IssueType, type Priority,

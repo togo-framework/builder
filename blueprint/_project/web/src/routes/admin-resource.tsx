@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AppPageHeader as PageHeader } from "../components/page-shell";
 import { useParams } from "@tanstack/react-router";
 import { Pencil, Trash2, Eye, Plus } from "lucide-react";
 import {
-  PageHeader, Button, Badge, DataTable,
+  Button, Badge, DataTable,
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
   AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction,
   useT,

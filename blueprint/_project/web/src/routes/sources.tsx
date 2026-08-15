@@ -358,7 +358,9 @@ const SourceRow = ({
         {failing && !s.enabled && <StatusBadge tone="warning">{S.sources.off}</StatusBadge>}
       </RowTitle>
 
-      <p className="mt-1 text-sm text-muted-foreground">{s.description}</p>
+      <p className="mt-1 text-sm text-muted-foreground">
+        {isRTL ? s.description.ar : s.description.en}
+      </p>
 
       <RowMeta>
         {/* <bdi dir="ltr"> on the machine values: "@hourly" and "ns:name" carry

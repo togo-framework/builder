@@ -1,6 +1,6 @@
 {
   "name": "create-togo-builder",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "description": "Scaffold a togo builder project \u2014 an agentic development harness with a feedback widget, issue board, agent fleet, per-agent memory and a secret vault.",
   "bin": {
     "create-togo-builder": "bin/create.js",

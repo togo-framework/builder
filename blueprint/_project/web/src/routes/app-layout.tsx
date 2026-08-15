@@ -46,6 +46,22 @@ export function AppLayout() {
   // portals included — mirrors without any per-page wiring.
   const handleToggleLanguage = () => setLanguage(ar ? "en" : "ar");
 
+  // `?lang=` wins inside a FRAME.
+  //
+  // The shell passes the surrounding product's locale on the frame URL, but
+  // LanguageProvider reads its own cookie and localStorage and so ignored the
+  // `initialLanguage` we hand it — a screen opened from an Arabic page came up
+  // in English under an Arabic window title. Setting it explicitly is the only
+  // thing that outranks a stored choice, and it is correct to: inside a window
+  // the surrounding product's language is not a preference, it is the context.
+  //
+  // Frame-only, so a normal visit still keeps whatever the operator chose here.
+  useEffect(() => {
+    if (typeof window === "undefined" || window.self === window.top) return;
+    const want = new URLSearchParams(window.location.search).get("lang");
+    if ((want === "ar" || want === "en") && want !== language) setLanguage(want);
+  }, [language, setLanguage]);
+
   useEffect(() => {
     // Auth is already guaranteed by the route's beforeLoad guard — just read the cached user.
     sessionMe().then(setMe);
@@ -105,6 +121,25 @@ export function AppLayout() {
     "/apps",
   ];
 
+  // Inside an iframe — which for these screens means inside a FeedbackOS app
+  // window, whose chrome already names the screen and closes it.
+  const framed = typeof window !== "undefined" && window.self !== window.top;
+
+  // html and body paint their own background before any React tree exists, so
+  // a transparent wrapper alone still sits on an opaque page. Cleared for the
+  // frame's lifetime and restored on unmount.
+  useEffect(() => {
+    if (!framed) return;
+    const prevHtml = document.documentElement.style.background;
+    const prevBody = document.body.style.background;
+    document.documentElement.style.background = "transparent";
+    document.body.style.background = "transparent";
+    return () => {
+      document.documentElement.style.background = prevHtml;
+      document.body.style.background = prevBody;
+    };
+  }, [framed]);
+
   let embedded = false;
   if (typeof window !== "undefined") {
     // Stripped of the mount point: under the plugin build these arrive as
@@ -148,14 +183,28 @@ export function AppLayout() {
       <ToastProvider dir={ar ? "rtl" : "ltr"}>
         {/* No AgentAlerts here: the host page behind this overlay is already
             running its own, and two copies would announce every alert twice. */}
-        <div className="flex min-h-dvh min-w-0 flex-col bg-background">
+        <div
+          /* Transparent when FRAMED so the window's own translucent, blurred
+             surface shows through. An opaque page background inside a frosted
+             window defeats the frosting exactly at the point it matters — the
+             window reads as a solid panel with a decorative border. */
+          className={`flex min-h-dvh min-w-0 flex-col ${framed ? "bg-transparent" : "bg-background"}`}
+        >
           {/* A background fleet generation is builder state, and these ARE the
               builder's screens — the spend stays visible here too. */}
           <FleetProgressBar />
           {/* One slim bar, and the only host chrome a standalone screen gets.
               Without a way back, arriving here is a one-way trip: the operator
               came from the product, and the launcher gave them no navigation
-              to return through. */}
+              to return through.
+              
+              Hidden when FRAMED, because then a window already provides both
+              halves of it — the title bar names the screen and the traffic
+              lights close it. Two close buttons a centimetre apart, one of
+              which closes a window and one of which navigates a page, is the
+              difference between a screen that looks like an app and one that
+              looks like a browser inside a window. */}
+          {!framed && (
           <div className="flex shrink-0 items-center justify-end border-b border-border px-3 py-2">
             {/* The label names the language you would switch TO, written in
                 itself — the one string that stays readable from the "wrong"
@@ -178,6 +227,7 @@ export function AppLayout() {
               {ar ? "إغلاق" : "Close"}
             </button>
           </div>
+          )}
           {/* min-h-0 so the scroll chain reaches this child rather than
               stopping at the flex parent. */}
           <main className="min-h-0 min-w-0 flex-1 overflow-auto">

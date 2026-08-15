@@ -30,9 +30,17 @@
   --fos-border-strong: #cdd3dc;
   --fos-text: #14181f;
   --fos-text-2: #4b5565;
-  --fos-muted: #6c7686;
+  /* #6c7686 measured 4.1:1 on --fos-surface-2 (#eef1f4) — under the 4.5:1 AA
+     minimum for body text, and every timestamp, hint and secondary label in
+     the shell uses it. Darkened to clear AA on the LIGHTEST surface, which is
+     the one it fails on. */
+  --fos-muted: #5b6472;
   --fos-accent: #4f46e5;
+  /* Derived, not fixed. --fos-accent is injected at runtime, so a pale brand
+     colour got white text on it and became unreadable. color-contrast picks
+     the legible end; the mix is the fallback for engines without it. */
   --fos-accent-fg: #ffffff;
+  --fos-accent-fg: color-contrast(var(--fos-accent) vs #ffffff, #14181f);
   --fos-danger: #d92d20;
   --fos-ok: #087443;
   --fos-warn: #b54708;
@@ -45,11 +53,15 @@
   --fos-c-question: #b54708;
   --fos-c-discussion: #6938ef;
 
-  /* An explicit stack, not the host's inherited font. The widget renders over
-     somebody else's typography and must stay the same size and shape whatever
-     that is. */
-  --fos-font: -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI",
+  /* The shell's own stack, kept reachable by NAME.
+     applyHostFonts() puts the host page's family in front of this rather than
+     replacing it, so a site whose face covers only Arabic still has somewhere
+     to fall through to for the Latin the shell also renders — app names, URLs,
+     status codes. Sizing and rhythm stay ours either way; only the face is
+     borrowed. */
+  --fos-font-fallback: -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI",
     Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+  --fos-font: var(--fos-font-fallback);
 }
 
 /* ═══ PRIMITIVES — default, dark ════════════════════════════════════════ */
@@ -77,9 +89,41 @@
 
 /* ═══ SEMANTICS — what components write ═════════════════════════════════ */
 :root {
+  /* ---- Per-app accent -------------------------------------------------
+     The dock asked for var(--app-<slug>) from the day it was written and
+     nothing ever defined them, so every tile fell back to an invalid value
+     and rendered as an outline. Hex literals, not semantic tokens: an app's
+     identity colour is the one thing that should NOT drift when the theme
+     flips, exactly as a real OS keeps its icon colours across appearance.  */
+  --app-report: #6366f1;
+  --app-issues: #ef4444;
+  --app-agents: #8b5cf6;
+  --app-skills: #ec4899;
+  --app-brain: #14b8a6;
+  --app-chat: #3b82f6;
+  --app-sources: #f59e0b;
+  --app-docs: #0ea5e9;
+  --app-vault: #64748b;
+  --app-mcp: #22c55e;
+  --app-terminal: #475569;
+  --app-settings: #6b7280;
+  --app-seo: #06b6d4;
+  --app-analytics: #a855f7;
+  --app-contact: #f97316;
+  --app-social: #e11d48;
+  --app-compose: #7c3aed;
+  --app-github: #334155;
+  --app-cli: #0f766e;
+  --app-sites: #2563eb;
+
   --fos-accent-ink: var(--fos-accent);
   --fos-accent-soft: color-mix(in srgb, var(--fos-accent) 9%, transparent);
-  --fos-focus: var(--fos-accent);
+  /* Not the raw accent. --fos-accent is injected at runtime by the embedder
+     (mount({accent})) and is never re-derived for dark, so a deep brand colour
+     produced a focus ring measured at 2.62:1 against the dark chrome — a focus
+     indicator you cannot see is not one. Mixed toward the text colour so it
+     stays visible whatever the accent is, in both themes. */
+  --fos-focus: color-mix(in srgb, var(--fos-accent) 70%, var(--fos-text));
   --fos-danger-soft: color-mix(in srgb, var(--fos-danger) 10%, transparent);
 
   /* OS chrome — title bars, dock, launchpad.
@@ -146,6 +190,12 @@
   --fos-scrim: rgba(0, 0, 0, 0.45);
   --fos-shadow-window: 0 2px 8px rgba(0, 0, 0, 0.55), 0 32px 80px -20px rgba(0, 0, 0, 0.8);
   --fos-shadow-dock: 0 8px 24px -8px rgba(0, 0, 0, 0.55), 0 1px 2px rgba(0, 0, 0, 0.3);
+  /* 1 and 2 were left at their light-mode values — near-black shadows over a
+     near-black surface, so an UNFOCUSED window (which uses shadow-1) had no
+     visible elevation at all and read as painted onto the page rather than
+     floating above it. */
+  --fos-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px -8px rgba(0, 0, 0, 0.6);
+  --fos-shadow-2: 0 2px 6px rgba(0, 0, 0, 0.45), 0 24px 64px -16px rgba(0, 0, 0, 0.7);
 }
 
 [dir="rtl"] { --fos-lh-body-doc: var(--fos-lh-body-ar); }
@@ -201,14 +251,29 @@
  * bilingual surface.
  */
 :root[data-fos-theme="plex"] {
-  --fos-font: "IBM Plex Sans Arabic", "IBM Plex Sans", -apple-system,
+  --fos-font-fallback: "IBM Plex Sans Arabic", "IBM Plex Sans", -apple-system,
     BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --fos-font: var(--fos-font-fallback);
 }
 
 /* ═══ Document defaults ═════════════════════════════════════════════════ */
+
+/*
+ * NOTE: font-size is deliberately NOT set here.
+ *
+ * `.fos-root` is on <html> (build.shell.mjs), so `font-size: 13.5px` here made
+ * 1rem equal 13.5px for the entire shell — and Tailwind derives every spacing,
+ * width and height from `--spacing: .25rem`. The whole UI rendered at 84%: the
+ * dock tile measured 37px against a 44px minimum touch target, and the
+ * running-app dot came out at 3.4px, smaller than the antialiasing around it.
+ *
+ * The px tokens exist so a host page with `html { font-size: 62.5% }` cannot
+ * scale the widget. Putting one on our own root re-created exactly that bug
+ * from the inside. The body-level rule below sets the reading size without
+ * touching the rem basis.
+ */
 .fos-root {
   font-family: var(--fos-font);
-  font-size: var(--fos-fs-md);
   line-height: var(--fos-lh-body-doc, var(--fos-lh-body));
   color: var(--fos-text);
   /* The shell document is transparent: the host site shows through wherever
@@ -216,6 +281,11 @@
      nothing may rely on a page background existing. */
   background: transparent;
   -webkit-font-smoothing: antialiased;
+}
+
+/* The reading size, on body — where it cannot become the rem basis. */
+.fos-root body {
+  font-size: var(--fos-fs-md);
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -115,6 +115,24 @@ plan — `Connector`/`Ingestor`/`Actor` multiplies the number of non-agent
 principals). This is a design call with a migration attached, which is why it is
 not an agent's to make.
 
+### What has been built around it (2026-08-14)
+
+`internal/actors` is complete except for this. The interface, the registry, the
+five providers (slack, discord, telegram, email, webhook), the outbox with its
+write-before-send ordering, the idempotency guarantee, the External-needs-
+approval gate and the dry-run path are all built and tested — 14 tests, no
+network, no credential.
+
+Credential reads go through ONE function, `actors.Blocked.Reveal` in
+`internal/actors/secrets.go`, which returns `ErrBlockedSF001` naming the
+connection that wanted the secret. When a human picks one of the three fixes
+below, that single implementation is replaced and all five providers start
+working untouched — none of them import the vault.
+
+The design call was deliberately NOT made by pre-committing to option 3 in new
+code: the actors take a `Secrets` interface, so choosing option 1 later costs
+the same as choosing option 3.
+
 ### Blocks
 
 The `Actor` half of connections — posting to Slack/Discord/Telegram/WhatsApp,

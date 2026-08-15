@@ -16,6 +16,7 @@
 // shell's job is to draw a window around it and get out of the way.
 
 import * as React from "react";
+import { createPortal } from "react-dom";
 
 /* ── cn ──────────────────────────────────────────────────────────────────
  * clsx semantics without the dependency: strings, arrays, and
@@ -92,12 +93,14 @@ export function formatRelativeTime(value: string | number | Date, locale?: strin
  * Plain elements carrying the same class contract the vendored components
  * already write against. No Radix.
  *
- * The CONTEXT MENU is a deliberate no-op passthrough, and that is a decision
- * rather than a shortcut: upstream binds right-click on the desktop to
- * wallpaper actions, which is correct when the desktop owns the page. Over a
- * customer's site it steals a gesture the host may depend on — a canvas, a
- * custom editor, their own context menu. The shell renders the trigger's
- * children and leaves right-click alone.
+ * The CONTEXT MENU is real for TRIGGERED elements and absent for the desktop.
+ *
+ * The distinction is the whole point. Upstream also binds right-click on the
+ * desktop background to wallpaper actions; over a customer's site that steals a
+ * gesture the host may depend on — a canvas, a custom editor, their own menu —
+ * so the shell still leaves the bare page alone. But a right-click on OUR dock
+ * tile is not the host's gesture by any reading, and stubbing it out took the
+ * pin/unpin/close affordances with it.
  */
 
 // Deliberately permissive. These stand in for Radix components whose real
@@ -109,12 +112,154 @@ type Div = React.HTMLAttributes<HTMLDivElement> & Record<string, unknown>;
 type AnyProps = { children?: React.ReactNode } & Record<string, unknown>;
 const passthrough = (props: AnyProps) => <>{props.children}</>;
 
-export const ContextMenu = passthrough;
-export const ContextMenuTrigger = passthrough;
-/** Never rendered: the shell does not intercept the host's right-click. */
-export const ContextMenuContent = (_p: AnyProps) => null;
-export const ContextMenuItem = (_p: AnyProps) => null;
-export const ContextMenuSeparator = (_p: AnyProps) => null;
+interface MenuState {
+  at: { x: number; y: number } | null;
+  show: (x: number, y: number) => void;
+  hide: () => void;
+}
+const MenuCtx = React.createContext<MenuState | null>(null);
+
+export const ContextMenu = ({ children }: AnyProps) => {
+  const [at, setAt] = React.useState<{ x: number; y: number } | null>(null);
+  const value = React.useMemo<MenuState>(
+    () => ({ at, show: (x, y) => setAt({ x, y }), hide: () => setAt(null) }),
+    [at],
+  );
+  return <MenuCtx.Provider value={value}>{children}</MenuCtx.Provider>;
+};
+
+export const ContextMenuTrigger = ({ children, asChild: _a }: AnyProps) => {
+  const ctx = React.useContext(MenuCtx);
+  // Long-press timer. Right-click does not exist on touch, and this menu is
+  // the ONLY way to pin or unpin an app — so on a phone the dock's pin list
+  // was permanently whatever it shipped with.
+  const timer = React.useRef<number | null>(null);
+  const cancel = () => {
+    if (timer.current !== null) window.clearTimeout(timer.current);
+    timer.current = null;
+  };
+
+  if (!React.isValidElement(children)) return <>{children}</>;
+  type WithMenu = {
+    onContextMenu?: (e: React.MouseEvent) => void;
+    onPointerDown?: (e: React.PointerEvent) => void;
+  };
+  const child = children as React.ReactElement<WithMenu>;
+  return React.cloneElement(child, {
+    onContextMenu: (e: React.MouseEvent) => {
+      // preventDefault stops the BROWSER menu; stopPropagation stops the
+      // desktop layer behind us. Both, or the native menu covers ours.
+      e.preventDefault();
+      e.stopPropagation();
+      ctx?.show(e.clientX, e.clientY);
+      child.props.onContextMenu?.(e);
+    },
+    onPointerDown: (e: React.PointerEvent) => {
+      child.props.onPointerDown?.(e);
+      if (e.pointerType !== "touch") return;
+      const { clientX, clientY } = e;
+      // 500ms is the platform convention on both iOS and Android.
+      timer.current = window.setTimeout(() => ctx?.show(clientX, clientY), 500);
+    },
+    onPointerUp: cancel,
+    onPointerCancel: cancel,
+    // A press that turns into a scroll is not a long press.
+    onPointerMove: cancel,
+  } as WithMenu);
+};
+
+export const ContextMenuContent = ({ className, children }: Div) => {
+  const ctx = React.useContext(MenuCtx);
+  const at = ctx?.at;
+
+  React.useEffect(() => {
+    if (!at) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") ctx?.hide();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [at, ctx]);
+
+  if (!at) return null;
+
+  // PORTALLED to <body>, which is not a style preference — it is required.
+  //
+  // `position: fixed` is relative to the nearest ancestor with a transform,
+  // not to the viewport. The dock animates its tiles with `hover:-translate-y`
+  // and the desktop layer has transforms of its own, so a menu rendered in
+  // place computed its coordinates against a container a thousand pixels down
+  // the page and opened off-screen — present in the DOM, invisible on screen,
+  // which is the hardest shape of bug to see in a screenshot.
+  //
+  // Both layers carry data-fos-opaque, and the backdrop is deliberately
+  // full-viewport: while a menu is open the overlay captures the page, so the
+  // click that dismisses it does NOT also land on the host underneath. That is
+  // how a native menu behaves, and without it the first dismissing click would
+  // press whatever button happened to be behind the menu.
+  return createPortal(
+    <>
+      <div
+        data-fos-opaque=""
+        className="fixed inset-0 z-[2147483000]"
+        onPointerDown={() => ctx?.hide()}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          ctx?.hide();
+        }}
+      />
+      <div
+        data-fos-opaque=""
+        role="menu"
+        style={{
+          // Opens toward the reading direction, and flips at the viewport edge
+          // so a tile at the end of the dock does not open off-screen.
+          //
+          // It always opened RIGHTWARD from the pointer, which in an Arabic
+          // shell puts the menu on the far side of the thing it belongs to —
+          // the same mistake as a left-anchored dropdown in an RTL page.
+          ...(document.documentElement.dir === "rtl"
+            ? { left: Math.max(8, at.x - 176) }
+            : { left: Math.min(at.x, window.innerWidth - 176) }),
+          top: Math.min(at.y, window.innerHeight - 160),
+        }}
+        className={cn(
+          "fixed z-[2147483001] min-w-40 rounded-lg border border-[color:var(--fos-chrome-border)] bg-[color:var(--fos-chrome-bg)] p-1 shadow-[var(--fos-shadow-dock)]",
+          className,
+        )}
+        onClick={() => ctx?.hide()}
+      >
+        {children}
+      </div>
+    </>,
+    document.body,
+  );
+};
+
+export const ContextMenuItem = ({ className, onClick, ...p }: Div) => (
+  <div
+    role="menuitem"
+    tabIndex={0}
+    // Focusable but not activatable is the worst of both: the item took a tab
+    // stop, showed a focus ring, and then did nothing on Enter or Space —
+    // pin/unpin and close were reachable by keyboard and impossible to use.
+    onKeyDown={(e) => {
+      if (e.key !== "Enter" && e.key !== " ") return;
+      e.preventDefault();
+      (onClick as ((ev: unknown) => void) | undefined)?.(e);
+    }}
+    onClick={onClick as React.MouseEventHandler<HTMLDivElement>}
+    className={cn(
+      "flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[color:var(--fos-text)] hover:bg-[color:var(--fos-surface-2)]",
+      className,
+    )}
+    {...p}
+  />
+);
+
+export const ContextMenuSeparator = ({ className, ...p }: Div) => (
+  <div className={cn("my-1 h-px bg-[color:var(--fos-chrome-border)]", className)} {...p} />
+);
 
 export const DropdownMenu = passthrough;
 export const DropdownMenuTrigger = passthrough;
@@ -174,7 +319,7 @@ export const Button = ({ className, variant: _v, size: _sz, ...p }: BtnProps) =>
     className={cn(
       "inline-flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium",
       "transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2",
-      "focus-visible:ring-[color:var(--fos-focus)] focus-visible:ring-offset-2",
+      "focus-visible:ring-[color:var(--fos-focus)] focus-visible:ring-offset-2 focus-visible:ring-offset-[color:var(--fos-bg)]",
       className,
     )}
     {...p}
