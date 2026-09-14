@@ -39,10 +39,10 @@ export function DesktopIcon({ app, onOpen, selected, onSelect, tapToOpen, classN
       }}
     >
       <span
-        className="flex h-12 w-12 items-center justify-center rounded-[14px] text-white shadow-md ring-1 ring-inset ring-white/25"
-        style={{ backgroundImage: `linear-gradient(160deg, ${app.color || "#64748b"}, color-mix(in srgb, ${app.color || "#64748b"} 72%, #000))` }}
+        className="flex h-12 w-12 items-center justify-center rounded-md text-white ring-1 ring-inset ring-white/25"
+        style={{ backgroundColor: `${app.color || "#64748b"}` }}
       >
-        <span className="drop-shadow-[0_1px_1px_rgba(0,0,0,0.35)]">
+        <span>
           <DynamicIcon name={app.icon} size={24} />
         </span>
       </span>

@@ -113,7 +113,7 @@ const DockButton = React.forwardRef<HTMLButtonElement, DockButtonProps>(
           data-fos-opaque=""
           role="tooltip"
           className={cn(
-            "pointer-events-none absolute hidden whitespace-nowrap rounded-md border border-[color:var(--fos-chrome-border)] bg-[color:var(--fos-chrome-bg)] px-2 py-1 text-xs font-medium text-[color:var(--fos-text)] shadow-[var(--fos-shadow-dock)] group-hover:block group-focus-visible:block",
+            "pointer-events-none absolute hidden whitespace-nowrap rounded-md border border-[color:var(--fos-chrome-border)] bg-[color:var(--fos-chrome-bg)] px-2 py-1 text-xs font-medium text-[color:var(--fos-text)] group-hover:block group-focus-visible:block",
             // Beside the tile for a side dock, above it for a bottom one.
             //
             // `start-full` is logical, so the label sits to the RIGHT of a
@@ -134,12 +134,12 @@ const DockButton = React.forwardRef<HTMLButtonElement, DockButtonProps>(
             chrome
               ? // Chrome reads as chrome: a surface tile with FOREGROUND ink,
                 // so it is legible in both themes and visibly not an app.
-                "flex h-11 w-11 items-center justify-center rounded-[14px] border border-[color:var(--fos-chrome-border)] bg-[color:var(--fos-surface-2)] text-[color:var(--fos-text)] transition-shadow group-hover:shadow-lg"
-              : "flex h-11 w-11 items-center justify-center rounded-[14px] text-white shadow-md ring-1 ring-inset ring-white/25 transition-shadow group-hover:shadow-xl"
+                "flex h-11 w-11 items-center justify-center rounded-md border border-[color:var(--fos-chrome-border)] bg-[color:var(--fos-surface-2)] text-[color:var(--fos-text)] transition-colors"
+              : "flex h-11 w-11 items-center justify-center rounded-md text-white ring-1 ring-inset ring-white/25 transition-colors"
           }
-          style={chrome ? undefined : { backgroundImage: `linear-gradient(160deg, ${base}, color-mix(in srgb, ${base} 72%, #000))` }}
+          style={chrome ? undefined : { backgroundColor: `${base}` }}
         >
-          <span className="drop-shadow-[0_1px_1px_rgba(0,0,0,0.35)]">{children}</span>
+          <span>{children}</span>
         </span>
         <span className={cn(
           // bg-white/90 upstream: invisible against our near-white light chrome.
@@ -206,7 +206,7 @@ export function Dock({ apps, pinned, openSlugs = [], onLaunch, onCloseApp, onUnp
           // stop a long pin list running past the viewport edge — where the
           // clip does not reach, so the tiles are both invisible and dead.
           // Wrapping grows the dock's own rect instead, which the clip follows.
-          "pointer-events-auto flex flex-wrap items-center justify-center gap-2 rounded-2xl backdrop-blur-2xl",
+          "pointer-events-auto flex flex-wrap items-center justify-center gap-2",
           // The wrap axis follows the orientation, and so does the cap that
           // stops a long pin list running past the edge where the clip does not
           // reach — off the bottom for a row, off the side for a column.
@@ -222,7 +222,7 @@ export function Dock({ apps, pinned, openSlugs = [], onLaunch, onCloseApp, onUnp
           // over a dark wallpaper the desktop owns. We float over an unknown
           // host — a white marketing page, a photo, a video — where 25% black
           // is a coin flip and the white hairline disappears entirely.
-          "border border-[color:var(--fos-chrome-border)] bg-[color:var(--fos-chrome-bg)] shadow-[var(--fos-shadow-dock)]",
+          "border border-[color:var(--fos-chrome-border)] bg-[color:var(--fos-chrome-bg)]",
         )}>
         {onLaunchpad && (
           <>

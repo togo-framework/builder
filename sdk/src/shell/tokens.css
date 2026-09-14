@@ -169,10 +169,10 @@
   --fos-t-3: 0.32s;  /* window open / close / minimize */
   --fos-t-4: 0.15s;  /* dock hover lift */
 
-  --fos-shadow-1: 0 1px 2px rgba(16, 24, 40, 0.07), 0 8px 24px -8px rgba(16, 24, 40, 0.16);
-  --fos-shadow-2: 0 2px 6px rgba(16, 24, 40, 0.08), 0 24px 64px -16px rgba(16, 24, 40, 0.3);
-  --fos-shadow-window: 0 2px 8px rgba(16, 24, 40, 0.1), 0 32px 80px -20px rgba(16, 24, 40, 0.35);
-  --fos-shadow-dock: 0 8px 24px -8px rgba(16, 24, 40, 0.28), 0 1px 2px rgba(16, 24, 40, 0.14);
+  --fos-shadow-1: none;
+  --fos-shadow-2: none;
+  --fos-shadow-window: none;
+  --fos-shadow-dock: none;
 
   /* Window geometry, read by the vendored Window.tsx. The embed has no OS top
      bar, and its dock sits against the HOST's chrome, so upstream's 40/92 are
@@ -188,14 +188,14 @@
   --fos-chrome-bg: color-mix(in srgb, var(--fos-bg) 82%, transparent);
   --fos-chrome-border: rgba(255, 255, 255, 0.1);
   --fos-scrim: rgba(0, 0, 0, 0.45);
-  --fos-shadow-window: 0 2px 8px rgba(0, 0, 0, 0.55), 0 32px 80px -20px rgba(0, 0, 0, 0.8);
-  --fos-shadow-dock: 0 8px 24px -8px rgba(0, 0, 0, 0.55), 0 1px 2px rgba(0, 0, 0, 0.3);
+  --fos-shadow-window: none;
+  --fos-shadow-dock: none;
   /* 1 and 2 were left at their light-mode values — near-black shadows over a
      near-black surface, so an UNFOCUSED window (which uses shadow-1) had no
      visible elevation at all and read as painted onto the page rather than
      floating above it. */
-  --fos-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px -8px rgba(0, 0, 0, 0.6);
-  --fos-shadow-2: 0 2px 6px rgba(0, 0, 0, 0.45), 0 24px 64px -16px rgba(0, 0, 0, 0.7);
+  --fos-shadow-1: none;
+  --fos-shadow-2: none;
 }
 
 [dir="rtl"] { --fos-lh-body-doc: var(--fos-lh-body-ar); }

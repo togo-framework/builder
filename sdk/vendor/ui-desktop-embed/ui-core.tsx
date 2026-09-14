@@ -224,7 +224,7 @@ export const ContextMenuContent = ({ className, children }: Div) => {
           top: Math.min(at.y, window.innerHeight - 160),
         }}
         className={cn(
-          "fixed z-[2147483001] min-w-40 rounded-lg border border-[color:var(--fos-chrome-border)] bg-[color:var(--fos-chrome-bg)] p-1 shadow-[var(--fos-shadow-dock)]",
+          "fixed z-[2147483001] min-w-40 rounded-lg border border-[color:var(--fos-chrome-border)] bg-[color:var(--fos-chrome-bg)] p-1",
           className,
         )}
         onClick={() => ctx?.hide()}
@@ -264,7 +264,7 @@ export const ContextMenuSeparator = ({ className, ...p }: Div) => (
 export const DropdownMenu = passthrough;
 export const DropdownMenuTrigger = passthrough;
 export const DropdownMenuContent = ({ className, align: _a, side: _s, sideOffset: _o, ...p }: Div) => (
-  <div className={cn("rounded-md border border-border bg-popover p-1 shadow-md", className)} {...(p as Div)} />
+  <div className={cn("rounded-md border border-border bg-popover p-1", className)} {...(p as Div)} />
 );
 export const DropdownMenuItem = ({ className, ...p }: Div) => (
   <div role="menuitem" className={cn("cursor-pointer rounded-sm px-2 py-1.5 text-sm hover:bg-muted", className)} {...p} />
@@ -276,12 +276,12 @@ export const DropdownMenuSeparator = ({ className, ...p }: Div) => (
 export const Popover = passthrough;
 export const PopoverTrigger = passthrough;
 export const PopoverContent = ({ className, align: _a, side: _s, sideOffset: _o, ...p }: Div) => (
-  <div className={cn("rounded-md border border-border bg-popover p-2 shadow-md", className)} {...(p as Div)} />
+  <div className={cn("rounded-md border border-border bg-popover p-2", className)} {...(p as Div)} />
 );
 
 export const Sheet = passthrough;
 export const SheetContent = ({ className, side: _s, ...p }: Div) => (
-  <div className={cn("fixed inset-y-0 end-0 w-80 border-s border-border bg-card shadow-xl", className)} {...(p as Div)} />
+  <div className={cn("fixed inset-y-0 end-0 w-80 border-s border-border bg-card", className)} {...(p as Div)} />
 );
 export const SheetHeader = ({ className, ...p }: Div) => (
   <div className={cn("border-b border-border p-4", className)} {...p} />

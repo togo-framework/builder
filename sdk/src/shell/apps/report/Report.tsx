@@ -184,7 +184,7 @@ export function Report({ host, context, attachments, onRemoveAttachment, onSubmi
           rows={4}
           aria-label={L("What happened?", "ماذا حدث؟")}
           className={[
-            "w-full resize-y rounded-[10px] border border-[color:var(--fos-border)] bg-[color:var(--fos-bg)]",
+            "w-full resize-y rounded-md border border-[color:var(--fos-border)] bg-[color:var(--fos-bg)]",
             "px-3 py-2.5 text-sm outline-none transition-colors",
             "focus-visible:border-[color:var(--fos-accent)] focus-visible:ring-2 focus-visible:ring-[color:var(--fos-focus)]/30",
           ].join(" ")}
@@ -372,7 +372,7 @@ export function Report({ host, context, attachments, onRemoveAttachment, onSubmi
                   setText(s.text);
                   box.current?.focus();
                 }}
-                className="flex items-start gap-2 rounded-[10px] border border-[color:var(--fos-border)] bg-[color:var(--fos-surface)] p-2.5 text-start text-xs transition-colors hover:border-[color:var(--fos-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--fos-focus)]"
+                className="flex items-start gap-2 rounded-md border border-[color:var(--fos-border)] bg-[color:var(--fos-surface)] p-2.5 text-start text-xs transition-colors hover:border-[color:var(--fos-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--fos-focus)]"
               >
                 <Icon name={s.icon} size={13} className="mt-0.5 shrink-0 text-[color:var(--fos-muted)]" />
                 <span>{s.label}</span>

@@ -377,7 +377,7 @@ export function Window({
             // without this it is drawn into a clipped-away region and the snap
             // hint is invisible exactly while it is needed.
             data-fos-opaque=""
-            className="pointer-events-none fixed rounded-xl border-2 border-primary/70 bg-primary/15 backdrop-blur-sm transition-all duration-100"
+            className="pointer-events-none fixed border-2 border-primary/70 bg-primary/15 transition-all duration-100"
             // ABOVE the dragged window, not below it. `zIndex - 1` put the
             // preview under every other open window, so on a busy desktop the
             // hint was hidden by whatever happened to be stacked there.
@@ -410,13 +410,13 @@ export function Window({
         // of it — you can keep your place while a window is open. The blur is
         // what keeps text legible over arbitrary content; without it, a window
         // over a photograph is unreadable at any opacity worth having.
-        "fixed flex flex-col overflow-hidden border bg-card/80 backdrop-blur-2xl backdrop-saturate-150 transition-shadow",
+        "fixed flex flex-col overflow-hidden border bg-card transition-colors",
         // Only the CHROME recedes on blur. The content area is untouched:
         // repainting an app to dim it is expensive, and no real desktop does it.
         focused
-          ? "border-[color:var(--fos-border-strong)] shadow-[var(--fos-shadow-window)]"
-          : "border-border shadow-[var(--fos-shadow-1)]",
-        isMobile ? "rounded-none" : "rounded-xl",
+          ? "border-[color:var(--fos-border-strong)]"
+          : "border-border",
+        isMobile ? "rounded-none" : "rounded-none",
         "origin-bottom transition-[opacity,transform] duration-200 ease-out",
         minimized
           ? "pointer-events-none translate-y-[45vh] scale-50 opacity-0"

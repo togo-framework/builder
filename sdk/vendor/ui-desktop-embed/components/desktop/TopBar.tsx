@@ -81,7 +81,7 @@ export function TopBar({
   return (
     <div
       className={cn(
-        "fixed inset-x-0 top-0 z-50 flex h-9 items-center justify-between gap-3 bg-black/25 px-2 text-xs text-white backdrop-blur-lg",
+        "fixed inset-x-0 top-0 z-50 flex h-9 items-center justify-between gap-3 bg-black/60 px-2 text-xs text-white",
         className,
       )}
     >

@@ -64,14 +64,14 @@ export function Spotlight({ open, onOpenChange, apps, onLaunch }: SpotlightProps
   return (
     <div
       className={cn(
-        "fixed inset-0 z-[70] flex items-start justify-center bg-black/30 backdrop-blur-md transition-opacity duration-200",
+        "fixed inset-0 z-[70] flex items-start justify-center bg-black/50 transition-opacity duration-200",
         shown ? "opacity-100" : "opacity-0",
       )}
       onClick={(e) => { if (e.target === e.currentTarget) onOpenChange(false); }}
     >
       <div
         className={cn(
-          "mt-[16vh] w-[92vw] max-w-xl origin-top overflow-hidden rounded-2xl border border-border/60 bg-popover/90 shadow-2xl backdrop-blur-2xl transition-all duration-200 ease-out",
+          "mt-[16vh] w-[92vw] max-w-xl origin-top overflow-hidden border border-border/60 bg-popover transition-all duration-200 ease-out",
           shown ? "translate-y-0 scale-100 opacity-100" : "-translate-y-3 scale-95 opacity-0",
         )}
       >
@@ -88,8 +88,8 @@ export function Spotlight({ open, onOpenChange, apps, onLaunch }: SpotlightProps
                   className="gap-3"
                 >
                   <span
-                    className="flex h-9 w-9 items-center justify-center rounded-[10px] text-white ring-1 ring-inset ring-white/25"
-                    style={{ backgroundImage: `linear-gradient(160deg, ${app.color || "#64748b"}, color-mix(in srgb, ${app.color || "#64748b"} 72%, #000))` }}
+                    className="flex h-9 w-9 items-center justify-center rounded-md text-white ring-1 ring-inset ring-white/25"
+                    style={{ backgroundColor: `${app.color || "#64748b"}` }}
                   >
                     <DynamicIcon name={app.icon} size={18} />
                   </span>

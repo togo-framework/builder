@@ -40,7 +40,7 @@ export function NotificationCenter({
 }: NotificationCenterProps) {
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-full gap-0 border-white/10 bg-background/95 p-0 backdrop-blur-xl sm:max-w-sm">
+      <SheetContent side="right" className="w-full gap-0 border-white/10 bg-background p-0 sm:max-w-sm">
         <SheetHeader className="flex flex-row items-center justify-between gap-2 border-b border-border px-4 py-3">
           <SheetTitle className="flex items-center gap-2 text-base">
             <Bell className="h-4 w-4" />

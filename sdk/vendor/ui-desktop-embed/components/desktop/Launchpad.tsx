@@ -123,7 +123,7 @@ export function Launchpad({
         // which is only legible over a dark page — over a light host site the
         // Launchpad was white-on-white-ish and the labels disappeared. The
         // scrim now follows the theme like every other surface.
-        "fixed inset-0 z-[60] flex flex-col items-center bg-[color:var(--fos-scrim)] backdrop-blur-2xl transition-opacity duration-200",
+        "fixed inset-0 z-[60] flex flex-col items-center bg-[color:var(--fos-scrim)] transition-opacity duration-200",
         shown ? "opacity-100" : "opacity-0",
         // pointer-events off while fading OUT. The scrim stayed hit-testable
         // for the whole 200ms transition, so the click that dismissed the
@@ -153,7 +153,7 @@ export function Launchpad({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder={t.search}
-            className="w-full rounded-xl border border-[color:var(--fos-chrome-border)] bg-[color:var(--fos-surface)]/70 py-2 ps-9 pe-3 text-center text-sm text-[color:var(--fos-text)] placeholder:text-[color:var(--fos-muted)] outline-none backdrop-blur-md focus-visible:border-[color:var(--fos-focus)] focus-visible:ring-2 focus-visible:ring-[color:var(--fos-focus)]"
+            className="w-full rounded-md border border-[color:var(--fos-chrome-border)] bg-[color:var(--fos-surface)]/70 py-2 ps-9 pe-3 text-center text-sm text-[color:var(--fos-text)] placeholder:text-[color:var(--fos-muted)] outline-none focus-visible:border-[color:var(--fos-focus)] focus-visible:ring-2 focus-visible:ring-[color:var(--fos-focus)]"
           />
         </div>
       </div>
@@ -174,13 +174,13 @@ export function Launchpad({
                 <button
                   type="button"
                   onClick={() => launch(app.slug)}
-                  className="group flex select-none flex-col items-center gap-2 rounded-2xl p-2 transition hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--fos-focus)]"
+                  className="group flex select-none flex-col items-center gap-2 p-2 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--fos-focus)]"
                 >
                   <span
-                    className="flex h-16 w-16 items-center justify-center rounded-[22px] text-white shadow-lg ring-1 ring-inset ring-white/25"
-                    style={{ backgroundImage: `linear-gradient(160deg, ${app.color || "#64748b"}, color-mix(in srgb, ${app.color || "#64748b"} 72%, #000))` }}
+                    className="flex h-16 w-16 items-center justify-center rounded-md text-white ring-1 ring-inset ring-white/25"
+                    style={{ backgroundColor: `${app.color || "#64748b"}` }}
                   >
-                    <span className="drop-shadow-[0_1px_2px_rgba(0,0,0,0.4)]">
+                    <span>
                       <DynamicIcon name={app.icon} label={app.name} size={32} />
                     </span>
                   </span>

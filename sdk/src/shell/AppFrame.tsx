@@ -142,7 +142,7 @@ export function AppFrame({ app, host, builtins }: AppFrameProps) {
     <div className="relative h-full w-full">
       {el}
       {frameState !== "ready" && (
-        <div className="absolute inset-0 grid place-items-center bg-[color:var(--fos-bg)]/60 p-6 text-center backdrop-blur-sm">
+        <div className="absolute inset-0 grid place-items-center bg-[color:var(--fos-bg)]/90 p-6 text-center">
           {frameState === "loading" ? (
             <span
               role="status"
