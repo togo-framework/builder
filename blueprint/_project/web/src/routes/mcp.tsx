@@ -231,7 +231,7 @@ export const Mcp = () => {
   };
 
   const serverCard = (id: Server, badge: string, tone: "neutral" | "warning") => (
-    <article className="flex min-w-0 flex-col rounded-xl border border-border bg-card">
+    <article className="flex min-w-0 flex-col border border-border bg-card">
       <header className="flex flex-wrap items-center gap-2 border-b border-border px-4 py-2.5">
         {/* The server name is an identifier, not a word — same in both
             languages, and in the mono face that says so. */}
@@ -313,7 +313,7 @@ export const Mcp = () => {
       {/* Three steps, numbered, because "how do I connect this" is the only
           question this page exists to answer and it has an order. */}
       <Section title={A.mcp.stepsHeading}>
-        <ol className="grid gap-px overflow-hidden rounded-xl border border-border bg-border sm:grid-cols-3">
+        <ol className="grid gap-px overflow-hidden border border-border bg-border sm:grid-cols-3">
           {[A.mcp.step1, A.mcp.step2, A.mcp.step3].map((step, i) => (
             <li key={i} className="flex items-start gap-2.5 bg-card px-4 py-3">
               <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-primary/15 text-[11px] font-semibold tabular-nums text-primary">
@@ -361,7 +361,7 @@ export const Mcp = () => {
       </FormCard>
 
       {minted && (
-        <section className="rounded-xl border border-success/40 bg-success/5">
+        <section className="border border-success/40 bg-success/5">
           <header className="flex flex-wrap items-center gap-2 border-b border-success/30 px-4 py-3">
             <KeyRound className="size-4 shrink-0 text-success" />
             <h2 className="min-w-0 text-sm font-semibold">
@@ -419,7 +419,7 @@ export const Mcp = () => {
                     onClick={() => setTab(k)}
                     className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${
                       tab === k
-                        ? "bg-card text-foreground shadow-sm"
+                        ? "bg-card text-foreground"
                         : "text-muted-foreground hover:text-foreground"
                     }`}
                   >

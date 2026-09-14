@@ -61,7 +61,7 @@ export const SkillCard = ({
 
   return (
     <div
-      className="relative flex h-full w-full min-w-0 flex-col rounded-xl border border-border bg-card p-5
+      className="relative flex h-full w-full min-w-0 flex-col border border-border bg-card p-5
                  transition-colors hover:border-primary/50 hover:bg-muted/30
                  has-[a:focus-visible]:ring-2 has-[a:focus-visible]:ring-primary"
     >
@@ -81,7 +81,7 @@ export const SkillCard = ({
               // The stretched overlay: the whole card is the click target, the
               // link carries the semantics. The button is a sibling raised
               // above it, so pressing it is never also a navigation.
-              className="min-w-0 flex-1 focus-visible:outline-none after:absolute after:inset-0 after:rounded-xl after:content-['']"
+              className="min-w-0 flex-1 focus-visible:outline-none after:absolute after:inset-0 after:content-['']"
             >
               {/* <bdi> isolates a latin name inside an Arabic row without the
                   block-level dir="ltr" that would drag it off the reading edge. */}

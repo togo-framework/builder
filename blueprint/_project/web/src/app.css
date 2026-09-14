@@ -102,10 +102,10 @@
      floats above the thing behind it". A soft grey blur at 20% alpha is the
      single fastest way to make a tool look like a 2014 admin template. */
   --shadow-xs: 0 1px 1px 0 hsl(213 30% 20% / 0.04);
-  --shadow-sm: 0 1px 2px 0 hsl(213 30% 20% / 0.06), 0 1px 1px -0.5px hsl(213 30% 20% / 0.05);
-  --shadow-md: 0 4px 8px -2px hsl(213 30% 20% / 0.08), 0 2px 4px -2px hsl(213 30% 20% / 0.06);
-  --shadow-lg: 0 12px 24px -6px hsl(213 30% 20% / 0.12), 0 4px 8px -4px hsl(213 30% 20% / 0.07);
-  --shadow-xl: 0 24px 48px -12px hsl(213 30% 20% / 0.16), 0 8px 16px -8px hsl(213 30% 20% / 0.09);
+  --shadow-sm: none;
+  --shadow-md: none;
+  --shadow-lg: none;
+  --shadow-xl: none;
   --shadow-brand: 0 6px 20px -6px hsl(var(--primary) / 0.30);
 
   /* The rim light that separates a floating panel from the page behind it.
@@ -171,10 +171,10 @@
      added to md/lg/xl only — the surfaces that genuinely float (popover,
      dialog, sheet). xs/sm stay pure shadow so buttons don't grow a highlight. */
   --shadow-xs: 0 1px 2px 0 hsl(0 0% 0% / 0.40);
-  --shadow-sm: 0 1px 3px 0 hsl(0 0% 0% / 0.50), 0 1px 2px -1px hsl(0 0% 0% / 0.40);
-  --shadow-md: inset 0 1px 0 0 hsl(0 0% 100% / 0.04), 0 6px 14px -4px hsl(0 0% 0% / 0.60);
-  --shadow-lg: inset 0 1px 0 0 hsl(0 0% 100% / 0.05), 0 16px 32px -8px hsl(0 0% 0% / 0.70);
-  --shadow-xl: inset 0 1px 0 0 hsl(0 0% 100% / 0.06), 0 32px 64px -16px hsl(0 0% 0% / 0.80);
+  --shadow-sm: none;
+  --shadow-md: none;
+  --shadow-lg: none;
+  --shadow-xl: none;
   --shadow-brand: 0 8px 28px -8px hsl(var(--primary) / 0.45);
 
   --rim: inset 0 0 0 1px hsl(0 0% 100% / 0.06);
@@ -450,7 +450,7 @@ body { margin: 0; font-family: var(--tg-font); }
      surface-raised is the one class a floating panel needs: the theme's
      elevation shadow plus the rim light that actually does the separating in
      dark mode. */
-  .surface-raised { box-shadow: var(--rim), var(--shadow-lg); }
+  .surface-raised { box-shadow: var(--rim); }
   .surface-sunken { background-color: hsl(var(--background)); box-shadow: var(--rim); }
 
   /* ── Numeric readouts ─────────────────────────────────────────────────

@@ -63,7 +63,7 @@ export const EntityPanel = ({
         role="dialog"
         aria-label={d ? `Entity ${d.name}` : "Entity"}
         className="fixed inset-y-0 end-0 z-50 flex w-full max-w-md flex-col gap-3 overflow-y-auto
-                   border-s border-border bg-card p-4 shadow-2xl
+                   border-s border-border bg-card p-4
                    animate-in slide-in-from-right duration-200 motion-reduce:animate-none"
       >
         <header className="flex items-start justify-between gap-2">

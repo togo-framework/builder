@@ -20,7 +20,7 @@ export interface DesktopPrefs {
 
 const DEFAULT_PREFS: DesktopPrefs = {
   theme: "dark",
-  accent: "#1FC7DC",
+  accent: "#1F8A99",
   wallpaper: "aurora",
   lock_wallpaper: "monterey",
   dock_pinned: [],

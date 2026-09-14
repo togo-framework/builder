@@ -175,7 +175,7 @@ export function Welcome() {
           page stops belonging to the product. */}
       <div
         aria-hidden="true"
-        className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-96 bg-[radial-gradient(620px_320px_at_50%_-4%,hsl(var(--primary)/0.16),transparent_70%)]"
+        className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-96"
       />
 
       <PageShell>

@@ -128,7 +128,7 @@ function Card({
   const missing = status?.state === "missing";
 
   return (
-    <div className="flex flex-col gap-3 rounded-xl border border-border bg-card p-4">
+    <div className="flex flex-col gap-3 border border-border bg-card p-4">
       <div className="flex items-start gap-3">
         <span
           className="grid size-9 shrink-0 place-items-center rounded-lg text-white"

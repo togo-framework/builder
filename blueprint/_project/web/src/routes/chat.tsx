@@ -351,7 +351,7 @@ export const Chat = () => {
         {/* ONE surface: toolbar, thread, composer. The composer belonging to
             the same frame as the messages is what makes it read as a
             conversation rather than a page with a text field at the bottom. */}
-        <section className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-border bg-card">
+        <section className="flex min-h-0 flex-col overflow-hidden border border-border bg-card">
           <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-border px-3 py-2">
             <Select
               value={agent}
@@ -445,13 +445,13 @@ export const Chat = () => {
                     // independent of the UI locale — each bubble takes its base
                     // direction from its own first strong character.
                     dir="auto"
-                    className="max-w-[85%] rounded-2xl rounded-ee-sm border border-primary/25 bg-primary/10 px-3.5 py-2.5"
+                    className="max-w-[85%] rounded-md rounded-ee-sm border border-primary/25 bg-primary/10 px-3.5 py-2.5"
                   >
                     <p className="whitespace-pre-wrap text-sm">{t.text}</p>
                   </div>
                 </div>
               ) : (
-                <article key={i} className="rounded-xl border border-border bg-card">
+                <article key={i} className="border border-border bg-card">
                   <header className="flex items-center gap-2 border-b border-border/60 px-3 py-1.5">
                     <span className="flex size-5 items-center justify-center rounded-md bg-primary/15 text-primary">
                       <Bot className="size-3.5" />
@@ -538,7 +538,7 @@ export const Chat = () => {
                 sequence — recall, then the model — and the clock is the part
                 that tells an operator whether to keep waiting. */}
             {busy && (
-              <div className="rounded-xl border border-border bg-card">
+              <div className="border border-border bg-card">
                 <header className="flex items-center gap-2 border-b border-border/60 px-3 py-1.5">
                   <span className="flex size-5 items-center justify-center rounded-md bg-primary/15 text-primary">
                     <Bot className="size-3.5" />

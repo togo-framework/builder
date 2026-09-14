@@ -76,7 +76,7 @@ export function AgentAlerts() {
       )}
 
       {decisions.length > 0 && (
-        <div className="fixed inset-x-0 top-0 z-50 border-b border-warning/40 bg-warning/10 backdrop-blur">
+        <div className="fixed inset-x-0 top-0 z-50 border-b border-warning/40 bg-warning/10">
           <div className="mx-auto max-w-4xl p-4">
             <p className="mb-3 text-sm font-semibold text-warning">
               {decisions.length === 1
@@ -157,7 +157,7 @@ export function AgentAlerts() {
         {toasts.map((t) => (
           <div
             key={t.id}
-            className={`pointer-events-auto rounded-lg border p-3 shadow-lg backdrop-blur ${
+            className={`pointer-events-auto rounded-lg border p-3 ${
               t.severity === "action_required"
                 ? "border-warning/40 bg-warning/10"
                 : "border-border bg-background"}`}

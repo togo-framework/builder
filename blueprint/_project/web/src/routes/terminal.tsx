@@ -284,7 +284,7 @@ export const Terminal = () => {
           icon={<SquareTerminal className="size-5" />}
           description={A.term.desc}
         />
-        <Skeleton className="h-[min(72dvh,760px)] w-full rounded-xl" />
+        <Skeleton className="h-[min(72dvh,760px)] w-full" />
       </PageShell>
     );
   }
@@ -318,7 +318,7 @@ export const Terminal = () => {
           description={A.term.desc}
         />
         <Callout kind="warn" title={A.term.noTmuxTitle}>{A.term.noTmuxBody}</Callout>
-        <div className="rounded-xl border border-border bg-card">
+        <div className="border border-border bg-card">
           <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-1.5">
             <span className="font-mono text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
               shell
@@ -371,7 +371,7 @@ export const Terminal = () => {
       {/* One frame: tab strip, title bar, terminal. The sessions used to be
           loose pills above an unrelated black rectangle, which is why the page
           read as two widgets that happened to share a screen. */}
-      <section className="flex min-w-0 flex-col overflow-hidden rounded-xl border border-border bg-card">
+      <section className="flex min-w-0 flex-col overflow-hidden border border-border bg-card">
         {status.sessions.length > 0 && (
           <div
             role="tablist"
@@ -479,7 +479,7 @@ export const Terminal = () => {
                 <div className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center">
                   <Button
                     size="sm"
-                    className="pointer-events-auto shadow-lg"
+                    className="pointer-events-auto"
                     onClick={handleJumpToLatest}
                   >
                     <ArrowDownToLine className="me-1.5 size-4" />

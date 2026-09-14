@@ -34,14 +34,14 @@ export const AgentTile = ({
       <img
         src={a.avatarUrl}
         alt=""
-        className={`shrink-0 rounded-xl object-cover ${dim} ${className}`}
+        className={`shrink-0 object-cover ${dim} ${className}`}
       />
     );
   }
   return (
     <span
       aria-hidden="true"
-      className={`flex shrink-0 items-center justify-center rounded-xl font-semibold text-white ${dim} ${className}`}
+      className={`flex shrink-0 items-center justify-center font-semibold text-white ${dim} ${className}`}
       // The one non-token colour on the page: the agent's own identity colour,
       // stored data (or derived from the slug), not a style decision.
       style={{ background: color }}
@@ -109,7 +109,7 @@ const AgentCard = ({
 
   return (
     <div
-      className="relative flex h-full min-w-0 flex-col rounded-xl border border-border bg-card p-5
+      className="relative flex h-full min-w-0 flex-col border border-border bg-card p-5
                  transition-colors hover:border-primary/50 hover:bg-muted/30
                  has-[a:focus-visible]:ring-2 has-[a:focus-visible]:ring-primary"
     >
@@ -126,7 +126,7 @@ const AgentCard = ({
               // The stretched overlay: the card is the click target, the link
               // is the semantics. The button is a sibling raised above this
               // overlay, so pressing it is never also a navigation.
-              className="min-w-0 flex-1 focus-visible:outline-none after:absolute after:inset-0 after:rounded-xl after:content-['']"
+              className="min-w-0 flex-1 focus-visible:outline-none after:absolute after:inset-0 after:content-['']"
             >
               <span
                 className={`block truncate text-sm font-semibold ${off ? "text-muted-foreground" : "text-foreground"}`}

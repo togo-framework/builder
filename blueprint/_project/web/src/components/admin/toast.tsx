@@ -25,7 +25,7 @@ export function ToastProvider({ children, dir = "ltr" }: { children: ReactNode; 
       <div dir={dir} className="pointer-events-none fixed bottom-4 z-[100] flex flex-col gap-2 px-4" style={{ [dir === "rtl" ? "left" : "right"]: 0 }}>
         {items.map((t) => (
           <div key={t.id} role="status"
-            className="pointer-events-auto flex items-center gap-2 rounded-lg border border-border bg-card px-3.5 py-2.5 text-sm shadow-lg">
+            className="pointer-events-auto flex items-center gap-2 rounded-lg border border-border bg-card px-3.5 py-2.5 text-sm">
             {t.kind === "success" ? <CheckCircle2 className="h-4 w-4 text-success" /> : <AlertCircle className="h-4 w-4 text-destructive" />}
             <span className="font-medium">{t.msg}</span>
             <button onClick={() => dismiss(t.id)} className="ms-2 text-muted-foreground hover:text-foreground"><X className="h-3.5 w-3.5" /></button>
