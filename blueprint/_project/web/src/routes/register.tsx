@@ -3,6 +3,7 @@ import { AuthLayout, RegisterForm } from "@fadymondy/nasaq/web";
 import { auth, clearSession } from "../lib/auth";
 import { APP_NAME } from "../lib/api";
 import { useLang } from "../lib/locale";
+import { AppAuthFooter } from "../components/auth-footer";
 
 export function Register() {
   const nav = useNavigate();
@@ -11,7 +12,8 @@ export function Register() {
     <AuthLayout
       title={tx("Create your account", "أنشئ حسابك")}
       description={tx(`Get started with ${APP_NAME} in seconds`, `ابدأ مع ${APP_NAME} في ثوانٍ`)}
-      footer={<p className="text-center text-body-sm text-muted-foreground">{tx("Already registered?", "لديك حساب؟")} <Link to="/login" className="font-medium text-primary hover:underline">{tx("Sign in", "تسجيل الدخول")}</Link></p>}
+      prompt={<>{tx("Already registered?", "لديك حساب؟")} <Link to="/login" className="font-medium text-primary hover:underline">{tx("Sign in", "تسجيل الدخول")}</Link></>}
+      footer={<AppAuthFooter />}
     >
       <RegisterForm
         requireTerms={false}

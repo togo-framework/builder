@@ -4,7 +4,7 @@ import { LayoutGrid, Table2, UserRound, Languages, X } from "lucide-react";
 import {
   AppShell, AppHeader, AppMain, Sidebar, SidebarHeader, SidebarContent, SidebarFooter,
   SidebarGroup, SidebarItem, SidebarTrigger, SidebarExpandedOnly,
-  DropdownMenuItem, UserMenu, ProductMark, WsStatus, ThemeSwitcher, LocaleSwitcher,
+  DropdownMenuItem, UserMenu, ProductMark, WsStatus,
 } from "@fadymondy/nasaq/web";
 import { useLocale } from "../lib/locale";
 import { auth, sessionMe, clearSession, type Me } from "../lib/auth";
@@ -285,7 +285,7 @@ export function AppLayout() {
         ))}
       </SidebarContent>
       <SidebarFooter>
-        <UserMenu user={{ name, email: me?.email ?? "" }} preferences={false} onSignOut={signOut} labels={{ signOut: ar_label("Sign out", "تسجيل الخروج", ar) }}>
+        <UserMenu user={{ name, email: me?.email ?? "" }} onSignOut={signOut} labels={{ theme: ar_label("Theme", "المظهر", ar), language: ar_label("Language", "اللغة", ar), signOut: ar_label("Sign out", "تسجيل الخروج", ar) }}>
           <DropdownMenuItem onClick={() => go("/profile")}><UserRound />{ar_label("Profile", "الملف الشخصي", ar)}</DropdownMenuItem>
         </UserMenu>
       </SidebarFooter>
@@ -303,10 +303,6 @@ export function AppLayout() {
         <AppHeader>
           <SidebarTrigger />
           <WsStatus state={live ? "connected" : "offline"} showLatency={false} />
-          <div className="ms-auto flex items-center gap-1">
-            <LocaleSwitcher />
-            <ThemeSwitcher />
-          </div>
         </AppHeader>
         <AppMain><Outlet /></AppMain>
       </AppShell>

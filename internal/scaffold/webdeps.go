@@ -28,7 +28,7 @@ import (
 var webDeps = map[string]string{
 	"@tanstack/react-query":  "^5.62.0",
 	"@tanstack/react-router": "^1.95.0",
-	"@fadymondy/nasaq":       "^0.2.0",
+	"@fadymondy/nasaq":       "^0.3.1",
 	"lucide-react":           "^1.48.0",
 	"react":                  "^19.0.0",
 	"react-dom":              "^19.0.0",
