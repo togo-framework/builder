@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { Button, Checkbox, Progress, Textarea, cn, useT } from "@togo-framework/ui";
+import { Button, Checkbox, Progress, Textarea, cn } from "@fadymondy/nasaq/web";
+import { useLocale } from "../lib/locale";
 import {
   Boxes, Brain, Check, ClipboardList, Languages, Rocket, TriangleAlert, Wrench,
 } from "lucide-react";
@@ -65,7 +66,7 @@ const CHECK_STATUS: Record<PreflightCheck["status"], FootprintStatus> = {
 export function Setup() {
   const nav = useNavigate();
   const { S, language } = useSetupStrings();
-  const { setLanguage } = useT();
+  const { setLanguage } = useLocale();
   const ar = language === "ar";
   const [state, setState] = useState<SetupState | null>(null);
   const [step, setStep] = useState<string>("preflight");
@@ -395,7 +396,7 @@ export function Setup() {
       description={S.setup.desc}
       actions={
         <Button
-          variant="outline"
+          variant="secondary"
           size="sm"
           onClick={handleToggleLanguage}
           aria-label={S.setup.switchLangAria}
@@ -685,7 +686,7 @@ export function Setup() {
           {progress?.running && (
             <div className="flex flex-wrap items-center gap-3">
               <Button
-                variant="outline"
+                variant="secondary"
                 onClick={() => void nav({ to: "/dashboard" })}
                 className="motion-press"
               >
@@ -757,7 +758,7 @@ export function Setup() {
                   {busy ? S.setup.genStarting : S.setup.genResume}
                 </Button>
                 <Button
-                  variant="outline"
+                  variant="secondary"
                   onClick={() => void nav({ to: "/dashboard" })}
                   className="motion-press"
                 >

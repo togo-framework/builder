@@ -11,15 +11,18 @@
 // badges, without touching this file.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Button, EmptyState, Input, StatusBadge } from "@togo-framework/ui";
 import {
-  Bot, BookOpen, ChartColumn, Cloud, Database, Github, Globe, LoaderCircle, Lock,
+  Button, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Input, Status,
+} from "@fadymondy/nasaq/web";
+import { EmptyState } from "../components/ui/empty-state";
+import {
+  Bot, BookOpen, ChartColumn, Cloud, Database, GitBranch, Globe, LoaderCircle, Lock,
   MessageSquare, Pause, Play, Plug, Plus, RefreshCw, Search, Send, Settings2, Sparkles,
   TerminalSquare, Trash2, TriangleAlert,
 } from "lucide-react";
 import {
   connect, disconnect, getCatalog, getStatuses, t,
-  type Category, type CategoryMeta, type Integration, type Status,
+  type Category, type CategoryMeta, type Integration, type Status as ProbeStatus,
 } from "../lib/integrations";
 import { AppPageHeader as PageHeader, PageShell, Section } from "../components/page-shell";
 import { BRAND } from "../components/brand-icons";
@@ -27,15 +30,12 @@ import { SchemaForm, defaultsOf, validate, type JSONSchema, type Values } from "
 import {
   createSource, deleteSource, listSources, patchSource, refreshSource, type Source,
 } from "../lib/sources";
-import {
-  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
-} from "@togo-framework/ui";
 import { useStrings } from "../lib/i18n";
 
 /** Registry icon names → the kit's glyphs. Unknown falls back rather than
  *  rendering nothing, so a new integration is never an invisible card. */
 const ICONS: Record<string, typeof Plug> = {
-  Sparkle: Sparkles, Github, Cloud, MessageSquare, Send, Layers: Database,
+  Sparkle: Sparkles, Github: GitBranch, Cloud, MessageSquare, Send, Layers: Database,
   Globe, BookOpen, Search, BarChart3: ChartColumn, Bot, RefreshCw, Lock, Plug,
 };
 // A real logo when we have a verified one, the registry's generic glyph
@@ -54,7 +54,7 @@ const CAT_ICON: Record<Category, typeof Plug> = {
 
 /** The badge for a live probe. Only terminal integrations have one — the rest
  *  have no status to report until they are configured. */
-function StateBadge({ s, ar }: { s?: Status; ar: boolean }) {
+function StateBadge({ s, ar }: { s?: ProbeStatus; ar: boolean }) {
   if (!s) return null;
   const map = {
     connected: { tone: "success" as const, label: ar ? "متصل" : "Connected" },
@@ -62,7 +62,7 @@ function StateBadge({ s, ar }: { s?: Status; ar: boolean }) {
     missing: { tone: "danger" as const, label: ar ? "غير مثبّت" : "Not installed" },
     unknown: { tone: "neutral" as const, label: ar ? "غير معروف" : "Unknown" },
   }[s.state];
-  return <StatusBadge tone={map.tone}>{map.label}</StatusBadge>;
+  return <Status tone={map.tone}>{map.label}</Status>;
 }
 
 /** What this integration is allowed to do, stated rather than implied.
@@ -105,7 +105,7 @@ function Card({
   i, status, ar, busy, rows, rowBusy, conn, onConnect, onDisconnect, onConfigure, onAuthorize,
 }: {
   i: Integration;
-  status?: Status;
+  status?: ProbeStatus;
   ar: boolean;
   busy: boolean;
   /** This integration's configured connections. Many are normal. */
@@ -218,7 +218,7 @@ function Card({
           // the worst possible way to learn an integration is unfinished.
           <Button
             size="sm"
-            variant="outline"
+            variant="secondary"
             disabled
             title={
               ar
@@ -349,7 +349,7 @@ function ConnectionRows({
           </div>
         );
       })}
-      <Button size="sm" variant="outline" className="mt-0.5 self-start" onClick={onAdd}>
+      <Button size="sm" variant="secondary" className="mt-0.5 self-start" onClick={onAdd}>
         <Plus className="size-3.5" />
         {rows.length === 0
           ? ar
@@ -529,7 +529,7 @@ export const Connections = () => {
 
   const [cats, setCats] = useState<CategoryMeta[]>([]);
   const [items, setItems] = useState<Integration[]>([]);
-  const [statuses, setStatuses] = useState<Record<string, Status>>({});
+  const [statuses, setStatuses] = useState<Record<string, ProbeStatus>>({});
   const [loading, setLoading] = useState(true);
   const [probing, setProbing] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
@@ -733,7 +733,7 @@ export const Connections = () => {
                 className="w-48 ps-8"
               />
             </div>
-            <Button variant="outline" size="sm" onClick={probe} disabled={probing}>
+            <Button variant="secondary" size="sm" onClick={probe} disabled={probing}>
               <RefreshCw className={`size-3.5 ${probing ? "animate-spin" : ""}`} />
               {ar ? "تحديث" : "Refresh"}
             </Button>

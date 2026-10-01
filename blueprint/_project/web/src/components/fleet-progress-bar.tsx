@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Check, Loader2, TriangleAlert, X } from "lucide-react";
-import { cn, useT } from "@togo-framework/ui";
+import { cn } from "@fadymondy/nasaq/web";
+import { useLocale } from "../lib/locale";
 import {
   completeSetup, fetchSetup, genStatus, startGenerate, type GenProgress,
 } from "../lib/setup";
@@ -28,7 +29,7 @@ const POLL_MS = 3000;
 const fmtCost = (usd: number) => (usd >= 0.01 ? `$${usd.toFixed(2)}` : `$${usd.toFixed(4)}`);
 
 export const FleetProgressBar = () => {
-  const { language } = useT();
+  const { language } = useLocale();
   const ar = language === "ar";
   const [progress, setProgress] = useState<GenProgress | null>(null);
   // Dismissal is deliberately memory-only: a reload while the run (and the

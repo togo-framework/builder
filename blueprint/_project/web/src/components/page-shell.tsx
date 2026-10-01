@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Label, cn } from "@togo-framework/ui";
+import { cn } from "@fadymondy/nasaq/web";
 import { CircleAlert } from "lucide-react";
 
 /**
@@ -611,7 +611,7 @@ const Field = ({
   children: ReactNode;
 }) => (
   <div className={cn("flex min-w-0 flex-col gap-1.5", className)}>
-    <Label htmlFor={htmlFor} className="text-xs font-medium text-muted-foreground">
+    <label htmlFor={htmlFor} className="text-xs font-medium text-muted-foreground">
       {label}
       {required && (
         <span aria-hidden="true" className="text-destructive">
@@ -619,7 +619,7 @@ const Field = ({
           *
         </span>
       )}
-    </Label>
+    </label>
     {children}
     {error ? (
       <p role="alert" className="flex items-start gap-1 text-xs text-destructive">

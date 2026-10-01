@@ -1,4 +1,4 @@
-import { useT } from "@togo-framework/ui";
+import { useLocale } from "./locale";
 
 /**
  * i18n.ai — EN/AR strings for the three AI surfaces (chat, mcp, terminal).
@@ -393,12 +393,12 @@ const ar: AIStrings = {
 };
 
 /**
- * useAIStrings — same contract as useStrings in lib/i18n.ts. `useT()` is the
+ * useAIStrings — same contract as useStrings in lib/i18n.ts. `useLocale()` is the
  * language authority (it owns the locale, persists it and sets document dir);
  * this only supplies the words.
  */
 const useAIStrings = (): { A: AIStrings; isRTL: boolean; language: "en" | "ar" } => {
-  const { language, isRTL } = useT();
+  const { language, isRTL } = useLocale();
   return { A: language === "ar" ? ar : en, isRTL, language };
 };
 

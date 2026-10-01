@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
-import { cn, useT } from "@togo-framework/ui";
+import { cn } from "@fadymondy/nasaq/web";
+import { useLocale } from "../../lib/locale";
 import { Coins, Cpu, TriangleAlert } from "lucide-react";
 
 /**
@@ -92,7 +93,7 @@ const TokenCost = ({
   label?: string;
   className?: string;
 }) => {
-  const { language } = useT();
+  const { language } = useLocale();
   const ar = language === "ar";
   const title = label ?? (ar ? "التكلفة" : "Cost");
 
@@ -158,7 +159,7 @@ const BudgetMeter = ({
   hint?: ReactNode;
   className?: string;
 }) => {
-  const { language } = useT();
+  const { language } = useLocale();
   const ar = language === "ar";
 
   const hasCeiling = Number.isFinite(budgetUsd) && (budgetUsd ?? 0) > 0;

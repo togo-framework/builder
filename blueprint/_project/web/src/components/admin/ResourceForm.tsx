@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import {
-  Input, Textarea, Switch, Label,
+  Field as NasaqField, FieldLabel, Input, Textarea, Switch,
   Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
-} from "@togo-framework/ui";
+} from "@fadymondy/nasaq/web";
 import {
   adminList, controlFor, relationTable, validateField, rowLabel,
   type ResourceField,
@@ -52,45 +52,43 @@ function Field({ f, control, value, error, onChange, language, ar }: {
     ? { required: "هذا الحقل مطلوب", email: "بريد إلكتروني غير صالح", number: "رقم غير صالح" }[error] ?? error
     : { required: "This field is required", email: "Invalid email", number: "Invalid number" }[error] ?? error) : "";
 
-  const lbl = (
-    <Label htmlFor={id}>{labelOf(f.name)}{req && <span className="text-destructive"> *</span>}</Label>
-  );
-  const errEl = errText && <p className="text-xs text-destructive">{errText}</p>;
+  const lbl = <FieldLabel>{labelOf(f.name)}{req && <span className="text-danger"> *</span>}</FieldLabel>;
+  const errEl = errText && <p className="text-caption text-danger">{errText}</p>;
 
   if (control === "switch") {
     return (
-      <div className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2.5">
+      <NasaqField name={id} className="flex-row items-center justify-between gap-3 border border-border px-3 py-2.5">
         {lbl}
         <Switch checked={value === "true"} onCheckedChange={(c: boolean) => onChange(c ? "true" : "false")} />
-      </div>
+      </NasaqField>
     );
   }
 
   if (control === "select" && f.enum?.length) {
     return (
-      <div className="space-y-1.5">
+      <NasaqField name={id} invalid={!!error}>
         {lbl}
-        <Select value={value} onValueChange={onChange}>
+        <Select value={value || null} onValueChange={(v) => onChange(v == null ? "" : String(v))}>
           <SelectTrigger id={id} aria-invalid={!!error}><SelectValue placeholder={ar ? "اختر…" : "Select…"} /></SelectTrigger>
           <SelectContent>{f.enum.map((o) => <SelectItem key={o} value={o} className="capitalize">{o}</SelectItem>)}</SelectContent>
         </Select>
         {errEl}
-      </div>
+      </NasaqField>
     );
   }
 
   if (control === "relation") {
     return (
-      <div className="space-y-1.5">
+      <NasaqField name={id} invalid={!!error}>
         {lbl}
         <RelationPicker f={f} value={value} onChange={onChange} ar={ar} invalid={!!error} />
         {errEl}
-      </div>
+      </NasaqField>
     );
   }
 
   return (
-    <div className="space-y-1.5">
+    <NasaqField name={id} invalid={!!error}>
       {lbl}
       {control === "textarea" || control === "json" ? (
         <Textarea id={id} rows={control === "json" ? 5 : 4} value={value} aria-invalid={!!error}
@@ -103,7 +101,7 @@ function Field({ f, control, value, error, onChange, language, ar }: {
           value={value} onChange={(e) => onChange(e.target.value)} />
       )}
       {errEl}
-    </div>
+    </NasaqField>
   );
 }
 
@@ -115,11 +113,11 @@ function RelationPicker({ f, value, onChange, ar, invalid }: { f: ResourceField;
     adminList(table).then((rows) => setOpts(rows.map((r) => ({ id: String(r.id), label: rowLabel(r) })))).catch(() => setOpts([]));
   }, [table]);
   return (
-    <Select value={value} onValueChange={onChange}>
+    <Select value={value || null} onValueChange={(v) => onChange(v == null ? "" : String(v))}>
       <SelectTrigger aria-invalid={invalid}><SelectValue placeholder={opts === null ? (ar ? "جارٍ التحميل…" : "Loading…") : (ar ? `اختر ${table}` : `Select ${table}`)} /></SelectTrigger>
       <SelectContent>
         {(opts ?? []).map((o) => <SelectItem key={o.id} value={o.id}>{o.label}</SelectItem>)}
-        {opts && opts.length === 0 && <div className="px-2 py-1.5 text-xs text-muted-foreground">{ar ? "لا توجد سجلات" : "No records"}</div>}
+        {opts && opts.length === 0 && <div className="px-2 py-1.5 text-caption text-muted-foreground">{ar ? "لا توجد سجلات" : "No records"}</div>}
       </SelectContent>
     </Select>
   );

@@ -1,8 +1,6 @@
 import { useEffect, useState } from "react";
-import {
-  Button, Callout, EmptyState, Input, Select, SelectContent,
-  SelectItem, SelectTrigger, SelectValue, StatusBadge,
-} from "@togo-framework/ui";
+import { Button, Alert, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Status } from "@fadymondy/nasaq/web";
+import { EmptyState } from "../components/ui/empty-state";
 import {
   Check, Copy, KeyRound, ListChecks, Plug, Plus, Radio, ShieldAlert, Trash2,
 } from "lucide-react";
@@ -64,12 +62,12 @@ async function probeServer(server: Server): Promise<Probe> {
 /** Copy that reports back, because a silent copy button is indistinguishable
  *  from a broken one. */
 const CopyButton = ({
-  text, label, done: doneLabel, variant = "outline", className,
+  text, label, done: doneLabel, variant = "secondary", className,
 }: {
   text: string;
   label: string;
   done: string;
-  variant?: "outline" | "ghost";
+  variant?: "secondary" | "ghost";
   className?: string;
 }) => {
   const [done, setDone] = useState(false);
@@ -236,7 +234,7 @@ export const Mcp = () => {
         {/* The server name is an identifier, not a word — same in both
             languages, and in the mono face that says so. */}
         <h3 className="font-mono text-sm font-semibold">{id}</h3>
-        <StatusBadge tone={tone}>{badge}</StatusBadge>
+        <Status tone={tone}>{badge}</Status>
         <span
           title={PROBE_TITLE[probes[id]]}
           className="ms-auto inline-flex shrink-0 items-center gap-1.5"
@@ -245,7 +243,7 @@ export const Mcp = () => {
             aria-hidden="true"
             className={`size-3 ${probes[id] === "listening" ? "text-success" : "text-muted-foreground"}`}
           />
-          <StatusBadge tone={PROBE_TONE[probes[id]]}>{PROBE_LABEL[probes[id]]}</StatusBadge>
+          <Status tone={PROBE_TONE[probes[id]]}>{PROBE_LABEL[probes[id]]}</Status>
         </span>
       </header>
 
@@ -295,7 +293,7 @@ export const Mcp = () => {
         description={A.mcp.desc}
       />
 
-      {err && <Callout kind="warn" title={S.common.somethingWrong}>{err}</Callout>}
+      {err && <Alert tone="warning" title={S.common.somethingWrong}>{err}</Alert>}
 
       <Section title={A.mcp.serversHeading}>
         <p className="-mt-1 mb-1 max-w-2xl text-xs text-muted-foreground">
@@ -326,7 +324,7 @@ export const Mcp = () => {
       </Section>
 
       {/* Said once, plainly, next to the thing it constrains. */}
-      <Callout kind="info" title={A.mcp.vaultTitle}>{A.mcp.vaultBody}</Callout>
+      <Alert tone="info" title={A.mcp.vaultTitle}>{A.mcp.vaultBody}</Alert>
 
       <FormCard title={A.mcp.formTitle}>
         <div className="grid gap-4 sm:grid-cols-[1fr_auto] sm:items-start">
@@ -342,7 +340,15 @@ export const Mcp = () => {
             />
           </Field>
           <Field label={A.mcp.scopeLabel} htmlFor="mcp-scope" hint={A.mcp.scopeHint}>
-            <Select value={scope} onValueChange={(v) => setScope(v as McpScope)}>
+            <Select
+              value={scope}
+              items={[
+                { value: "feedback", label: SCOPE_LABEL.feedback },
+                { value: "agents", label: SCOPE_LABEL.agents },
+                { value: "all", label: SCOPE_LABEL.all },
+              ]}
+              onValueChange={(v) => v && setScope(v as McpScope)}
+            >
               <SelectTrigger id="mcp-scope" className="w-full sm:w-64"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="feedback">{SCOPE_LABEL.feedback}</SelectItem>
@@ -367,9 +373,9 @@ export const Mcp = () => {
             <h2 className="min-w-0 text-sm font-semibold">
               <bdi>{A.mcp.mintedTitle(minted.name)}</bdi>
             </h2>
-            <StatusBadge tone={SCOPE_TONE[minted.scope]}>
+            <Status tone={SCOPE_TONE[minted.scope]}>
               {SCOPE_LABEL[minted.scope]}
-            </StatusBadge>
+            </Status>
           </header>
 
           <div className="space-y-4 px-4 py-4">
@@ -451,7 +457,7 @@ export const Mcp = () => {
               copiedLabel={A.term.copied}
             />
 
-            <Button variant="outline" size="sm" onClick={() => setMinted(null)}>
+            <Button variant="secondary" size="sm" onClick={() => setMinted(null)}>
               {A.mcp.doneCta}
             </Button>
           </div>
@@ -474,7 +480,7 @@ export const Mcp = () => {
                 key={t.id}
                 trailing={
                   <Button
-                    variant="outline"
+                    variant="secondary"
                     size="sm"
                     className="text-destructive hover:bg-destructive/10 hover:text-destructive"
                     onClick={() => void revoke(t.id)}
@@ -486,7 +492,7 @@ export const Mcp = () => {
               >
                 <RowTitle>
                   <bdi className="truncate text-sm font-medium">{t.name}</bdi>
-                  <StatusBadge tone={SCOPE_TONE[t.scope]}>{SCOPE_LABEL[t.scope]}</StatusBadge>
+                  <Status tone={SCOPE_TONE[t.scope]}>{SCOPE_LABEL[t.scope]}</Status>
                 </RowTitle>
                 {/* The prefix is machine text; the ages beside it are prose.
                     Each carries its own direction rather than the row being

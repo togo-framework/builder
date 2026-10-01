@@ -1,21 +1,21 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AppPageHeader as PageHeader } from "../components/page-shell";
 import { useParams } from "@tanstack/react-router";
-import { Pencil, Trash2, Eye, Plus } from "lucide-react";
+import { Pencil, Trash2, Eye, Plus, Download } from "lucide-react";
 import {
-  Button, Badge, DataTable,
+  PageHeader, Button, Badge, Alert,
+  DataTable, DataTableToolbar, DataTableSearch, DataTableFacetFilter, DataTableViewOptions, DataTableBulkActions, DataTablePagination,
+  useDataTable, type DataTableColumn, type DataTableSort,
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
   AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction,
-  useT,
-  type ColumnDef, type SortingState, type PaginationState, type DataTableServerState,
-} from "@togo-framework/ui";
+  toast,
+} from "@fadymondy/nasaq/web";
 import {
   adminListPaged, adminCreate, adminUpdate, adminDelete, resourceFields,
   controlFor, formatValue, type ResourceField, type PagedResult,
 } from "../lib/admin";
 import { ResourceForm, validateForm } from "../components/admin/ResourceForm";
 import { Infolist } from "../components/admin/Infolist";
-import { useToast } from "../components/admin/toast";
+import { useLang } from "../lib/locale";
 import { API } from "../lib/api";
 
 type Row = Record<string, any>;
@@ -23,14 +23,11 @@ type Mode = "create" | "edit" | "view" | "delete";
 
 const labelOf = (name: string) => name.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 
-const DEFAULT_PAGE_SIZE = 20;
+const PAGE_SIZE = 20;
 
 export function AdminResource() {
   const { resource } = useParams({ strict: false }) as { resource: string };
-  const { language } = useT();
-  const { toast } = useToast();
-  const ar = language === "ar";
-  const dir = ar ? "rtl" : "ltr";
+  const { locale: language, tx } = useLang();
   const single = resource.replace(/s$/, "");
 
   // Data state
@@ -39,62 +36,45 @@ export function AdminResource() {
   const [err, setErr] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
 
-  // Server-side state (lifted from DataTable via serverCallbacks)
-  const [serverSorting, setServerSorting] = useState<SortingState>([]);
-  const [serverPagination, setServerPagination] = useState<PaginationState>({ pageIndex: 0, pageSize: DEFAULT_PAGE_SIZE });
-  const [serverGlobalFilter, setServerGlobalFilter] = useState("");
+  // Server-side state: the table reports changes, we re-fetch.
+  const [sort, setSort] = useState<DataTableSort | null>(null);
+  const [page, setPage] = useState(0);
+  const [query, setQuery] = useState("");
 
   // Modal + form state
-  const [modal, setModal] = useState<{ mode: Mode; row?: Row } | null>(null);
+  const [modal, setModal] = useState<{ mode: Mode; row?: Row; ids?: string[] } | null>(null);
   const [form, setForm] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
 
-  // Track current resource so we reset pagination on navigation
-  const resourceRef = useRef(resource);
+  // Latest query state, so the live-update listener refetches the current page.
+  const state = useRef({ sort, page, query });
+  state.current = { sort, page, query };
 
-  const refresh = useCallback(async (
-    pagination: PaginationState = serverPagination,
-    sorting: SortingState = serverSorting,
-    globalFilter: string = serverGlobalFilter,
-  ) => {
-    const s = sorting[0];
+  const refresh = useCallback(async () => {
+    const { sort: s, page: p, query: q } = state.current;
     const r = await adminListPaged(resource, {
-      page: pagination.pageIndex + 1,
-      pageSize: pagination.pageSize,
+      page: p + 1,
+      pageSize: PAGE_SIZE,
       sort: s?.id,
-      order: s ? (s.desc ? "desc" : "asc") : undefined,
-      search: globalFilter || undefined,
-    }).catch(() => ({ items: [], total: 0, page: 1, pageSize: pagination.pageSize }));
+      order: s?.direction,
+      search: q || undefined,
+    }).catch(() => ({ items: [], total: 0, page: 1, pageSize: PAGE_SIZE }));
     setResult(r);
-  }, [resource, serverPagination, serverSorting, serverGlobalFilter]);
+  }, [resource]);
 
+  // Reset state when switching resources, and follow live changes over SSE.
   useEffect(() => {
-    // Reset state when switching resources
-    if (resourceRef.current !== resource) {
-      resourceRef.current = resource;
-      setServerSorting([]);
-      setServerPagination({ pageIndex: 0, pageSize: DEFAULT_PAGE_SIZE });
-      setServerGlobalFilter("");
-    }
+    setSort(null); setPage(0); setQuery("");
+    state.current = { sort: null, page: 0, query: "" };
     setResult(null);
     resourceFields(resource).then(setFields);
-    refresh({ pageIndex: 0, pageSize: DEFAULT_PAGE_SIZE }, [], "");
-
+    refresh();
     const es = new EventSource(`${API}/events`);
     es.onmessage = () => refresh();
     return () => es.close();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [resource]);
+  }, [resource, refresh]);
 
-  // DataTable server-side callback — called by DataTable on sort/filter/page change.
-  const serverCallbacks = useMemo(() => ({
-    onStateChange: (state: DataTableServerState) => {
-      setServerSorting(state.sorting);
-      setServerPagination(state.pagination);
-      setServerGlobalFilter(state.globalFilter);
-      refresh(state.pagination, state.sorting, state.globalFilter);
-    },
-  }), [refresh]);
+  useEffect(() => { refresh(); }, [sort, page, query, refresh]);
 
   function open(mode: Mode, row?: Row) {
     const init: Record<string, string> = {};
@@ -116,119 +96,130 @@ export function AdminResource() {
       payload[f.name] = c === "number" || c === "relation" ? Number(v) : c === "switch" ? v === "true" : c === "json" ? safeJson(v) : v;
     }
     try {
-      if (modal?.mode === "edit") { await adminUpdate(resource, modal.row!.id, payload); toast(ar ? "تم التحديث" : "Updated"); }
-      else { await adminCreate(resource, payload); toast(ar ? "تم الإنشاء" : "Created"); }
+      if (modal?.mode === "edit") { await adminUpdate(resource, modal.row!.id, payload); toast.success(tx("Updated", "تم التحديث")); }
+      else { await adminCreate(resource, payload); toast.success(tx("Created", "تم الإنشاء")); }
       setModal(null); await refresh();
-    } catch (e: any) { setErr(e.message); toast(e.message, "error"); }
+    } catch (e: any) { setErr(e.message); toast.error(e.message); }
     finally { setSaving(false); }
   }
 
-  async function del(ids?: string[]) {
+  async function del(ids: string[]) {
     setErr("");
     try {
-      const targets = ids ?? (modal?.row ? [String(modal.row.id)] : []);
-      await Promise.all(targets.map((id) => adminDelete(resource, id)));
-      setModal(null); toast(ar ? `تم حذف ${targets.length}` : `Deleted ${targets.length}`); await refresh();
-    } catch (e: any) { setErr(e.message); toast(e.message, "error"); }
+      await Promise.all(ids.map((id) => adminDelete(resource, id)));
+      setModal(null); table.setSelection(new Set());
+      toast.success(tx(`Deleted ${ids.length}`, `تم حذف ${ids.length}`)); await refresh();
+    } catch (e: any) { setErr(e.message); toast.error(e.message); }
   }
 
-  const columns: ColumnDef<Row>[] = useMemo(() => [
-    { accessorKey: "id", header: "id", cell: ({ getValue }) => <span className="text-muted-foreground">#{String(getValue())}</span> },
-    ...fields.map((f) => ({
-      accessorKey: f.name,
+  const columns = useMemo<DataTableColumn<Row>[]>(() => [
+    { id: "id", header: "ID", cell: (r) => <span className="text-muted-foreground">#{String(r.id)}</span>, sortValue: (r) => r.id, hideable: false },
+    ...fields.map((f): DataTableColumn<Row> => ({
+      id: f.name,
       header: labelOf(f.name),
-      cell: ({ getValue }: any) => <Cell f={f} v={getValue()} language={language} />,
-    }) as ColumnDef<Row>),
-    {
-      id: "actions",
-      header: () => <span className="block text-end">{ar ? "إجراءات" : "Actions"}</span>,
-      enableSorting: false, enableHiding: false,
-      cell: ({ row }) => (
-        <div className="flex justify-end gap-1">
-          <Button size="sm" variant="ghost" aria-label="view" onClick={(e) => { e.stopPropagation(); open("view", row.original); }}><Eye className="h-3.5 w-3.5" /></Button>
-          <Button size="sm" variant="ghost" aria-label="edit" onClick={(e) => { e.stopPropagation(); open("edit", row.original); }}><Pencil className="h-3.5 w-3.5" /></Button>
-          <Button size="sm" variant="ghost" aria-label="delete" className="text-destructive" onClick={(e) => { e.stopPropagation(); setModal({ mode: "delete", row: row.original }); }}><Trash2 className="h-3.5 w-3.5" /></Button>
-        </div>
-      ),
-    },
-  ], [fields, language, ar]);
+      cell: (r) => <Cell f={f} v={r[f.name]} language={language} />,
+      sortValue: (r) => r[f.name],
+      filterValue: (r) => String(r[f.name] ?? ""),
+    })),
+  ], [fields, language]);
 
-  // Per-column select filters for enum + boolean fields (Filament-style table filters).
-  const filterDefs = useMemo(() =>
+  // Per-column facet filters for enum + boolean fields (Filament-style table filters).
+  const facets = useMemo(() =>
     fields.filter((f) => f.enum?.length || /bool/.test(f.type.toLowerCase())).map((f) => ({
-      columnId: f.name,
-      type: "select" as const,
-      options: (f.enum?.length ? f.enum : ["true", "false"]).map((v) => ({ value: v, label_en: v, label_ar: v })),
-      placeholder_en: labelOf(f.name), placeholder_ar: labelOf(f.name),
+      column: f.name,
+      options: (f.enum?.length ? f.enum : ["true", "false"]).map((v) => ({ value: v, label: v })),
     })), [fields]);
 
-  const rows = result?.items ?? [];
-  const bulkActions = useMemo(() => [
-    { id: "export", label_en: "Export", label_ar: "تصدير", variant: "outline" as const, onAction: (ids: string[]) => exportRows(rows.filter((r) => ids.includes(String(r.id))), resource) },
-    { id: "delete", label_en: "Delete", label_ar: "حذف", variant: "destructive" as const, onAction: (ids: string[]) => del(ids) },
-  ], [rows, resource, ar]);
+  // The API pages, sorts and searches; facet filters narrow the loaded page.
+  const [filters, setFilters] = useState<Record<string, string[]>>({});
+  const rows = useMemo(() => (result?.items ?? []).filter((r: Row) =>
+    Object.entries(filters).every(([k, vs]) => !vs.length || vs.includes(String(r[k] ?? "")))), [result, filters]);
+
+  const table = useDataTable<Row>({
+    data: rows,
+    columns,
+    getRowId: (r) => String(r.id),
+    pageSize: PAGE_SIZE,
+    selectable: true,
+    manual: true,
+    rowCount: result?.total ?? 0,
+    sort: { value: sort, onChange: (s) => { setSort(s); setPage(0); } },
+    page: { value: page, onChange: setPage },
+    query: { value: query, onChange: (q) => { setQuery(q); setPage(0); } },
+    filters: { value: filters, onChange: setFilters },
+  });
 
   return (
-    <div className="space-y-6 p-6" dir={dir}>
-      <PageHeader title={labelOf(resource)} description={`${result?.total ?? 0} ${ar ? "سجل" : "records"}`}
-        actions={<Button onClick={() => open("create")}><Plus className="me-1.5 h-4 w-4" />{ar ? "إضافة" : "Create"}</Button>} />
-      {err && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{err}</p>}
-
-      <DataTable
-        columns={columns}
-        data={rows}
-        getRowId={(r) => String((r as Row).id)}
-        loading={result === null}
-        showGlobalSearch
-        showCsvExport
-        csvFilename={resource}
-        enableRowSelection
-        bulkActions={bulkActions}
-        filterDefs={filterDefs}
-        onRowClick={(r) => open("view", r as Row)}
-        language={language}
-        /* Server-side mode: pagination, sorting, and global search are all server-driven.
-           DataTable fires onStateChange whenever any of these change; we re-fetch from the API. */
-        totalRows={result?.total}
-        serverCallbacks={serverCallbacks}
+    <div className="flex flex-col gap-6">
+      <PageHeader
+        title={labelOf(resource)}
+        description={`${result?.total ?? 0} ${tx("records", "سجل")}`}
+        actions={<Button variant="primary" onClick={() => open("create")}><Plus />{tx("Create", "إضافة")}</Button>}
       />
+      {err && <Alert tone="danger" onDismiss={() => setErr("")}>{err}</Alert>}
+
+      <div className="flex flex-col gap-3">
+        <DataTableToolbar>
+          <DataTableSearch table={table} />
+          {facets.map((f) => <DataTableFacetFilter key={f.column} table={table} column={f.column} options={f.options} />)}
+          <DataTableViewOptions table={table} className="ms-auto" />
+        </DataTableToolbar>
+        <DataTableBulkActions table={table}>
+          <Button size="sm" variant="secondary" onClick={() => exportRows(table.selectedRows, resource)}><Download />{tx("Export", "تصدير")}</Button>
+          <Button size="sm" variant="danger" onClick={() => setModal({ mode: "delete", ids: [...table.selection] })}><Trash2 />{tx("Delete", "حذف")}</Button>
+        </DataTableBulkActions>
+        <DataTable
+          table={table}
+          label={labelOf(resource)}
+          loading={result === null}
+          onRowClick={(r) => open("view", r)}
+          rowActions={(r) => [
+            { id: "view", label: tx("View", "عرض"), icon: Eye, onSelect: () => open("view", r) },
+            { id: "edit", label: tx("Edit", "تعديل"), icon: Pencil, onSelect: () => open("edit", r) },
+            { id: "delete", label: tx("Delete", "حذف"), icon: Trash2, danger: true, group: "danger", onSelect: () => setModal({ mode: "delete", ids: [String(r.id)] }) },
+          ]}
+        />
+        <DataTablePagination table={table} />
+      </div>
 
       {/* Create / edit — schema form with validation + relation pickers. */}
-      <Dialog open={modal?.mode === "create" || modal?.mode === "edit"} onOpenChange={(o) => !o && setModal(null)}>
-        <DialogContent dir={dir} className="sm:max-w-2xl">
-          <DialogHeader><DialogTitle className="capitalize">{modal?.mode === "edit" ? (ar ? "تعديل" : "Edit") : (ar ? "إضافة" : "Create")} {single}</DialogTitle></DialogHeader>
+      <Dialog open={modal?.mode === "create" || modal?.mode === "edit"} onOpenChange={(o) => { if (!o) setModal(null); }}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader><DialogTitle className="capitalize">{modal?.mode === "edit" ? tx("Edit", "تعديل") : tx("Create", "إضافة")} {single}</DialogTitle></DialogHeader>
           <div className="max-h-[60vh] overflow-y-auto px-0.5 py-1">
             <ResourceForm fields={fields} value={form} errors={errors} onChange={setForm} language={language} />
           </div>
           <DialogFooter>
-            <Button variant="secondary" onClick={() => setModal(null)}>{ar ? "إلغاء" : "Cancel"}</Button>
-            <Button onClick={save} disabled={saving}>{saving ? (ar ? "جارٍ الحفظ…" : "Saving…") : (ar ? "حفظ" : "Save")}</Button>
+            <Button variant="secondary" onClick={() => setModal(null)}>{tx("Cancel", "إلغاء")}</Button>
+            <Button variant="primary" onClick={save} loading={saving}>{tx("Save", "حفظ")}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
       {/* View — infolist. */}
-      <Dialog open={modal?.mode === "view"} onOpenChange={(o) => !o && setModal(null)}>
-        <DialogContent dir={dir} className="sm:max-w-xl">
+      <Dialog open={modal?.mode === "view"} onOpenChange={(o) => { if (!o) setModal(null); }}>
+        <DialogContent className="sm:max-w-xl">
           <DialogHeader><DialogTitle className="capitalize">{single}</DialogTitle></DialogHeader>
           {modal?.row && <Infolist row={modal.row} fields={fields} language={language} />}
           <DialogFooter>
-            <Button variant="secondary" onClick={() => setModal(null)}>{ar ? "إغلاق" : "Close"}</Button>
-            <Button onClick={() => modal?.row && open("edit", modal.row)}>{ar ? "تعديل" : "Edit"}</Button>
+            <Button variant="secondary" onClick={() => setModal(null)}>{tx("Close", "إغلاق")}</Button>
+            <Button variant="primary" onClick={() => modal?.row && open("edit", modal.row)}>{tx("Edit", "تعديل")}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Delete confirmation. */}
-      <AlertDialog open={modal?.mode === "delete"} onOpenChange={(o) => !o && setModal(null)}>
-        <AlertDialogContent dir={dir}>
+      {/* Delete confirmation (one row or the bulk selection). */}
+      <AlertDialog open={modal?.mode === "delete"} onOpenChange={(o) => { if (!o) setModal(null); }}>
+        <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>{ar ? "حذف السجل" : "Delete record"}</AlertDialogTitle>
-            <AlertDialogDescription>{ar ? "لا يمكن التراجع عن هذا الإجراء. حذف هذا السجل؟" : "This action cannot be undone. Delete this record?"}</AlertDialogDescription>
+            <AlertDialogTitle>
+              {(modal?.ids?.length ?? 0) > 1 ? tx(`Delete ${modal?.ids?.length} records?`, `حذف ${modal?.ids?.length} سجلات؟`) : tx("Delete this record?", "حذف هذا السجل؟")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>{tx("This action cannot be undone.", "لا يمكن التراجع عن هذا الإجراء.")}</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>{ar ? "إلغاء" : "Cancel"}</AlertDialogCancel>
-            <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={() => del()}>{ar ? "حذف" : "Delete"}</AlertDialogAction>
+            <AlertDialogCancel>{tx("Cancel", "إلغاء")}</AlertDialogCancel>
+            <AlertDialogAction variant="danger" onClick={() => del(modal?.ids ?? [])}>{tx("Delete", "حذف")}</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
@@ -238,15 +229,14 @@ export function AdminResource() {
 
 function Cell({ f, v, language }: { f: ResourceField; v: any; language: string }) {
   const c = controlFor(f);
-  if (v === null || v === undefined || v === "") return <span className="text-muted-foreground/50">—</span>;
+  if (v === null || v === undefined || v === "") return <span className="text-muted-foreground">—</span>;
   if (c === "switch" || typeof v === "boolean") {
     const on = v === true || v === "true";
-    return <Badge variant={on ? "default" : "secondary"}>{on ? "Yes" : "No"}</Badge>;
+    return <Badge variant={on ? "success" : "neutral"}>{on ? "Yes" : "No"}</Badge>;
   }
-  if (c === "select") return <Badge variant="secondary" className="capitalize">{String(v)}</Badge>;
+  if (c === "select") return <Badge variant="neutral" className="capitalize">{String(v)}</Badge>;
   if (c === "relation") return <Badge variant="outline">#{String(v)}</Badge>;
-  const text = formatValue(f, v, language);
-  return <span className="line-clamp-1 max-w-[28ch]">{text}</span>;
+  return <span className="line-clamp-1 max-w-[28ch]">{formatValue(f, v, language)}</span>;
 }
 
 function safeJson(s: string): unknown { try { return JSON.parse(s); } catch { return s; } }

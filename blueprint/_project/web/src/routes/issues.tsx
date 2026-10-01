@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import { Check, ChevronDown, ChevronUp, ChevronsUp, Folder, GitBranch, Hash, LayoutGrid, List, LoaderCircle, MessageSquare, Plus, SquareKanban, UserRound, X } from "lucide-react";
 import { Link } from "@tanstack/react-router";
-import {
-  Button, Callout, Checkbox, Dialog, DialogContent, DialogHeader, DialogTitle, EmptyState, Input, Label, MarkdownEditor, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Skeleton, StatusBadge, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, ToggleGroup, ToggleGroupItem,
-} from "@togo-framework/ui";
+import { Button, Alert, Checkbox, Dialog, DialogContent, DialogHeader, DialogTitle, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Skeleton, Status, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, Toggle, ToggleGroup } from "@fadymondy/nasaq/web";
+import { EmptyState } from "../components/ui/empty-state";
+import { MarkdownEditor } from "../components/ui/markdown";
 import { DotLabel, PageShell, Stat, StatRow, StatSkeleton, AppPageHeader as PageHeader } from "../components/page-shell";
 import {
   TRANSITIONS, createIssue, fetchBoard, patchIssue,
@@ -284,7 +284,11 @@ export const Issues = () => {
               placeholder={S.issues.search}
               className="h-9 w-56"
             />
-            <Select value={fType} onValueChange={setFType}>
+            <Select
+              value={fType}
+              items={[{ value: "all", label: S.issues.filterType }, ...TYPES.map((t) => ({ value: t, label: S.issues.types[t] }))]}
+              onValueChange={(v) => v && setFType(v)}
+            >
               <SelectTrigger className="h-9 w-auto gap-1.5 text-xs" aria-label={S.issues.typeLabel}>
                 <SelectValue />
               </SelectTrigger>
@@ -295,7 +299,11 @@ export const Issues = () => {
                 ))}
               </SelectContent>
             </Select>
-            <Select value={fPriority} onValueChange={setFPriority}>
+            <Select
+              value={fPriority}
+              items={[{ value: "all", label: S.issues.filterPriority }, ...PRIORITIES.map((p) => ({ value: p, label: S.issues.priorities[p] }))]}
+              onValueChange={(v) => v && setFPriority(v)}
+            >
               <SelectTrigger className="h-9 w-auto gap-1.5 text-xs" aria-label={S.issues.priorityLabel}>
                 <SelectValue />
               </SelectTrigger>
@@ -309,7 +317,11 @@ export const Issues = () => {
             {/* Offered only once the roster answered — an agent filter with one
                 empty option is a dead control. */}
             {agents.length > 0 && (
-              <Select value={fAgent} onValueChange={setFAgent}>
+              <Select
+                value={fAgent}
+                items={[{ value: "all", label: S.issues.filterAgent }, ...agents.map((a) => ({ value: a.slug, label: a.displayName || a.slug }))]}
+                onValueChange={(v) => v && setFAgent(v)}
+              >
                 <SelectTrigger className="h-9 w-auto gap-1.5 text-xs" aria-label={S.issues.assigneeLabel}>
                   <SelectValue />
                 </SelectTrigger>
@@ -330,13 +342,19 @@ export const Issues = () => {
               <Plus className="me-1.5 size-4" />
               {S.issues.newIssue}
             </Button>
-            <ToggleGroup type="single" value={view} onValueChange={setViewMode}>
-              <ToggleGroupItem value="board" aria-label={S.issues.boardView} title={S.issues.board}>
+            <ToggleGroup
+              value={[view]}
+              onValueChange={(v) => {
+                const next = v[0];
+                if (next === "board" || next === "list") setViewMode(next);
+              }}
+            >
+              <Toggle value="board" aria-label={S.issues.boardView} title={S.issues.board}>
                 <LayoutGrid className="size-4" />
-              </ToggleGroupItem>
-              <ToggleGroupItem value="list" aria-label={S.issues.listView} title={S.issues.list}>
+              </Toggle>
+              <Toggle value="list" aria-label={S.issues.listView} title={S.issues.list}>
                 <List className="size-4" />
-              </ToggleGroupItem>
+              </Toggle>
             </ToggleGroup>
           </div>
         }
@@ -367,7 +385,7 @@ export const Issues = () => {
         </StatRow>
       )}
 
-      {err && <Callout kind="warn" title={S.common.somethingWrong}>{err}</Callout>}
+      {err && <Alert tone="warning" title={S.common.somethingWrong}>{err}</Alert>}
 
       {view === "list" ? (
         <IssueTable rows={all.filter(match)} />
@@ -542,7 +560,8 @@ export const Issues = () => {
                         the whole card stays draggable until you reach for it. */}
                     <Select
                       value={c.status}
-                      onValueChange={(v) => void move(c, v as IssueStatus)}
+                      items={[c.status, ...(TRANSITIONS[c.status] ?? [])].map((st) => ({ value: st, label: S.issues.columns[st] }))}
+                      onValueChange={(v) => v && void move(c, v as IssueStatus)}
                     >
                       <SelectTrigger
                         aria-label={S.issues.statusOf(c.number)}
@@ -628,18 +647,18 @@ const IssueTable = ({ rows }: { rows: Card[] }) => {
                 </Link>
                 {c.busy && <WorkingMark className="ms-2" />}
                 {c.humanOnly && (
-                  <span className="ms-2"><StatusBadge tone="warning">{S.issues.humanOnly}</StatusBadge></span>
+                  <span className="ms-2"><Status tone="warning">{S.issues.humanOnly}</Status></span>
                 )}
               </TableCell>
-              <TableCell><StatusBadge tone="neutral">{S.issues.columns[c.status]}</StatusBadge></TableCell>
+              <TableCell><Status tone="neutral">{S.issues.columns[c.status]}</Status></TableCell>
               {/* The column header gives the word its meaning, so the baseline
                   values sit as plain text; only a deviation wears the pill —
                   which is what makes a critical row findable in a scan. */}
               <TableCell>
                 {c.priority === "critical" || c.priority === "high" ? (
-                  <StatusBadge tone={PRIORITY_TONE[c.priority]}>
+                  <Status tone={PRIORITY_TONE[c.priority]}>
                     {S.issues.priorities[c.priority]}
-                  </StatusBadge>
+                  </Status>
                 ) : (
                   <span className="text-xs text-muted-foreground">{S.issues.priorities[c.priority]}</span>
                 )}
@@ -720,12 +739,12 @@ const NewIssueDialog = ({
         </DialogHeader>
 
         <div className="flex flex-col gap-3">
-          {err && <Callout kind="warn" title={S.issues.dialogErrTitle}>{err}</Callout>}
+          {err && <Alert tone="warning" title={S.issues.dialogErrTitle}>{err}</Alert>}
 
           <div>
-            <Label htmlFor="ni-title" className="mb-1 block text-xs text-muted-foreground">
+            <label htmlFor="ni-title" className="mb-1 block text-xs text-muted-foreground">
               {S.issues.titleLabel}
-            </Label>
+            </label>
             <Input
               id="ni-title"
               autoFocus
@@ -746,8 +765,12 @@ const NewIssueDialog = ({
 
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
-              <Label className="mb-1 block text-xs text-muted-foreground">{S.issues.typeLabel}</Label>
-              <Select value={type} onValueChange={(v) => setType(v as IssueType)}>
+              <label className="mb-1 block text-xs text-muted-foreground">{S.issues.typeLabel}</label>
+              <Select
+                value={type}
+                items={TYPES.map((t) => ({ value: t, label: S.issues.types[t] }))}
+                onValueChange={(v) => v && setType(v as IssueType)}
+              >
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {TYPES.map((t) => (
@@ -757,8 +780,12 @@ const NewIssueDialog = ({
               </Select>
             </div>
             <div>
-              <Label className="mb-1 block text-xs text-muted-foreground">{S.issues.priorityLabel}</Label>
-              <Select value={priority} onValueChange={(v) => setPriority(v as Priority)}>
+              <label className="mb-1 block text-xs text-muted-foreground">{S.issues.priorityLabel}</label>
+              <Select
+                value={priority}
+                items={PRIORITIES.map((p) => ({ value: p, label: S.issues.priorities[p] }))}
+                onValueChange={(v) => v && setPriority(v as Priority)}
+              >
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {PRIORITIES.map((p) => (
@@ -770,9 +797,9 @@ const NewIssueDialog = ({
           </div>
 
           <div>
-            <Label htmlFor="ni-area" className="mb-1 block text-xs text-muted-foreground">
+            <label htmlFor="ni-area" className="mb-1 block text-xs text-muted-foreground">
               {S.issues.areaLabel}
-            </Label>
+            </label>
             <Input
               id="ni-area"
               value={area}
@@ -787,8 +814,12 @@ const NewIssueDialog = ({
           </div>
 
           <div>
-            <Label className="mb-1 block text-xs text-muted-foreground">{S.issues.assigneeLabel}</Label>
-            <Select value={assignee || "__auto"} onValueChange={(v) => setAssignee(v === "__auto" ? "" : v)}>
+            <label className="mb-1 block text-xs text-muted-foreground">{S.issues.assigneeLabel}</label>
+            <Select
+              value={assignee || "__auto"}
+              items={[{ value: "__auto", label: S.issues.assigneeAuto }, ...agents.map((a) => ({ value: a.slug, label: a.displayName || a.slug }))]}
+              onValueChange={(v) => setAssignee(!v || v === "__auto" ? "" : v)}
+            >
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
                 {/* Radix rejects an empty-string value, so the "no choice"
@@ -815,18 +846,18 @@ const NewIssueDialog = ({
               onCheckedChange={(v) => setHumanOnly(v === true)}
               className="mt-0.5"
             />
-            <Label htmlFor="ni-human" className="cursor-pointer font-normal">
+            <label htmlFor="ni-human" className="cursor-pointer font-normal">
               <span className="text-sm font-medium">{S.issues.humanOnly}</span>
               <span className="block text-xs text-muted-foreground">
                 {S.issues.humanOnlyDesc}
               </span>
-            </Label>
+            </label>
           </div>
 
           <div>
-            <Label htmlFor="ni-body" className="mb-1 block text-xs text-muted-foreground">
+            <label htmlFor="ni-body" className="mb-1 block text-xs text-muted-foreground">
               {S.issues.detailsLabel}
-            </Label>
+            </label>
             {/* The body is rendered as markdown on the issue page, in the
                 widget and in the agent's own prompt, so it is written as
                 markdown here too rather than in a bare textarea. */}
@@ -843,7 +874,7 @@ const NewIssueDialog = ({
           </div>
 
           <div className="flex items-center justify-end gap-2 pt-1">
-            <Button variant="outline" onClick={onClose} disabled={busy}>{S.common.cancel}</Button>
+            <Button variant="secondary" onClick={onClose} disabled={busy}>{S.common.cancel}</Button>
             <Button onClick={() => void submit()} disabled={busy || !title.trim()}>
               {busy ? S.issues.filing : S.issues.fileIssue}
             </Button>

@@ -23,6 +23,8 @@ async function post<T = any>(path: string, body?: unknown): Promise<T> {
 
 export interface Me { email: string; roles?: string[]; permissions?: string[]; [k: string]: unknown }
 
+export interface AuthMethod { name: string; label: string; type: string; url: string }
+
 export const auth = {
   login: (email: string, password: string) => post("login", { email, password }),
   register: (email: string, password: string) => post("register", { email, password }),
@@ -43,7 +45,7 @@ export const auth = {
     if (!res || !res.ok) return null;
     return res.json().catch(() => null);
   },
-  methods: async (): Promise<{ name: string; label: string; type: string; url: string }[]> => {
+  methods: async (): Promise<AuthMethod[]> => {
     const res = await fetch(`${API}/api/auth/methods`, { credentials: "include" }).catch(() => null);
     if (!res || !res.ok) return [];
     const d = await res.json().catch(() => ({ methods: [] }));

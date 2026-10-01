@@ -1,10 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
-import {
-  Button, Callout, MarkdownRenderer, Select, SelectContent, SelectItem,
-  SelectTrigger, SelectValue, Sheet, SheetContent, SheetDescription, SheetHeader,
-  SheetTitle, Textarea,
-} from "@togo-framework/ui";
+import { Button, Alert, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, Textarea } from "@fadymondy/nasaq/web";
+import { MarkdownRenderer } from "../components/ui/markdown";
 import {
   Bot, Check, Coins, Copy, History, LoaderCircle, MessageSquarePlus, MessagesSquare,
   Quote, RefreshCw, Send, Sparkles, Trash2, TriangleAlert,
@@ -322,7 +319,7 @@ export const Chat = () => {
         actions={
           <div className="flex items-center gap-2">
             <Button
-              variant="outline"
+              variant="secondary"
               size="sm"
               className="lg:hidden"
               onClick={() => setHistoryOpen(true)}
@@ -338,7 +335,7 @@ export const Chat = () => {
         }
       />
 
-      {err && <Callout kind="warn">{err}</Callout>}
+      {err && <Alert tone="warning">{err}</Alert>}
 
       <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[15rem_minmax(0,1fr)]">
         <aside className="hidden min-h-0 lg:flex lg:flex-col">
@@ -355,7 +352,8 @@ export const Chat = () => {
           <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-border px-3 py-2">
             <Select
               value={agent}
-              onValueChange={(v) => { setAgent(v); handleNew(); }}
+              items={agents.map((a) => ({ value: a.slug, label: a.displayName }))}
+              onValueChange={(v) => { if (v) { setAgent(v); handleNew(); } }}
             >
               <SelectTrigger className="h-8 w-52 text-xs">
                 <SelectValue placeholder={S.chat.pickAgent} />
@@ -611,7 +609,7 @@ export const Chat = () => {
           implementation of it. */}
       <Sheet open={historyOpen} onOpenChange={setHistoryOpen}>
         <SheetContent
-          side={isRTL ? "left" : "right"}
+          side="end"
           className="flex w-80 flex-col gap-3 overflow-y-auto"
         >
           <SheetHeader>
@@ -628,7 +626,7 @@ export const Chat = () => {
         {/* Scrolls in itself: a memory is up to 600 characters and the sheet is
             a fixed-height panel — without this the tail is unreachable. */}
         <SheetContent
-          side={isRTL ? "left" : "right"}
+          side="end"
           className="w-full overflow-y-auto sm:max-w-md"
         >
           <SheetHeader>
@@ -660,11 +658,9 @@ export const Chat = () => {
                 {openCitation.content}
               </p>
 
-              <Button asChild variant="outline" size="sm">
-                <Link to="/brain">
-                  <MessagesSquare className="me-1.5 size-4" />
-                  {A.chat.openBrain}
-                </Link>
+              <Button render={<Link to="/brain" />} nativeButton={false} variant="secondary" size="sm">
+                <MessagesSquare className="me-1.5 size-4" />
+                {A.chat.openBrain}
               </Button>
             </div>
           )}

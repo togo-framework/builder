@@ -1,4 +1,4 @@
-import { useT } from "@togo-framework/ui";
+import { useLocale } from "./locale";
 import { exactTime, relativeTime } from "./i18n.vault";
 
 /**
@@ -7,7 +7,7 @@ import { exactTime, relativeTime } from "./i18n.vault";
  * It lives beside lib/i18n.ts rather than inside it for the same reason
  * i18n.vault does: the dashboard was redesigned as one surface and its
  * vocabulary is its own (a fleet that works unwatched, a governor, a footprint,
- * a thing that is waiting for a human). `useT()` stays the single language
+ * a thing that is waiting for a human). `useLocale()` stays the single language
  * AUTHORITY — it owns the locale, persists the choice and sets the document
  * `dir` — and this file only supplies the words.
  *
@@ -297,7 +297,7 @@ const homeAr: HomeStrings = {
 /* ------------------------------------------------------------------ */
 
 const useHomeStrings = (): { S: HomeStrings; ar: boolean; isRTL: boolean } => {
-  const { language, isRTL } = useT();
+  const { language, isRTL } = useLocale();
   const ar = language === "ar";
   return { S: ar ? homeAr : homeEn, ar, isRTL };
 };

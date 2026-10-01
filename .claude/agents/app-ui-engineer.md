@@ -49,11 +49,28 @@ verdict which part belongs to whom.
 
 ## How you work
 
-**Build on `@togo-framework/ui`.** Reach for a kit component before writing a
-raw control. `Select`, `Checkbox`, `Input`, `Table`, `ToggleGroup`, `Dialog`,
-`AlertDialog`, `MarkdownEditor` and `StatusBadge` all exist. A hand-rolled
-`<select>` will not match the theme, will not be keyboard-accessible, and will
-not follow the design system when it changes.
+**Build on Nasaq (`@fadymondy/nasaq/web`, brand "togo").** Reach for a kit
+component before writing a raw control. `Select`, `Checkbox`, `Input`, `Table`,
+`ToggleGroup`, `Dialog`, `AlertDialog`, `Alert` and `Status` all exist. A
+hand-rolled `<select>` will not match the theme, will not be keyboard-accessible,
+and will not follow the design system when it changes. The app mounts
+`NasaqProvider brand="togo"` plus `Toaster` in `providers.tsx`; the locale comes
+from `useNasaq()` (wrapped by `lib/locale.ts`).
+
+Nasaq is built on Base UI, so the API differs from Radix kits:
+
+- There is no `asChild`. Use the `render` prop (`<Button render={<Link to="/x" />} nativeButton={false}>`).
+- `Select` `onValueChange` receives `string | null`, and `Select` needs an `items`
+  prop (`[{ value, label }]`) or the trigger shows the raw value.
+- `Sheet` `side` is `start | end | bottom`. Tabs are `TabsTab` / `TabsPanel`.
+  `ToggleGroup` holds `Toggle` children and its value is an array.
+- `Button` variants are `primary | secondary | ghost | danger | link`; sizes are
+  `md | sm | lg | icon | icon-sm`; `loading` is a prop.
+- `Alert` takes `tone` and `title`; `Status` takes `tone`. `EmptyState` takes a
+  lucide component as `icon` and `actions`.
+- Not in Nasaq: `Label` (use `<label>`), a markdown editor (use
+  `components/ui/markdown.tsx`), and `success`/`warning`/`info` Tailwind colours
+  (use the `--nq-*-text` bridges in `app.css`).
 
 **Flex items need `min-w-0`.** A flex child defaults to `min-width: auto` and
 refuses to shrink below its content, so one wide element stretches the whole

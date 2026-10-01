@@ -1,13 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "@tanstack/react-router";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, Alert, Checkbox, Input, Switch, Tabs, TabsPanel, TabsList, TabsTab } from "@fadymondy/nasaq/web";
+import { EmptyState } from "../components/ui/empty-state";
+import { MarkdownEditor } from "../components/ui/markdown";
 import {
-  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
-  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
-  AlertDialogTrigger, Button, Callout, Checkbox, EmptyState, Input, Label,
-  MarkdownEditor, Switch, Tabs, TabsContent, TabsList, TabsTrigger,
-} from "@togo-framework/ui";
-import {
-  ArrowLeft, CircleAlert, CircleCheck, CircleDashed, CircleX, Folder, Github,
+  ArrowLeft, CircleAlert, CircleCheck, CircleDashed, CircleX, Folder, GitBranch,
   HardDrive, LoaderCircle, PenLine, Trash2, Wand2,
 } from "lucide-react";
 import {
@@ -42,7 +39,7 @@ RunGlyph.displayName = "RunGlyph";
 /** The provenance glyph, same mapping as the catalogue card. */
 const SOURCE_GLYPH = {
   local: HardDrive,
-  github: Github,
+  github: GitBranch,
   operator: PenLine,
 } as const;
 
@@ -215,7 +212,7 @@ export const SkillDetail = () => {
       <PageShell>
         {back}
         {err ? (
-          <Callout kind="warn" title={S.skills.openErr}>{err}</Callout>
+          <Alert tone="warning" title={S.skills.openErr}>{err}</Alert>
         ) : (
           <p className="text-sm text-muted-foreground">{S.common.loading}</p>
         )}
@@ -246,7 +243,7 @@ export const SkillDetail = () => {
            Disabled while the editor is dirty — regenerating would discard
            unsaved edits with no warning. */
         <Button
-          variant="outline"
+          variant="secondary"
           onClick={() => void regenerate()}
           disabled={regenBusy || busy || dirty}
           title={dirty ? S.skills.regenDirtyTitle : S.skills.regenTitle}
@@ -259,7 +256,7 @@ export const SkillDetail = () => {
         <span className="text-xs text-muted-foreground">{S.skills.regenNote}</span>
       )}
       {dirty && (
-        <Button variant="outline" onClick={handleDiscard}>{S.common.discard}</Button>
+        <Button variant="secondary" onClick={handleDiscard}>{S.common.discard}</Button>
       )}
       {saved && !dirty && <span className="text-xs text-success">{saved}</span>}
     </div>
@@ -310,7 +307,7 @@ export const SkillDetail = () => {
         </div>
       </header>
 
-      {err && <Callout kind="warn" title={S.common.somethingWrong}>{err}</Callout>}
+      {err && <Alert tone="warning" title={S.common.somethingWrong}>{err}</Alert>}
 
       {/* Content leads, the quiet meta rail trails — the same split as the
           issue and agent pages. The grid follows the document direction, so
@@ -318,24 +315,24 @@ export const SkillDetail = () => {
       <div className="grid items-start gap-8 lg:grid-cols-[minmax(0,1fr)_280px]">
         <Tabs defaultValue="overview" className="min-w-0">
           <TabsList>
-            <TabsTrigger value="overview">{S.skills.tabOverview}</TabsTrigger>
-            <TabsTrigger value="body">{S.skills.tabBody}</TabsTrigger>
-            <TabsTrigger value="agents">{S.skills.tabAgents}</TabsTrigger>
-            <TabsTrigger value="activity">{S.skills.tabActivity}</TabsTrigger>
+            <TabsTab value="overview">{S.skills.tabOverview}</TabsTab>
+            <TabsTab value="body">{S.skills.tabBody}</TabsTab>
+            <TabsTab value="agents">{S.skills.tabAgents}</TabsTab>
+            <TabsTab value="activity">{S.skills.tabActivity}</TabsTab>
           </TabsList>
 
-          <TabsContent value="overview" className="mt-4 flex min-w-0 flex-col gap-4">
+          <TabsPanel value="overview" className="mt-4 flex min-w-0 flex-col gap-4">
             <div className="grid gap-3 sm:grid-cols-2">
               <div>
-                <Label htmlFor="edit-title" className="mb-1 block text-xs text-muted-foreground">
+                <label htmlFor="edit-title" className="mb-1 block text-xs text-muted-foreground">
                   {S.skills.editTitleLabel}
-                </Label>
+                </label>
                 <Input id="edit-title" value={title} onChange={(e) => setTitle(e.target.value)} />
               </div>
               <div>
-                <Label htmlFor="edit-desc" className="mb-1 block text-xs text-muted-foreground">
+                <label htmlFor="edit-desc" className="mb-1 block text-xs text-muted-foreground">
                   {S.skills.editDescLabel}
-                </Label>
+                </label>
                 <Input
                   id="edit-desc"
                   value={description}
@@ -344,14 +341,14 @@ export const SkillDetail = () => {
               </div>
             </div>
             {saveRow(false)}
-          </TabsContent>
+          </TabsPanel>
 
-          <TabsContent value="body" className="mt-4 flex min-w-0 flex-col gap-2">
+          <TabsPanel value="body" className="mt-4 flex min-w-0 flex-col gap-2">
             <MarkdownEditor value={body} onChange={setBody} defaultView="write" minRows={18} />
             {saveRow(true)}
-          </TabsContent>
+          </TabsPanel>
 
-          <TabsContent value="agents" className="mt-4 min-w-0">
+          <TabsPanel value="agents" className="mt-4 min-w-0">
             <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               {S.skills.agentsHeading(holders, agents.length)}
             </h3>
@@ -369,7 +366,7 @@ export const SkillDetail = () => {
                       className="size-9 text-xs"
                       dimmed={!a.enabled}
                     />
-                    <Label
+                    <label
                       htmlFor={`assign-${a.slug}`}
                       className="min-w-0 flex-1 cursor-pointer font-normal"
                     >
@@ -380,7 +377,7 @@ export const SkillDetail = () => {
                         <span dir="ltr" className="font-mono">@{a.slug}</span>
                         {!a.enabled && ` · ${S.skills.agentDisabled}`}
                       </span>
-                    </Label>
+                    </label>
                     {/* Straight through to the agent — the assignment picker is
                         the natural place to ask "who is this?". */}
                     <Link
@@ -400,9 +397,9 @@ export const SkillDetail = () => {
                 ))}
               </div>
             )}
-          </TabsContent>
+          </TabsPanel>
 
-          <TabsContent value="activity" className="mt-4 min-w-0">
+          <TabsPanel value="activity" className="mt-4 min-w-0">
             {/* Stated plainly, because the distinction matters and the number
                 would otherwise be read as a count of times the agent chose
                 this skill. */}
@@ -451,7 +448,7 @@ export const SkillDetail = () => {
                 )}
               </div>
             )}
-          </TabsContent>
+          </TabsPanel>
         </Tabs>
 
         {/* The quiet meta rail: counts and provenance, and the one destructive
@@ -491,15 +488,17 @@ export const SkillDetail = () => {
           </div>
 
           <AlertDialog>
-            <AlertDialogTrigger asChild>
-              <Button
-                variant="outline"
-                size="sm"
-                className="mt-2 self-start text-destructive hover:bg-destructive/10 hover:text-destructive"
-              >
-                <Trash2 className="me-1.5 size-4" />
-                {S.skills.delete}
-              </Button>
+            <AlertDialogTrigger
+              render={
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="mt-2 self-start text-destructive hover:bg-destructive/10 hover:text-destructive"
+                />
+              }
+            >
+              <Trash2 className="me-1.5 size-4" />
+              {S.skills.delete}
             </AlertDialogTrigger>
             <AlertDialogContent>
               <AlertDialogHeader>

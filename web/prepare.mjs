@@ -10,7 +10,7 @@
 // the REAL location of a file, not from the symlink that pointed at it, so
 // every `import { … } from "react"` inside blueprint/_project/web/src walks up
 // from blueprint/_project/web/ and never reaches web/node_modules. Same for
-// Tailwind's `@source "../node_modules/@togo-framework/ui/dist"` in app.css,
+// Tailwind's `@source "../node_modules/@fadymondy/nasaq/dist/web"` in app.css,
 // which resolves against the directory app.css actually lives in.
 //
 // So: put a node_modules THERE, as a link to the one this project installed.

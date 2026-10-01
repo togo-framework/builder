@@ -1,8 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  Button, Callout, Input, Select, SelectContent, SelectItem, SelectTrigger,
-  SelectValue, cn,
-} from "@togo-framework/ui";
+import { Button, Alert, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, cn } from "@fadymondy/nasaq/web";
 import {
   Check, Copy, Eye, EyeOff, Globe, Hash, KeyRound, Plus, Search, ShieldAlert,
   Trash2, UserPlus, X,
@@ -328,9 +325,9 @@ export const Vault = () => {
       </StatRow>
 
       {err && (
-        <Callout kind="warn" title={S.errTitle}>
+        <Alert tone="warning" title={S.errTitle}>
           {err}
-        </Callout>
+        </Alert>
       )}
 
       {adding && (
@@ -355,7 +352,7 @@ export const Vault = () => {
               />
             </Field>
             <Field label={S.fKind} htmlFor="sec-kind" hint={S.fKindHint}>
-              <Select value={form.kind} onValueChange={(v) => setForm({ ...form, kind: v })}>
+              <Select value={form.kind} onValueChange={(v) => v && setForm({ ...form, kind: v })}>
                 <SelectTrigger id="sec-kind" className="w-full">
                   <SelectValue />
                 </SelectTrigger>
@@ -439,7 +436,7 @@ export const Vault = () => {
             title={S.noMatchTitle}
             description={S.noMatchDesc}
             action={
-              <Button variant="outline" size="sm" onClick={() => setQuery("")}>
+              <Button variant="secondary" size="sm" onClick={() => setQuery("")}>
                 {S.clearFilter}
               </Button>
             }
@@ -466,7 +463,7 @@ export const Vault = () => {
                   trailing={
                     <>
                       <Button
-                        variant={open ? "secondary" : "outline"}
+                        variant={open ? "primary" : "secondary"}
                         size="sm"
                         onClick={() => void reveal(s.name)}
                       >

@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import {
-  Button, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, cn, useT,
-} from "@togo-framework/ui";
+  Button, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, cn,
+} from "@fadymondy/nasaq/web";
+import { useLocale } from "../lib/locale";
 import { Check, KeyRound, Languages, Mail, MonitorSmartphone, ShieldCheck } from "lucide-react";
 import { auth, clearSession, sessionMe, type Me } from "../lib/auth";
 import { useSetupStrings } from "../lib/i18n.setup";
@@ -49,7 +50,7 @@ type Lang = (typeof LANGUAGES)[number]["code"];
 export function Profile() {
   const nav = useNavigate();
   const { S, language } = useSetupStrings();
-  const { setLanguage } = useT();
+  const { setLanguage } = useLocale();
   const [me, setMe] = useState<Me | null>(null);
 
   // The pending choice. Separate from the live language on purpose: this is
@@ -179,7 +180,11 @@ export function Profile() {
       <Section title={S.profile.prefsHeading}>
         <div className="rounded-card border border-border bg-card p-4">
           <Field label={S.profile.langLabel} htmlFor="language" hint={S.profile.langHint}>
-            <Select value={pendingLang} onValueChange={(v) => setPendingLang(v as Lang)}>
+            <Select
+              value={pendingLang}
+              items={LANGUAGES.map((l) => ({ value: l.code, label: l.label }))}
+              onValueChange={(v) => v && setPendingLang(v as Lang)}
+            >
               <SelectTrigger id="language" className="w-full max-w-xs" aria-label={S.profile.langLabel}>
                 <span className="flex min-w-0 items-center gap-2">
                   <Languages aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
@@ -251,7 +256,7 @@ export function Profile() {
                 busy={sendingCode}
                 onConfirm={handleSendResetCode}
                 trigger={
-                  <Button variant="outline" disabled={sendingCode} className="motion-press">
+                  <Button variant="secondary" disabled={sendingCode} className="motion-press">
                     {sendingCode ? S.profile.passwordSending : S.profile.passwordCta}
                   </Button>
                 }
@@ -269,7 +274,7 @@ export function Profile() {
             <p className="mt-0.5 text-xs text-muted-foreground">{S.profile.signOutHint}</p>
           </div>
           <Button
-            variant="outline"
+            variant="secondary"
             onClick={() => void handleSignOut()}
             disabled={signingOut}
             className={cn("motion-press shrink-0")}

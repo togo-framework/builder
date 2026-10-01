@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { cn } from "@togo-framework/ui";
+import { cn } from "@fadymondy/nasaq/web";
 
 /**
  * empty-state — the blank screen, treated as a first-class one.

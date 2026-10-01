@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Check, GitMerge, Loader2, TriangleAlert } from "lucide-react";
-import { Callout, MarkdownRenderer, StatusBadge } from "@togo-framework/ui";
+import { Alert, Status } from "@fadymondy/nasaq/web";
+import { MarkdownRenderer } from "./ui/markdown";
 import { previewDeploy, runDeploy, type DeployPreview, type DeployResult } from "../lib/deploy";
 
 /**
@@ -29,7 +30,7 @@ export const DeployPanel = ({ number, onDeployed }: { number: number; onDeployed
   }, [number]);
 
   if (err) {
-    return <Callout kind="warn" title="Could not read the branch">{err}</Callout>;
+    return <Alert tone="warning" title="Could not read the branch">{err}</Alert>;
   }
   if (!p) return null;
 
@@ -61,8 +62,8 @@ export const DeployPanel = ({ number, onDeployed }: { number: number; onDeployed
       <div className="flex flex-wrap items-center gap-2">
         <GitMerge className="size-4 text-success" />
         <h2 className="text-sm font-semibold">Ready to deploy</h2>
-        <StatusBadge tone="neutral">{p.branch}</StatusBadge>
-        {p.agent && <StatusBadge tone="info">{p.agent}</StatusBadge>}
+        <Status tone="neutral">{p.branch}</Status>
+        {p.agent && <Status tone="info">{p.agent}</Status>}
         <span className="ms-auto font-mono text-[11px] text-muted-foreground">
           {p.files.length} file{p.files.length === 1 ? "" : "s"} · +{p.added}/−{p.removed}
         </span>
@@ -127,14 +128,14 @@ export const DeployPanel = ({ number, onDeployed }: { number: number; onDeployed
       {result && (
         <div className="mt-3">
           {result.ok ? (
-            <Callout kind="info" title="Deployed">
+            <Alert tone="info" title="Deployed">
               {result.message}
               {result.mergeSha && (
                 <span className="ms-1 font-mono text-xs">({result.mergeSha.slice(0, 8)})</span>
               )}
-            </Callout>
+            </Alert>
           ) : (
-            <Callout kind="warn" title={`Stopped at: ${result.step}`}>
+            <Alert tone="warning" title={`Stopped at: ${result.step}`}>
               {result.message}
               {result.output && (
                 // The tail of the output, because a failing build puts the reason
@@ -143,7 +144,7 @@ export const DeployPanel = ({ number, onDeployed }: { number: number; onDeployed
                   {result.output}
                 </pre>
               )}
-            </Callout>
+            </Alert>
           )}
         </div>
       )}

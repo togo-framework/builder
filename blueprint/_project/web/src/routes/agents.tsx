@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
-import {
-  Button, Callout, EmptyState, Input, MarkdownEditor, Select, SelectContent,
-  SelectItem, SelectTrigger, SelectValue,
-} from "@togo-framework/ui";
+import { Button, Alert, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@fadymondy/nasaq/web";
+import { EmptyState } from "../components/ui/empty-state";
+import { MarkdownEditor } from "../components/ui/markdown";
 import {
   Brain, Briefcase, Check, Cpu, History, LoaderCircle, RotateCcw, Sparkles, UserPlus, Users,
 } from "lucide-react";
@@ -136,7 +135,7 @@ const AgentCard = ({
             </Link>
 
             <Button
-              variant="outline"
+              variant="secondary"
               size="sm"
               onClick={handleToggle}
               className="relative z-10 h-7 shrink-0 px-2.5 text-xs"
@@ -417,7 +416,7 @@ export const Agents = () => {
         <Stat label={S.agents.statAreas} value={covered} />
       </StatRow>
 
-      {err && <Callout kind="warn" title={S.agents.loadErr}>{err}</Callout>}
+      {err && <Alert tone="warning" title={S.agents.loadErr}>{err}</Alert>}
 
       {hiring && (
         <HireForm
@@ -498,7 +497,11 @@ export const Agents = () => {
               <span className="font-semibold tabular-nums text-foreground">{shown.length}</span>
               <span>{S.agents.sentenceAgents(shown.length)}</span>
               <span>{S.agents.sentenceIn}</span>
-              <Select value={area || "all"} onValueChange={(v) => setArea(v === "all" ? "" : v)}>
+              <Select
+                value={area || "all"}
+                items={[{ value: "all", label: S.agents.allAreas }, ...areaCounts.map(([name]) => ({ value: name, label: name }))]}
+                onValueChange={(v) => setArea(!v || v === "all" ? "" : v)}
+              >
                 <SelectTrigger
                   className="h-8 w-auto gap-1.5 border-dashed px-2.5 text-xs"
                   aria-label={S.agents.facetAreas}
@@ -515,7 +518,11 @@ export const Agents = () => {
                 </SelectContent>
               </Select>
               <span>{S.agents.sentenceRunning}</span>
-              <Select value={model || "all"} onValueChange={(v) => setModel(v === "all" ? "" : v)}>
+              <Select
+                value={model || "all"}
+                items={[{ value: "all", label: S.agents.allModels }, ...models.map((m) => ({ value: m, label: m }))]}
+                onValueChange={(v) => setModel(!v || v === "all" ? "" : v)}
+              >
                 <SelectTrigger
                   className="h-8 w-auto gap-1.5 border-dashed px-2.5 text-xs"
                   aria-label={S.agents.allModels}
@@ -642,7 +649,7 @@ const HireForm = ({ onClose, onHired }: { onClose: () => void; onHired: () => vo
 
   return (
     <FormCard title={S.agents.hire} onClose={onClose} closeLabel={S.common.cancel}>
-      {err && <div className="mb-3"><Callout kind="warn" title={S.agents.hireErrTitle}>{err}</Callout></div>}
+      {err && <div className="mb-3"><Alert tone="warning" title={S.agents.hireErrTitle}>{err}</Alert></div>}
 
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label={S.agents.slugLabel} htmlFor="hire-slug" required hint={S.agents.slugHint}>
@@ -665,7 +672,7 @@ const HireForm = ({ onClose, onHired }: { onClose: () => void; onHired: () => vo
             placeholder="Owns migrations, schema changes and query performance." />
         </Field>
         <Field label={S.agents.modelLabel} htmlFor="hire-model" hint={S.agents.modelHint}>
-          <Select value={f.model} onValueChange={(v) => setF({ ...f, model: v })}>
+          <Select value={f.model} onValueChange={(v) => v && setF({ ...f, model: v })}>
             <SelectTrigger id="hire-model" className="w-full"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="haiku">haiku</SelectItem>
@@ -686,7 +693,7 @@ const HireForm = ({ onClose, onHired }: { onClose: () => void; onHired: () => vo
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-xs font-medium text-muted-foreground">{S.agents.personaLabel}</span>
           <Button
-            variant="outline" size="sm"
+            variant="secondary" size="sm"
             onClick={() => void handleDraft()}
             disabled={drafting || !canDraft}
           >
@@ -704,9 +711,9 @@ const HireForm = ({ onClose, onHired }: { onClose: () => void; onHired: () => vo
 
         {draftErr && (
           <div className="mt-2">
-            <Callout kind="warn" title={S.agents.draftErrTitle}>
+            <Alert tone="warning" title={S.agents.draftErrTitle}>
               {draftErr} {S.agents.draftErrNote}
-            </Callout>
+            </Alert>
           </div>
         )}
 

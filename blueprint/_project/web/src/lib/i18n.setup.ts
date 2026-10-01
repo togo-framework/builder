@@ -1,4 +1,4 @@
-import { useT } from "@togo-framework/ui";
+import { useLocale } from "./locale";
 
 /**
  * i18n.setup — EN/AR strings for the two account-and-onboarding screens: the
@@ -344,7 +344,7 @@ const ar: typeof en = {
 };
 
 /**
- * useSetupStrings — same contract as useStrings in lib/i18n.ts. `useT()` is the
+ * useSetupStrings — same contract as useStrings in lib/i18n.ts. `useLocale()` is the
  * language authority (it owns the locale, persists it and sets the document
  * dir); this only supplies the words.
  */
@@ -353,7 +353,7 @@ const useSetupStrings = (): {
   isRTL: boolean;
   language: "en" | "ar";
 } => {
-  const { language, isRTL } = useT();
+  const { language, isRTL } = useLocale();
   return { S: language === "ar" ? ar : en, isRTL, language };
 };
 

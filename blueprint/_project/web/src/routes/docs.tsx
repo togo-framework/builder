@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Button, Callout, Input, StatusBadge, cn } from "@togo-framework/ui";
+import { Button, Alert, Input, Status, cn } from "@fadymondy/nasaq/web";
 import {
   ChevronDown, ChevronLeft, ChevronRight, Download, File, FileImage,
   FileSpreadsheet, FileText, FileType, Library, RefreshCw, Search, Trash2,
@@ -227,7 +227,7 @@ const DocRow = ({
             otherwise Arabic name. The isolate is still what stops it from
             disturbing the badges beside it. */}
         <bdi className="min-w-0 break-all text-sm font-medium text-foreground">{d.name}</bdi>
-        {broken && <StatusBadge tone="danger">{S.notInBrain}</StatusBadge>}
+        {broken && <Status tone="danger">{S.notInBrain}</Status>}
       </RowTitle>
 
       {d.caption && <p className="mt-1 text-sm text-muted-foreground">{d.caption}</p>}
@@ -486,9 +486,9 @@ export const Docs = () => {
       </StatRow>
 
       {err && (
-        <Callout kind="warn" title={S.errTitle}>
+        <Alert tone="warning" title={S.errTitle}>
           {err}
-        </Callout>
+        </Alert>
       )}
 
       <FormCard title={S.uploadTitle}>
@@ -527,7 +527,7 @@ export const Docs = () => {
           </p>
           <p className="mt-1 max-w-[52ch] text-xs text-muted-foreground">{S.dropHint}</p>
           <Button
-            variant="outline"
+            variant="secondary"
             size="sm"
             className="mt-4"
             onClick={() => fileRef.current?.click()}
@@ -699,7 +699,7 @@ export const Docs = () => {
             description={S.noMatchDesc}
             action={
               <Button
-                variant="outline"
+                variant="secondary"
                 size="sm"
                 onClick={() => {
                   setQuery("");

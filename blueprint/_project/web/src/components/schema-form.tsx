@@ -12,9 +12,7 @@
 // does declare one this file should grow rather than the schema shrink.
 
 import { useMemo, useState } from "react";
-import {
-  Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea,
-} from "@togo-framework/ui";
+import { Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea } from "@fadymondy/nasaq/web";
 
 export interface JSONSchema {
   type?: string;

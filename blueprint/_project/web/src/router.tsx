@@ -1,5 +1,5 @@
 import { createRootRoute, createRoute, createRouter, lazyRouteComponent, Outlet, redirect } from "@tanstack/react-router";
-import { SentraLoading } from "@togo-framework/ui";
+import { LogoLoader } from "@fadymondy/nasaq/web";
 import { Providers } from "./providers";
 import { BASE } from "./lib/base";
 import { sessionMe } from "./lib/auth";
@@ -10,10 +10,10 @@ import { Register } from "./routes/register";
 import { Reset } from "./routes/reset";
 import { AppLayout } from "./routes/app-layout";
 
-// The authenticated admin surface (dashboard charts/widgets/ThemePicker, the
+// The authenticated admin surface (dashboard charts/widgets, the
 // resource tables/forms/infolists) is the heavy part of the bundle — lazy-load it
 // so it splits into its own chunk and the public/auth first paint stays small.
-// The router's pending component (SentraLoading) shows while the chunk loads.
+// The router's pending component (LogoLoader) shows while the chunk loads.
 const Dashboard = lazyRouteComponent(() => import("./routes/dashboard"), "Dashboard");
 const AdminResource = lazyRouteComponent(() => import("./routes/admin-resource"), "AdminResource");
 const Profile = lazyRouteComponent(() => import("./routes/profile"), "Profile");
@@ -123,7 +123,7 @@ export const router = createRouter({
   defaultPreload: "intent",
   // Branded full-screen loader while a route's beforeLoad (e.g. the auth check) runs.
   // 150ms delay so cached/instant navigations don't flash it.
-  defaultPendingComponent: () => <SentraLoading />,
+  defaultPendingComponent: () => <div className="grid min-h-screen place-items-center"><LogoLoader /></div>,
   defaultPendingMs: 150,
   defaultPendingMinMs: 300,
 });

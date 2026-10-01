@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "@tanstack/react-router";
-import { Callout, useT } from "@togo-framework/ui";
+import { Alert } from "@fadymondy/nasaq/web";
+import { useLocale } from "../lib/locale";
 import { LayoutGrid, TriangleAlert } from "lucide-react";
 import { PageShell } from "../components/page-shell";
 import {
@@ -32,7 +33,7 @@ import {
 export function CustomApp() {
   const { slug } = useParams({ from: "/_app/apps/$slug" });
   const nav = useNavigate();
-  const { language } = useT();
+  const { language } = useLocale();
   const ar = language === "ar";
 
   const hostRef = useRef<HTMLDivElement>(null);
@@ -118,10 +119,10 @@ export function CustomApp() {
       icon={<LayoutGrid className="size-5" />}
     >
       {error ? (
-        <Callout kind="warn" className="flex items-start gap-2">
+        <Alert tone="warning" className="flex items-start gap-2">
           <TriangleAlert className="mt-0.5 size-4 shrink-0" />
           <span>{error}</span>
-        </Callout>
+        </Alert>
       ) : null}
       {loading && !error ? (
         <p className="text-sm text-muted-foreground">

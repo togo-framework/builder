@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { X } from "lucide-react";
-import { Callout, StatusBadge } from "@togo-framework/ui";
+import { Alert, Status } from "@fadymondy/nasaq/web";
 import { fetchEntity, type EntityDetail } from "../lib/agents";
 
 const ago = (iso: string) => {
@@ -73,7 +73,7 @@ export const EntityPanel = ({
             </h2>
             {d && (
               <p className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
-                <StatusBadge tone="neutral">{d.kind}</StatusBadge>
+                <Status tone="neutral">{d.kind}</Status>
                 <span>mentioned {d.mentions}×</span>
                 <span>last seen {ago(d.lastSeen)}</span>
               </p>
@@ -88,7 +88,7 @@ export const EntityPanel = ({
           </button>
         </header>
 
-        {err && <Callout kind="warn" title="Could not open this entity">{err}</Callout>}
+        {err && <Alert tone="warning" title="Could not open this entity">{err}</Alert>}
 
         {d && (
           <>

@@ -1,10 +1,8 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "@tanstack/react-router";
-import {
-  Button, Callout, EmptyState, Input, MarkdownEditor, Select, SelectContent,
-  SelectItem, SelectTrigger, SelectValue, Switch, Tabs, TabsContent, TabsList,
-  TabsTrigger,
-} from "@togo-framework/ui";
+import { Button, Alert, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Switch, Tabs, TabsPanel, TabsList, TabsTab } from "@fadymondy/nasaq/web";
+import { EmptyState } from "../components/ui/empty-state";
+import { MarkdownEditor } from "../components/ui/markdown";
 import {
   ArrowLeft, CircleAlert, CircleCheck, CircleDashed, CircleX, LoaderCircle,
 } from "lucide-react";
@@ -144,7 +142,7 @@ export const AgentDetail = () => {
     return (
       <PageShell>
         {back}
-        {err ? <Callout kind="warn" title={S.agents.loadOneErr}>{err}</Callout> : null}
+        {err ? <Alert tone="warning" title={S.agents.loadOneErr}>{err}</Alert> : null}
       </PageShell>
     );
   }
@@ -200,7 +198,7 @@ export const AgentDetail = () => {
         </div>
       </header>
 
-      {err && <Callout kind="warn" title={S.common.somethingWrong}>{err}</Callout>}
+      {err && <Alert tone="warning" title={S.common.somethingWrong}>{err}</Alert>}
 
       {/* Content leads, the quiet meta rail trails — the same split as the
           issue page, one pattern across the product. The grid follows the
@@ -208,13 +206,13 @@ export const AgentDetail = () => {
       <div className="grid items-start gap-8 lg:grid-cols-[minmax(0,1fr)_280px]">
         <Tabs defaultValue="overview" className="min-w-0">
           <TabsList>
-            <TabsTrigger value="overview">{S.agents.tabOverview}</TabsTrigger>
-            <TabsTrigger value="skills">{S.agents.tabSkills}</TabsTrigger>
-            <TabsTrigger value="runs">{S.agents.tabRuns}</TabsTrigger>
-            <TabsTrigger value="memory">{S.agents.tabMemory}</TabsTrigger>
+            <TabsTab value="overview">{S.agents.tabOverview}</TabsTab>
+            <TabsTab value="skills">{S.agents.tabSkills}</TabsTab>
+            <TabsTab value="runs">{S.agents.tabRuns}</TabsTab>
+            <TabsTab value="memory">{S.agents.tabMemory}</TabsTab>
           </TabsList>
 
-          <TabsContent value="overview" className="mt-4 flex min-w-0 flex-col gap-6">
+          <TabsPanel value="overview" className="mt-4 flex min-w-0 flex-col gap-6">
             <p className="text-sm leading-relaxed text-muted-foreground">{agent.description}</p>
 
             <section className="min-w-0">
@@ -246,16 +244,16 @@ export const AgentDetail = () => {
                   {busy ? S.common.saving : S.agents.savePersona}
                 </Button>
                 {draft !== null && draft !== persona && (
-                  <Button variant="outline" onClick={() => setDraft(null)}>
+                  <Button variant="secondary" onClick={() => setDraft(null)}>
                     {S.common.discard}
                   </Button>
                 )}
                 {saved && <span className="text-xs text-success">{saved}</span>}
               </div>
             </section>
-          </TabsContent>
+          </TabsPanel>
 
-          <TabsContent value="skills" className="mt-4 flex min-w-0 flex-col gap-5">
+          <TabsPanel value="skills" className="mt-4 flex min-w-0 flex-col gap-5">
             {agent.skills.length === 0 ? (
               <EmptyState title={S.agents.skillsEmpty} description="" />
             ) : (
@@ -310,9 +308,9 @@ export const AgentDetail = () => {
               />
               <p className="mt-1 text-[11px] text-muted-foreground">{S.agents.skillsFieldHint}</p>
             </div>
-          </TabsContent>
+          </TabsPanel>
 
-          <TabsContent value="runs" className="mt-4 min-w-0">
+          <TabsPanel value="runs" className="mt-4 min-w-0">
             {activity.length === 0 ? (
               <EmptyState title={S.agents.runsEmptyTitle} description={S.agents.runsEmptyDesc} />
             ) : (
@@ -369,9 +367,9 @@ export const AgentDetail = () => {
                 )}
               </div>
             )}
-          </TabsContent>
+          </TabsPanel>
 
-          <TabsContent value="memory" className="mt-4 flex min-w-0 flex-col gap-4">
+          <TabsPanel value="memory" className="mt-4 flex min-w-0 flex-col gap-4">
             {!brain ? (
               <EmptyState title={S.agents.noBrainTitle} description={S.agents.noBrainDesc} />
             ) : (
@@ -428,7 +426,7 @@ export const AgentDetail = () => {
                 )}
               </>
             )}
-          </TabsContent>
+          </TabsPanel>
         </Tabs>
 
         {/* The quiet meta rail: configuration and totals. Everything here is a
@@ -450,7 +448,15 @@ export const AgentDetail = () => {
           </Field>
 
           <Field label={S.agents.railModel}>
-            <Select value={agent.model} onValueChange={(v) => void patch({ model: v })}>
+            <Select
+              value={agent.model}
+              items={[
+                { value: "haiku", label: S.agents.modelHaiku },
+                { value: "sonnet", label: S.agents.modelSonnet },
+                { value: "opus", label: S.agents.modelOpus },
+              ]}
+              onValueChange={(v) => v && void patch({ model: v })}
+            >
               <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="haiku">{S.agents.modelHaiku}</SelectItem>

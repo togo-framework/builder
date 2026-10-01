@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { Button, Callout, cn } from "@togo-framework/ui";
+import { Button, Alert, cn } from "@fadymondy/nasaq/web";
 import {
   ArrowRight,
   Bot,
@@ -559,7 +559,7 @@ export function Dashboard() {
           </DotLabel>
           <Button
             type="button"
-            variant="outline"
+            variant="secondary"
             size="sm"
             onClick={() => void load()}
             disabled={busy}
@@ -582,9 +582,9 @@ export function Dashboard() {
       </p>
 
       {err && (
-        <Callout kind="warn" title={S.loadFailed}>
+        <Alert tone="warning" title={S.loadFailed}>
           {err}
-        </Callout>
+        </Alert>
       )}
 
       {fresh ? (

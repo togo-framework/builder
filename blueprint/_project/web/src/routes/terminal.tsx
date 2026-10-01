@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import {
-  Button, Callout, EmptyState, Input, Skeleton, StatusBadge,
-} from "@togo-framework/ui";
+import { Button, Alert, Input, Skeleton, Status } from "@fadymondy/nasaq/web";
+import { EmptyState } from "../components/ui/empty-state";
 import {
   ArrowDownToLine, Check, Copy, Plug, Plus, SquareTerminal, Trash2,
 } from "lucide-react";
@@ -300,10 +299,10 @@ export const Terminal = () => {
           icon={<SquareTerminal className="size-5" />}
           description={A.term.desc}
         />
-        <Callout kind="warn" title={A.term.offTitle}>
+        <Alert tone="warning" title={A.term.offTitle}>
           {/* The server's own sentence — it names the flag to set. */}
           <bdi>{status.reason}</bdi>
-        </Callout>
+        </Alert>
         <p className="max-w-prose text-xs text-muted-foreground">{A.term.offBody}</p>
       </PageShell>
     );
@@ -317,7 +316,7 @@ export const Terminal = () => {
           icon={<SquareTerminal className="size-5" />}
           description={A.term.desc}
         />
-        <Callout kind="warn" title={A.term.noTmuxTitle}>{A.term.noTmuxBody}</Callout>
+        <Alert tone="warning" title={A.term.noTmuxTitle}>{A.term.noTmuxBody}</Alert>
         <div className="border border-border bg-card">
           <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-1.5">
             <span className="font-mono text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
@@ -366,7 +365,7 @@ export const Terminal = () => {
         }
       />
 
-      {err && <Callout kind="warn" title={S.common.somethingWrong}>{err}</Callout>}
+      {err && <Alert tone="warning" title={S.common.somethingWrong}>{err}</Alert>}
 
       {/* One frame: tab strip, title bar, terminal. The sessions used to be
           loose pills above an unrelated black rectangle, which is why the page
@@ -420,9 +419,9 @@ export const Terminal = () => {
         {active ? (
           <>
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border px-3 py-1.5">
-              <StatusBadge tone={connected ? "success" : "neutral"}>
+              <Status tone={connected ? "success" : "neutral"}>
                 {connected ? A.term.attached : A.term.detached}
-              </StatusBadge>
+              </Status>
               {connected && attachedAt && (
                 <span className="text-[11px] text-muted-foreground">
                   {A.term.attachedSince(A.mcp.ago(attachedAt))}

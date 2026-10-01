@@ -1,8 +1,9 @@
 import { useEffect, useState, type ComponentType } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { Button, Callout, EmptyState } from "@togo-framework/ui";
+import { Button, Alert } from "@fadymondy/nasaq/web";
+import { EmptyState } from "../components/ui/empty-state";
 import {
-  Bot, Boxes, Brain as BrainIcon, Database, FileText, Github, Globe, ListFilter,
+  Bot, Boxes, Brain as BrainIcon, Database, FileText, GitBranch, Globe, ListFilter,
   MessageSquare, PenLine, Rss, X,
 } from "lucide-react";
 import { BrainGraph } from "../components/brain-graph";
@@ -24,7 +25,7 @@ import { useKnowledge } from "../lib/i18n.knowledge";
  * in a monochrome screenshot and for a reader who cannot separate the hues.
  */
 const KIND_ICON: Record<string, ComponentType<{ className?: string }>> = {
-  github: Github,
+  github: GitBranch,
   rss: Rss,
   slack: MessageSquare,
   crawl: Globe,
@@ -170,17 +171,17 @@ export const Brain = () => {
 
   return (
     <PageShell title={S.brain.title} icon={<BrainIcon />} description={S.brain.desc}>
-      {err && <Callout kind="warn">{err}</Callout>}
+      {err && <Alert tone="warning">{err}</Alert>}
 
       {/* Said plainly. A graph rendered over keyword overlap invites trust it
           has not earned, and the operator cannot tell by looking. The sentence
           is assembled around its two <code> islands so both languages keep the
           identifiers verbatim and LTR. */}
       {b && !b.semantic && (
-        <Callout kind="warn" title={S.brain.keywordTitle}>
+        <Alert tone="warning" title={S.brain.keywordTitle}>
           {S.brain.kbBefore}<code dir="ltr">{b.embedder}</code>{S.brain.kbMiddle}
           <code dir="ltr">BUILDER_EMBED_URL</code>{S.brain.kbAfter}
-        </Callout>
+        </Alert>
       )}
 
       {b === null ? (
@@ -349,7 +350,7 @@ export const Brain = () => {
             title={K.brain.filteredEmptyTitle}
             description={K.brain.filteredEmptyDesc}
             action={
-              <Button variant="outline" onClick={() => setFilter("")}>
+              <Button variant="secondary" onClick={() => setFilter("")}>
                 {K.brain.showEverything}
               </Button>
             }

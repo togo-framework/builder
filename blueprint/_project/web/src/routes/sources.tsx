@@ -1,11 +1,9 @@
 import { useEffect, useState, type ComponentType } from "react";
-import {
-  Button, Callout, EmptyState, Input, Select, SelectContent, SelectItem,
-  SelectTrigger, SelectValue, StatusBadge, Textarea,
-} from "@togo-framework/ui";
+import { Button, Alert, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Status, Textarea } from "@fadymondy/nasaq/web";
+import { EmptyState } from "../components/ui/empty-state";
 import {
   Bot, Boxes, CalendarClock, ChevronDown, ChevronLeft, ChevronRight, CircleAlert,
-  CircleCheck, CircleDashed, CirclePause, CircleX, Database, FileText, Github, Globe,
+  CircleCheck, CircleDashed, CirclePause, CircleX, Database, FileText, GitBranch, Globe,
   History, LoaderCircle, MessageSquare, PenLine, Play, Plus, RefreshCw, Rss, Trash2, X,
 } from "lucide-react";
 import {
@@ -22,7 +20,7 @@ import { useKnowledge } from "../lib/i18n.knowledge";
 /** One glyph per connector kind — the same marks the brain puts on a memory's
  *  provenance, so a row here and a citation there are visibly the same thing. */
 const KIND_ICON: Record<string, ComponentType<{ className?: string }>> = {
-  github: Github,
+  github: GitBranch,
   rss: Rss,
   slack: MessageSquare,
   crawl: Globe,
@@ -355,7 +353,7 @@ const SourceRow = ({
         {/* Disabled is the single most confusing state — a source that collects
             nothing and looks configured — so when it hides behind a failure it
             still gets said out loud. */}
-        {failing && !s.enabled && <StatusBadge tone="warning">{S.sources.off}</StatusBadge>}
+        {failing && !s.enabled && <Status tone="warning">{S.sources.off}</Status>}
       </RowTitle>
 
       <p className="mt-1 text-sm text-muted-foreground">
@@ -497,7 +495,7 @@ const AddSourceForm = ({
             label={S.sources.kindLabel} htmlFor="src-kind" required
             hint={S.sources.kindHint}
           >
-            <Select value={kind} onValueChange={handleKind}>
+            <Select value={kind} onValueChange={(v) => v && handleKind(v)}>
               <SelectTrigger id="src-kind" className="w-full font-mono text-xs">
                 <SelectValue placeholder={S.sources.pickConnector} />
               </SelectTrigger>
@@ -622,7 +620,7 @@ export const Sources = () => {
         </StatRow>
       )}
 
-      {err && <Callout kind="warn" title={S.common.somethingWrong}>{err}</Callout>}
+      {err && <Alert tone="warning" title={S.common.somethingWrong}>{err}</Alert>}
 
       {adding && (
         <AddSourceForm

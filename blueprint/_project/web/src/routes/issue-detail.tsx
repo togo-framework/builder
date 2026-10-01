@@ -7,9 +7,9 @@ import {
 import type { LucideIcon } from "lucide-react";
 import { listAgents, type Agent } from "../lib/agents";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
-import {
-  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Button, Callout, Checkbox, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger, EmptyState, Input, Label, MarkdownEditor, MarkdownRenderer, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, StatusBadge,
-} from "@togo-framework/ui";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Button, Alert, Checkbox, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Status } from "@fadymondy/nasaq/web";
+import { EmptyState } from "../components/ui/empty-state";
+import { MarkdownEditor, MarkdownRenderer } from "../components/ui/markdown";
 import {
   TRANSITIONS, addComment, deleteIssue, fetchBoard, fetchIssue, patchIssue,
   type Activity, type BrowserContext, type Comment, type ConsoleEntry, type Detail,
@@ -195,7 +195,7 @@ export const IssueDetail = () => {
           <Boxes aria-hidden="true" className="size-3.5" />
           {S.issues.title}
         </Link>
-        <div className="mt-4"><Callout kind="warn" title={T.loadErrTitle}>{err}</Callout></div>
+        <div className="mt-4"><Alert tone="warning" title={T.loadErrTitle}>{err}</Alert></div>
       </div>
     );
   }
@@ -235,18 +235,15 @@ export const IssueDetail = () => {
         </nav>
 
         <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button
-              type="button"
-              aria-label={T.moreActions}
-              title={T.moreActions}
-              className="rounded p-1 text-muted-foreground motion-hover hover:bg-muted hover:text-foreground"
-            >
-              <MoreHorizontal aria-hidden="true" className="size-4" />
-            </button>
+          <DropdownMenuTrigger
+            aria-label={T.moreActions}
+            title={T.moreActions}
+            className="rounded p-1 text-muted-foreground motion-hover hover:bg-muted hover:text-foreground"
+          >
+            <MoreHorizontal aria-hidden="true" className="size-4" />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="w-48">
-            <DropdownMenuItem onSelect={() => void handleCopyLink()}>
+            <DropdownMenuItem onClick={() => void handleCopyLink()}>
               {linkCopied
                 ? <Check aria-hidden="true" className="me-2 size-3.5 text-success" />
                 : <Copy aria-hidden="true" className="me-2 size-3.5" />}
@@ -254,8 +251,8 @@ export const IssueDetail = () => {
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
-              onSelect={() => setConfirming(true)}
-              className="text-destructive focus:text-destructive"
+              onClick={() => setConfirming(true)}
+              variant="danger"
             >
               <Trash2 aria-hidden="true" className="me-2 size-3.5" />
               {T.deleteCta}
@@ -303,7 +300,8 @@ export const IssueDetail = () => {
               >
                 <Select
                   value={issue.status}
-                  onValueChange={(v) => void handleUpdate({ status: v as IssueStatus })}
+                  items={[issue.status, ...(TRANSITIONS[issue.status] ?? [])].map((t) => ({ value: t, label: S.issues.columns[t] }))}
+                  onValueChange={(v) => v && void handleUpdate({ status: v as IssueStatus })}
                 >
                   <SelectTrigger className={RAIL_TRIGGER}><SelectValue /></SelectTrigger>
                   <SelectContent>
@@ -323,7 +321,8 @@ export const IssueDetail = () => {
               >
                 <Select
                   value={issue.priority}
-                  onValueChange={(v) => void handleUpdate({ priority: v as Priority })}
+                  items={(Object.keys(S.issues.priorities) as Priority[]).map((p) => ({ value: p, label: S.issues.priorities[p] }))}
+                  onValueChange={(v) => v && void handleUpdate({ priority: v as Priority })}
                 >
                   <SelectTrigger className={RAIL_TRIGGER}><SelectValue /></SelectTrigger>
                   <SelectContent>
@@ -337,7 +336,8 @@ export const IssueDetail = () => {
               <PropRow icon={<Flag className="size-3.5" />} label={S.issues.colType}>
                 <Select
                   value={issue.type}
-                  onValueChange={(v) => void handleUpdate({ type: v as IssueType })}
+                  items={(Object.keys(S.issues.types) as IssueType[]).map((t) => ({ value: t, label: S.issues.types[t] }))}
+                  onValueChange={(v) => v && void handleUpdate({ type: v as IssueType })}
                 >
                   <SelectTrigger className={RAIL_TRIGGER}><SelectValue /></SelectTrigger>
                   <SelectContent>
@@ -359,7 +359,16 @@ export const IssueDetail = () => {
                     unclaimable issue. */}
                 <Select
                   value={issue.humanOnly ? "__human__" : (issue.assignee || "__auto__")}
+                  items={[
+                    { value: "__auto__", label: T.assigneeAnyArea },
+                    { value: "__human__", label: T.assigneeHuman },
+                    ...agents.filter((a) => a.enabled && a.role === "builder").map((a) => ({
+                      value: a.slug,
+                      label: a.displayName || a.slug,
+                    })),
+                  ]}
                   onValueChange={(v) => {
+                    if (!v) return;
                     if (v === "__human__") return void handleUpdate({ humanOnly: true, assignee: "" });
                     if (v === "__auto__") return void handleUpdate({ humanOnly: false, assignee: "" });
                     void handleUpdate({ assignee: v, humanOnly: false });
@@ -452,12 +461,12 @@ export const IssueDetail = () => {
                 onCheckedChange={(v) => void handleUpdate({ humanOnly: v === true })}
                 className="mt-0.5"
               />
-              <Label htmlFor="human-only" className="cursor-pointer font-normal">
+              <label htmlFor="human-only" className="cursor-pointer font-normal">
                 <span className="text-xs font-medium">{S.issues.humanOnly}</span>
                 <span className="block text-[11px] font-normal text-muted-foreground">
                   {S.issues.humanOnlyDesc}
                 </span>
-              </Label>
+              </label>
             </div>
           </div>
         </aside>
@@ -575,11 +584,11 @@ export const IssueDetail = () => {
                         silently re-resolves to the wrong element after a reorder. */}
                     {p.verified.length === 1 && p.verified[0] === "css" && (
                       <div className="p-3 pt-0">
-                        <Callout kind="warn" title={T.fragileTitle}>
+                        <Alert tone="warning" title={T.fragileTitle}>
                           {T.fragileBefore}
                           <code className="font-mono">data-testid</code>
                           {T.fragileAfter}
-                        </Callout>
+                        </Alert>
                       </div>
                     )}
                   </div>
@@ -621,7 +630,7 @@ export const IssueDetail = () => {
                       <p className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-border px-3 py-1.5 text-xs text-muted-foreground">
                         <span className="font-medium text-foreground"><bdi>{item.comment.author}</bdi></span>
                         {item.comment.kind === "agent" && (
-                          <StatusBadge tone="neutral">{T.agentBadge}</StatusBadge>
+                          <Status tone="neutral">{T.agentBadge}</Status>
                         )}
                         <span aria-hidden>·</span>
                         <span>{T.ago(item.comment.createdAt)}</span>

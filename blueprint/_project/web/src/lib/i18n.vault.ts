@@ -1,4 +1,4 @@
-import { useT } from "@togo-framework/ui";
+import { useLocale } from "./locale";
 
 /**
  * i18n.vault — EN/AR copy for the two credential-and-document screens.
@@ -6,7 +6,7 @@ import { useT } from "@togo-framework/ui";
  * It lives beside lib/i18n.ts rather than inside it because those two screens
  * were redesigned together and their vocabulary is shared (a masked value, an
  * audited read, a file that is stored but unreadable). Same pattern as the
- * main dictionary: `useT()` stays the single language AUTHORITY — it owns the
+ * main dictionary: `useLocale()` stays the single language AUTHORITY — it owns the
  * locale, persists the choice and sets the document `dir` — and this file only
  * supplies the words.
  *
@@ -535,13 +535,13 @@ const exactTime = (iso: string, ar: boolean): string => {
 /* ------------------------------------------------------------------ */
 
 const useVaultStrings = (): { S: VaultStrings; ar: boolean; isRTL: boolean } => {
-  const { language, isRTL } = useT();
+  const { language, isRTL } = useLocale();
   const ar = language === "ar";
   return { S: ar ? vaultAr : vaultEn, ar, isRTL };
 };
 
 const useDocsStrings = (): { S: DocsStrings; ar: boolean; isRTL: boolean } => {
-  const { language, isRTL } = useT();
+  const { language, isRTL } = useLocale();
   const ar = language === "ar";
   return { S: ar ? docsAr : docsEn, ar, isRTL };
 };

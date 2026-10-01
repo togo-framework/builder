@@ -28,10 +28,12 @@ import (
 var webDeps = map[string]string{
 	"@tanstack/react-query":  "^5.62.0",
 	"@tanstack/react-router": "^1.95.0",
-	"@togo-framework/ui":     "^0.1.11",
-	"lucide-react":           "^0.462.0",
+	"@fadymondy/nasaq":       "^0.2.0",
+	"lucide-react":           "^1.48.0",
 	"react":                  "^19.0.0",
 	"react-dom":              "^19.0.0",
+	"react-is":                "^19.0.0",
+	"recharts":               "^3.10.1",
 
 	// Imported dynamically by the terminal route, so no bundler or type check
 	// will tell you they are missing — the page just fails at runtime, in the

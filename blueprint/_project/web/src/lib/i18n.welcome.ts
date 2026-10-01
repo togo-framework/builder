@@ -1,11 +1,11 @@
-import { useT } from "@togo-framework/ui";
+import { useLocale } from "./locale";
 
 /**
  * i18n.welcome — EN/AR copy for the first screen.
  *
  * It lives beside lib/i18n.ts for the same reason i18n.home.ts does: welcome
  * was redesigned as one surface and its vocabulary is its own (a fleet, a run,
- * a trace, a thing that waits for a human). `useT()` stays the single language
+ * a trace, a thing that waits for a human). `useLocale()` stays the single language
  * AUTHORITY — it owns the locale, persists the choice and sets the document
  * `dir` — and this file only supplies the words.
  *
@@ -183,7 +183,7 @@ const welcomeAr: WelcomeStrings = {
 /* ------------------------------------------------------------------ */
 
 const useWelcomeStrings = (): { S: WelcomeStrings; ar: boolean; isRTL: boolean } => {
-  const { language, isRTL } = useT();
+  const { language, isRTL } = useLocale();
   const ar = language === "ar";
   return { S: ar ? welcomeAr : welcomeEn, ar, isRTL };
 };

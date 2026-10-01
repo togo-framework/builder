@@ -9,7 +9,8 @@
 // a single line would be a chart of a number nobody measures.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Button, EmptyState } from "@togo-framework/ui";
+import { Button } from "@fadymondy/nasaq/web";
+import { EmptyState } from "../components/ui/empty-state";
 import { ChartColumn, LoaderCircle, RefreshCw } from "lucide-react";
 import { AppPageHeader as PageHeader, PageShell, Section } from "../components/page-shell";
 import { Sparkline, TopBars, type SeriesPoint } from "../components/ui/sparkline";
@@ -140,7 +141,7 @@ export const Analytics = () => {
         }
         actions={
           conns.length > 0 && (
-            <Button size="sm" variant="outline" onClick={() => void loadData()} disabled={busy}>
+            <Button size="sm" variant="secondary" onClick={() => void loadData()} disabled={busy}>
               <RefreshCw className={`size-3.5 ${busy ? "animate-spin" : ""}`} />
               {ar ? "تحديث" : "Refresh"}
             </Button>

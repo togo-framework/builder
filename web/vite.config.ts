@@ -38,7 +38,7 @@ const proxy = {
 };
 
 // The font faces are declared with ABSOLUTE urls — url(/fonts/lusail/…) — in
-// app.css and, more awkwardly, inside @togo-framework/ui's shipped stylesheet,
+// app.css and, more awkwardly, inside @fadymondy/nasaq's shipped stylesheet,
 // which is a node_module this repo cannot edit. Vite leaves such strings alone:
 // they are public-directory references, not module imports, so nothing rebases
 // them and the browser asked the HOST for /fonts/…, got its 404, and every

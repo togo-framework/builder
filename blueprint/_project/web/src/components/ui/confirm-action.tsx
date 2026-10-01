@@ -1,7 +1,6 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactElement, type ReactNode } from "react";
 import {
   AlertDialog,
-  AlertDialogAction,
   AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
@@ -9,11 +8,11 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
   AlertDialogTrigger,
+  Button,
   Input,
   cn,
-  useT,
-} from "@togo-framework/ui";
-import { LoaderCircle } from "lucide-react";
+} from "@fadymondy/nasaq/web";
+import { useLocale } from "../../lib/locale";
 import { TokenCost } from "./token-cost";
 
 /**
@@ -64,7 +63,7 @@ const ConfirmAction = ({
   className,
 }: {
   /** Uncontrolled use: the element that opens the dialog. */
-  trigger?: ReactNode;
+  trigger?: ReactElement;
   /** Controlled use: pass both. Omit `trigger` when controlling. */
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
@@ -92,13 +91,17 @@ const ConfirmAction = ({
   onConfirm: () => void | Promise<void>;
   className?: string;
 }) => {
-  const { language } = useT();
+  const { language } = useLocale();
   const ar = language === "ar";
   const [typed, setTyped] = useState("");
   const [pending, setPending] = useState(false);
 
   const controlled = open !== undefined;
-  const isOpen = controlled ? open : undefined;
+  // Uncontrolled use keeps its own open state: the primary below is a plain
+  // Button (not AlertDialogAction, which closes on click), so the dialog stays
+  // open while the work runs and closes only when the caller's promise settles.
+  const [innerOpen, setInnerOpen] = useState(false);
+  const isOpen = controlled ? open : innerOpen;
 
   // The confirmation phrase must not survive a close. Leaving it typed means
   // the next open starts pre-armed, which defeats the entire point of asking.
@@ -111,14 +114,13 @@ const ConfirmAction = ({
 
   const handleOpenChange = (next: boolean) => {
     if (!next) setTyped("");
+    if (!controlled) setInnerOpen(next);
     onOpenChange?.(next);
   };
 
-  const handleConfirm = async (e: React.MouseEvent) => {
+  const handleConfirm = async () => {
     // The dialog must stay open while the work runs, or a failure closes the
-    // surface that was going to report it. Radix closes on Action click by
-    // default; this takes that back.
-    e.preventDefault();
+    // surface that was going to report it.
     if (!armed || working) return;
     try {
       setPending(true);
@@ -132,7 +134,7 @@ const ConfirmAction = ({
 
   return (
     <AlertDialog open={isOpen} onOpenChange={handleOpenChange}>
-      {trigger && <AlertDialogTrigger asChild>{trigger}</AlertDialogTrigger>}
+      {trigger && <AlertDialogTrigger render={trigger} />}
 
       <AlertDialogContent className={cn("max-w-md", className)}>
         <AlertDialogHeader>
@@ -199,26 +201,18 @@ const ConfirmAction = ({
         )}
 
         <AlertDialogFooter>
-          <AlertDialogCancel disabled={working}>
+          <AlertDialogCancel variant="secondary" disabled={working}>
             {cancelLabel ?? (ar ? "إلغاء" : "Cancel")}
           </AlertDialogCancel>
-          <AlertDialogAction
+          <Button
+            variant={tone === "danger" ? "danger" : "primary"}
             onClick={handleConfirm}
-            disabled={!armed || working}
-            className={cn(
-              "motion-press",
-              tone === "danger" &&
-                "bg-destructive text-destructive-foreground hover:bg-destructive/90",
-            )}
+            disabled={!armed}
+            loading={working}
+            className="motion-press"
           >
-            {working && (
-              <LoaderCircle
-                aria-hidden="true"
-                className="me-1.5 size-3.5 animate-spin motion-reduce:animate-none"
-              />
-            )}
             {confirmLabel ?? (ar ? "تأكيد" : "Confirm")}
-          </AlertDialogAction>
+          </Button>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>

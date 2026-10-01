@@ -1,51 +1,48 @@
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { ShieldCheck, Terminal } from "lucide-react";
-import { AuthCard, AuthErrorAlert, Input, Label, Button, type AuthCardBrand } from "@togo-framework/ui";
-import { auth, clearSession } from "../lib/auth";
+import { KeyRound, Terminal } from "lucide-react";
+import { AuthLayout, LoginForm, type OAuthProvider } from "@fadymondy/nasaq/web";
+import { auth, clearSession, type AuthMethod } from "../lib/auth";
 import { API, APP_NAME } from "../lib/api";
 import { appPath } from "../lib/base";
-
-const BRAND: AuthCardBrand = { name: APP_NAME, icon: <ShieldCheck className="h-10 w-10" />, tagline: { en: "Authentication & identity", ar: "المصادقة والهوية" } };
-
-function Methods() {
-  const [methods, setMethods] = useState<{ name: string; label: string; type: string; url: string }[]>([]);
-  useEffect(() => { auth.methods().then(setMethods); }, []);
-  if (!methods.length) return null;
-  return (
-    <div className="mt-4 space-y-2">
-      <div className="my-4 flex items-center gap-3 text-xs text-muted-foreground"><span className="h-px flex-1 bg-border" />or<span className="h-px flex-1 bg-border" /></div>
-      {methods.map((m) => (
-        <Button key={m.name} variant="outline" className="w-full" onClick={async () => {
-          if (m.type === "dev") { await fetch(`${API}${m.url}`, { method: "POST", credentials: "include" }); window.location.href = appPath("/dashboard"); }
-          else window.location.href = `${API}${m.url}`;
-        }}>{m.type === "dev" ? <Terminal className="h-4 w-4" /> : null}{m.label}</Button>
-      ))}
-    </div>
-  );
-}
+import { useLang } from "../lib/locale";
 
 export function Login() {
   const nav = useNavigate();
-  const [email, setEmail] = useState(""); const [password, setPassword] = useState("");
-  const [err, setErr] = useState(""); const [busy, setBusy] = useState(false);
-  async function submit(e: React.FormEvent) {
-    e.preventDefault(); setBusy(true); setErr("");
-    try { await auth.login(email, password); clearSession(); nav({ to: "/dashboard" }); }
-    catch (e: any) { setErr(e.message); } finally { setBusy(false); }
+  const { tx } = useLang();
+  const [methods, setMethods] = useState<AuthMethod[]>([]);
+  useEffect(() => { auth.methods().then(setMethods); }, []);
+
+  // Extra sign-in methods from the auth plugin (OAuth providers, the dev login) as provider buttons.
+  // Google, GitHub, Apple and Microsoft get Nasaq's own buttons; anything else is a custom one.
+  const BUILT_IN = ["google", "github", "apple", "microsoft"] as const;
+  const providers: OAuthProvider[] = methods.map((m) =>
+    (BUILT_IN as readonly string[]).includes(m.name)
+      ? (m.name as (typeof BUILT_IN)[number])
+      : { id: m.name, label: m.label, icon: m.type === "dev" ? <Terminal /> : <KeyRound /> });
+  async function onOAuth(id: string) {
+    const m = methods.find((x) => x.name === id);
+    if (!m) return;
+    if (m.type === "dev") { await fetch(`${API}${m.url}`, { method: "POST", credentials: "include" }); window.location.href = appPath("/dashboard"); }
+    else window.location.href = `${API}${m.url}`;
   }
+
   return (
-    <AuthCard brand={BRAND} language="en" layout="split">
-      <h1 className="text-2xl font-semibold">Welcome back</h1>
-      <p className="mt-1 text-sm text-muted-foreground">Sign in to your account</p>
-      <form onSubmit={submit} className="mt-6 space-y-4">
-        <AuthErrorAlert error={err} />
-        <div className="space-y-1.5"><Label htmlFor="email">Email</Label><Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required /></div>
-        <div className="space-y-1.5"><Label htmlFor="password">Password</Label><Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required /></div>
-        <Button type="submit" className="w-full" disabled={busy}>{busy ? "Signing in…" : "Sign in"}</Button>
-      </form>
-      <Methods />
-      <p className="mt-6 text-center text-sm text-muted-foreground">No account? <Link to="/register" className="font-medium text-primary hover:underline">Create one</Link></p>
-    </AuthCard>
+    <AuthLayout
+      title={tx(`Sign in to ${APP_NAME}`, `تسجيل الدخول إلى ${APP_NAME}`)}
+      description={tx("Welcome back", "مرحبًا بعودتك")}
+      footer={<p className="text-center text-body-sm text-muted-foreground">{tx("No account?", "ليس لديك حساب؟")} <Link to="/register" className="font-medium text-primary hover:underline">{tx("Create one", "أنشئ حسابًا")}</Link></p>}
+    >
+      <LoginForm
+        showRemember={false}
+        forgotPassword={<Link to="/reset" className="text-body-sm text-primary hover:underline">{tx("Forgot password?", "نسيت كلمة المرور؟")}</Link>}
+        oauthProviders={providers.length ? providers : undefined}
+        onOAuth={onOAuth}
+        onSubmit={async ({ email, password }) => {
+          try { await auth.login(email, password); } catch (e) { return { error: (e as Error).message }; }
+          clearSession(); nav({ to: "/dashboard" });
+        }}
+      />
+    </AuthLayout>
   );
 }

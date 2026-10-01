@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
-import { Button } from "@togo-framework/ui";
-import { Folder, FolderX, Github, HardDrive, PenLine, Users } from "lucide-react";
+import { Button } from "@fadymondy/nasaq/web";
+import { Folder, FolderX, GitBranch, HardDrive, PenLine, Users } from "lucide-react";
 import type { Skill } from "../lib/skills";
 import { SkillMark } from "./skill-mark";
 import { useStrings } from "../lib/i18n";
@@ -8,7 +8,7 @@ import { useStrings } from "../lib/i18n";
 /** The provenance glyph: where this skill's file came from. */
 const SOURCE_GLYPH = {
   local: HardDrive,
-  github: Github,
+  github: GitBranch,
   operator: PenLine,
 } as const;
 
@@ -95,7 +95,7 @@ export const SkillCard = ({
             </Link>
 
             <Button
-              variant="outline"
+              variant="secondary"
               size="sm"
               onClick={handleToggle}
               className="relative z-10 h-7 shrink-0 px-2.5 text-xs"

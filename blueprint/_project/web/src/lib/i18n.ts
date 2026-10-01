@@ -1,17 +1,14 @@
-import { useT } from "@togo-framework/ui";
+import { useLocale } from "./locale";
 import type { IssueStatus, IssueType, Priority } from "./issues";
 
 /**
  * i18n — the builder screens' EN/AR strings, side by side in one typed object.
  *
- * Pattern copied from builder/sdk/src/i18n.ts (the approved reference), NOT
- * from the UI package's i18next instance. Deliberate: `useT().t()` is bound to
- * @togo-framework/ui's own sealed namespaces (common, header, nav, copilot,
- * auth) and the package does not export its i18n instance, so page-level
- * resources cannot be registered without importing i18next directly — a new
- * dependency in all but name. `useT()` is still the language AUTHORITY here:
- * it owns the current locale, persists the choice, and sets the document
- * `dir`. This file only supplies the words.
+ * Pattern copied from builder/sdk/src/i18n.ts (the approved reference). The
+ * Nasaq UI kit (`@fadymondy/nasaq/web`) has no page-level string registry, so
+ * the words live here. `useLocale()` (lib/locale.ts, over Nasaq's `useNasaq`)
+ * is the language AUTHORITY: NasaqProvider owns the current locale and sets the
+ * document `dir`. This file only supplies the words.
  *
  * Conventions:
  *  - Counted phrases are functions, because Arabic plurals are not `s`-suffix
@@ -1143,12 +1140,12 @@ const ar: Strings = {
 };
 
 /**
- * useStrings — the page-strings hook. `useT()` (from the LanguageProvider
+ * useStrings — the page-strings hook. `useLocale()` (from the LanguageProvider
  * already mounted in providers.tsx) is the single language authority; this
  * only maps its locale onto the typed dictionary above.
  */
 const useStrings = (): { S: Strings; isRTL: boolean; language: "en" | "ar" } => {
-  const { language, isRTL } = useT();
+  const { language, isRTL } = useLocale();
   return { S: language === "ar" ? ar : en, isRTL, language };
 };
 

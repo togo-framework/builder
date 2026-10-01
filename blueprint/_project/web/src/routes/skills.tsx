@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import {
-  Button, Callout, EmptyState, Input, MarkdownEditor, } from "@togo-framework/ui";
-import { BookOpen, Download, FolderSync, Github, Plus, X } from "lucide-react";
+import { Button, Alert, Input } from "@fadymondy/nasaq/web";
+import { EmptyState } from "../components/ui/empty-state";
+import { MarkdownEditor } from "../components/ui/markdown";
+import { BookOpen, Download, FolderSync, GitBranch, Plus, X } from "lucide-react";
 import {
   createSkill, importSkills, listSkills, saveSkill, syncSkills,
   type ImportResult, type Skill, type Skipped, type SyncResult,
@@ -57,7 +58,7 @@ const OutcomeReport = ({
 
       {skipped.length > 0 && (
         <div className="mt-3">
-          <Callout kind="warn" title={S.skills.skippedCount(skipped.length)}>
+          <Alert tone="warning" title={S.skills.skippedCount(skipped.length)}>
             <ul className="flex flex-col gap-1">
               {skipped.map((s, i) => (
                 <li key={`${s.name}-${i}`}>
@@ -65,7 +66,7 @@ const OutcomeReport = ({
                 </li>
               ))}
             </ul>
-          </Callout>
+          </Alert>
         </div>
       )}
     </div>
@@ -171,19 +172,19 @@ export const Skills = () => {
               placeholder={S.skills.search}
               className="h-9 w-56"
             />
-            <Button variant="outline" size="sm" onClick={() => void runSync()} disabled={syncing}>
+            <Button variant="secondary" size="sm" onClick={() => void runSync()} disabled={syncing}>
               <FolderSync className="me-1.5 size-4" />
               {syncing ? S.skills.syncing : S.skills.sync}
             </Button>
             <Button
-              variant="outline"
+              variant="secondary"
               size="sm"
               onClick={() => {
                 setImporting((v) => !v);
                 setCreating(false);
               }}
             >
-              <Github className="me-1.5 size-4" />
+              <GitBranch className="me-1.5 size-4" />
               {S.skills.importGh}
             </Button>
             <Button
@@ -207,7 +208,7 @@ export const Skills = () => {
         <Stat label={S.skills.statDisabled} value={off} tone="muted" />
       </StatRow>
 
-      {err && <Callout kind="warn" title={S.common.somethingWrong}>{err}</Callout>}
+      {err && <Alert tone="warning" title={S.common.somethingWrong}>{err}</Alert>}
 
       {creating && (
         <CreateSkill
@@ -324,7 +325,7 @@ const CreateSkill = ({
 
   return (
     <FormCard title={S.skills.createTitle} onClose={onClose} closeLabel={S.common.cancel}>
-      {err && <div className="mb-3"><Callout kind="warn" title={S.skills.createErrTitle}>{err}</Callout></div>}
+      {err && <div className="mb-3"><Alert tone="warning" title={S.skills.createErrTitle}>{err}</Alert></div>}
 
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label={S.skills.nameLabel} htmlFor="skill-name" required hint={S.skills.nameHint}>
@@ -411,7 +412,7 @@ const ImportSkills = ({ onClose, onDone }: { onClose: () => void; onDone: () => 
 
   return (
     <FormCard title={S.skills.importTitle} onClose={onClose} closeLabel={S.common.close}>
-      {err && <div className="mb-3"><Callout kind="warn" title={S.skills.importErrTitle}>{err}</Callout></div>}
+      {err && <div className="mb-3"><Alert tone="warning" title={S.skills.importErrTitle}>{err}</Alert></div>}
 
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label={S.skills.repoLabel} htmlFor="import-repo" required hint={S.skills.repoHint}>

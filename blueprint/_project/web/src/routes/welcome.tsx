@@ -15,7 +15,8 @@ import {
   MousePointerClick,
   UserCheck,
 } from "lucide-react";
-import { Button, useT } from "@togo-framework/ui";
+import { Button } from "@fadymondy/nasaq/web";
+import { useLocale } from "../lib/locale";
 import { PageShell, Rows, Section } from "../components/page-shell";
 import { EmptyState, type Suggestion } from "../components/ui/empty-state";
 import {
@@ -131,7 +132,7 @@ const DESTINATIONS: { key: DestKey; icon: typeof Bot; to: string }[] = [
 /* ------------------------------------------------------------------ */
 
 export function Welcome() {
-  const { setLanguage } = useT();
+  const { setLanguage } = useLocale();
   const { S, ar } = useWelcomeStrings();
   const navigate = useNavigate();
   const Arrow = ar ? ArrowLeft : ArrowRight;
@@ -232,22 +233,18 @@ export function Welcome() {
                 className="skeleton-shimmer h-11 w-40 rounded-field"
               />
             ) : me ? (
-              <Button asChild size="lg">
-                <Link to="/dashboard">
-                  {S.ctaDashboard}
-                  <Arrow aria-hidden="true" className="ms-2 size-4" />
-                </Link>
+              <Button render={<Link to="/dashboard" />} nativeButton={false} size="lg">
+                {S.ctaDashboard}
+                <Arrow aria-hidden="true" className="ms-2 size-4" />
               </Button>
             ) : (
               <>
-                <Button asChild size="lg">
-                  <Link to="/login">
-                    {S.ctaLogin}
-                    <Arrow aria-hidden="true" className="ms-2 size-4" />
-                  </Link>
+                <Button render={<Link to="/login" />} nativeButton={false} size="lg">
+                  {S.ctaLogin}
+                  <Arrow aria-hidden="true" className="ms-2 size-4" />
                 </Button>
-                <Button asChild size="lg" variant="outline">
-                  <Link to="/register">{S.ctaRegister}</Link>
+                <Button render={<Link to="/register" />} nativeButton={false} size="lg" variant="secondary">
+                  {S.ctaRegister}
                 </Button>
               </>
             )}
