@@ -12,10 +12,10 @@ import (
 // A stand-in for a built bundle: the shell, one hashed asset, one public file.
 func testBundle() fs.FS {
 	return fstest.MapFS{
-		"index.html":                {Data: []byte("<!doctype html><title>builder</title>")},
-		"assets/index-abc123.js":    {Data: []byte("console.log(1)")},
-		"assets/index-abc123.css":   {Data: []byte("body{}")},
-		"fonts/lusail/Lusail.woff2": {Data: []byte("woff2")},
+		"index.html":              {Data: []byte("<!doctype html><title>builder</title>")},
+		"assets/index-abc123.js":  {Data: []byte("console.log(1)")},
+		"assets/index-abc123.css": {Data: []byte("body{}")},
+		"fonts/inter/Inter.woff2": {Data: []byte("woff2")},
 	}
 }
 
@@ -69,7 +69,7 @@ func TestWebHandlerServesRealFiles(t *testing.T) {
 		t.Errorf("asset Cache-Control = %q, want immutable", got)
 	}
 
-	font := get(t, h, WebMount+"/fonts/lusail/Lusail.woff2")
+	font := get(t, h, WebMount+"/fonts/inter/Inter.woff2")
 	if font.Code != http.StatusOK || font.Body.String() != "woff2" {
 		t.Fatalf("font: status %d body %q", font.Code, font.Body.String())
 	}
