@@ -145,15 +145,18 @@ curl -sI http://localhost:8099/fonts/sora/sora.woff2 | head -3
 
 ```
 fonts/ibm-plex-sans/ibm-plex-sans.woff2
+fonts/ibm-plex-sans-arabic/IBMPlexSansArabic-300.woff2
+fonts/ibm-plex-sans-arabic/IBMPlexSansArabic-400.woff2
+fonts/ibm-plex-sans-arabic/IBMPlexSansArabic-500.woff2
+fonts/ibm-plex-sans-arabic/IBMPlexSansArabic-600.woff2
+fonts/ibm-plex-sans-arabic/IBMPlexSansArabic-700.woff2
+fonts/inter/inter-latin-ext-wght-normal.woff2
+fonts/inter/inter-latin-wght-normal.woff2
 fonts/jetbrains-mono/jetbrains-mono.woff2
-fonts/lusail/Lusail-Bold.woff2
-fonts/lusail/Lusail-Light.woff2
-fonts/lusail/Lusail-Medium.woff2
-fonts/lusail/Lusail-Regular.woff2
 fonts/sora/sora.woff2
 ```
 
-The Lusail filenames are **capitalised**; the others are not. A path is
+The IBM Plex Sans Arabic filenames are **capitalised** (`IBMPlexSansArabic-…`); the others are not. A path is
 case-sensitive on Linux and in the built bundle. Match these exactly.
 
 One font is served from the Go side instead of `public/`:

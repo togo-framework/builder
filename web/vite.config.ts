@@ -37,7 +37,7 @@ const proxy = {
   "/builder-assets": { target: apiTarget, changeOrigin: true },
 };
 
-// The font faces are declared with ABSOLUTE urls — url(/fonts/lusail/…) — in
+// The font faces are declared with ABSOLUTE urls — url(/fonts/inter/…) — in
 // app.css and, more awkwardly, inside @fadymondy/nasaq's shipped stylesheet,
 // which is a node_module this repo cannot edit. Vite leaves such strings alone:
 // they are public-directory references, not module imports, so nothing rebases
